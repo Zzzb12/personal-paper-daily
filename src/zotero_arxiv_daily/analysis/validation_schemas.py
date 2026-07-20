@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime
 from typing import Literal, Self
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SkipValidation, field_validator, model_validator
 
 from zotero_arxiv_daily.analysis.paper_schemas import PaperAnalysis
 from zotero_arxiv_daily.analysis.schemas import StrictModel, validate_run_id_value
@@ -133,7 +133,7 @@ class ValidationReport(StrictModel):
 
 
 class ValidatedPaperAnalysis(StrictModel):
-    analysis: PaperAnalysis
+    analysis: SkipValidation[PaperAnalysis]
     report: ValidationReport
 
     @model_validator(mode="after")
