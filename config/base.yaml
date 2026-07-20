@@ -58,3 +58,12 @@ candidate_pipeline:
   embedding_cache_dir: cache/embeddings
   request_timeout: {connect: 10, read: 30, write: 10, pool: 10}
   retry: {max_attempts: 3, backoff_seconds: 1, max_retry_after_seconds: 60}
+
+document_pipeline:
+  cache_root: cache/documents
+  docling_artifacts_path: models/docling
+  max_download_bytes: 52428800
+  max_pages: 100
+  request_timeout: {connect: 10, read: 30, write: 10, pool: 10}
+  retry: {max_attempts: 3, backoff_seconds: 1}
+  config_version: "1"
