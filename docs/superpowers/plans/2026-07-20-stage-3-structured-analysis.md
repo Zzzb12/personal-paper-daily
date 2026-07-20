@@ -326,7 +326,7 @@ class AnalysisCache:
                 temporary.unlink(missing_ok=True)
 ```
 
-Replace the ellipsis in implementation with the explicit atomic-write sequence used by the existing Stage 1/2 stores; the completed source must contain no placeholder.
+Use this explicit atomic-write sequence and keep the completed source free of placeholders.
 
 - [ ] **Step 4: Verify GREEN and store regressions**
 
