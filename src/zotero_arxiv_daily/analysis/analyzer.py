@@ -91,6 +91,8 @@ def analyze_paper(
         packet = build_evidence_packet(paper.paper_id, document, settings.evidence)
         if not packet.candidates:
             raise _AnalysisProtocolError("evidence_packet_empty")
+        if not any(not candidate.abstract_only for candidate in packet.candidates):
+            raise _AnalysisProtocolError("evidence_packet_non_abstract_empty")
         identity = build_analysis_cache_identity(
             paper,
             document,
@@ -102,7 +104,7 @@ def analyze_paper(
         )
         cached = dependencies.cache.read(identity)
         if cached is not None:
-            return PaperAnalysisResult.success(
+            return _analysis_result(
                 cached,
                 processing_seconds=time.perf_counter() - started,
                 cache_hit=True,
@@ -123,7 +125,7 @@ def analyze_paper(
             generated_at=dependencies.clock(),
         )
         dependencies.cache.write(identity, analysis)
-        return PaperAnalysisResult.success(
+        return _analysis_result(
             analysis,
             processing_seconds=time.perf_counter() - started,
             cache_hit=False,
@@ -336,4 +338,29 @@ def _failed_result(
             ),
         ),
         processing_seconds=time.perf_counter() - started,
+    )
+
+
+def _analysis_result(
+    analysis: PaperAnalysis, *, processing_seconds: float, cache_hit: bool
+) -> PaperAnalysisResult:
+    if analysis.insights:
+        return PaperAnalysisResult.success(
+            analysis,
+            processing_seconds=processing_seconds,
+            cache_hit=cache_hit,
+        )
+    return PaperAnalysisResult(
+        paper_id=analysis.paper_id,
+        status="partial",
+        analysis=analysis,
+        issues=(
+            AnalysisIssue(
+                code="analysis_insight_not_provided",
+                severity="warning",
+                message="The paper analysis did not provide a supported core Insight",
+            ),
+        ),
+        processing_seconds=processing_seconds,
+        cache_hit=cache_hit,
     )

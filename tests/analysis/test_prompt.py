@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from zotero_arxiv_daily.analysis.prompts.stage3_v1 import (
@@ -53,3 +54,28 @@ def test_prompt_contains_strict_draft_schema_and_canonical_links_only():
     assert "https://arxiv.org/pdf/2401.00001" in request.user_prompt
     assert request.max_output_tokens == 4_000
 
+
+def test_prompt_sends_the_strict_response_schema_to_json_object_only_models():
+    request = build_analysis_request(candidate(), packet(), max_output_tokens=4_000)
+    payload = json.loads(request.user_prompt)
+    assert payload["output_json_schema"] == request.response_schema
+    assert payload["output_json_schema"]["additionalProperties"] is False
+
+
+def test_prompt_context_budget_cannot_be_bypassed_by_a_long_visual_caption():
+    graph = document_graph(visual_count=1)
+    long_visual = graph.visuals[0].model_copy(
+        update={"caption": ("超长图注" * 3_000) + "CAPTION_SENTINEL_TAIL"}
+    )
+    graph = graph.model_copy(update={"visuals": (long_visual,)})
+    constrained = settings(max_chars=256, max_block_chars=64, max_candidates=8)
+    bounded = build_evidence_packet(PAPER_ID, graph, constrained)
+    baseline = build_evidence_packet(
+        PAPER_ID, document_graph(visual_count=1), constrained
+    )
+    request = build_analysis_request(candidate(), bounded, max_output_tokens=4_000)
+    baseline_request = build_analysis_request(
+        candidate(), baseline, max_output_tokens=4_000
+    )
+    assert "CAPTION_SENTINEL_TAIL" not in request.user_prompt
+    assert len(request.user_prompt) <= len(baseline_request.user_prompt) + 256

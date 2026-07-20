@@ -16,6 +16,7 @@ from tests.documents.test_evidence import document_graph
 def identity(**updates):
     base = AnalysisCacheIdentity(
         paper_id="arxiv:2401.00001",
+        paper_metadata_fingerprint="1" * 64,
         pdf_sha256="a" * 64,
         document_schema_version="1.0",
         document_parser="docling",
@@ -45,6 +46,7 @@ def cached_analysis(cache_identity=None):
 
 CHANGED = {
     "paper_id": "arxiv:2401.99999",
+    "paper_metadata_fingerprint": "2" * 64,
     "pdf_sha256": "f" * 64,
     "document_schema_version": "1.1",
     "document_parser": "other-parser",
@@ -81,6 +83,22 @@ def test_build_identity_uses_document_packet_and_generation_versions():
     assert built.content_fingerprint == document_graph().content_fingerprint
     assert built.packet_fingerprint == packet().packet_fingerprint
     assert built.parser_version == "2.113.0"
+
+
+def test_build_identity_changes_when_prompt_visible_paper_metadata_changes():
+    original = candidate()
+    changed = original.model_copy(
+        update={"title": "Updated title", "code_url": "https://example.test/code"}
+    )
+    kwargs = {
+        "prompt_version": "stage3-v1",
+        "analysis_schema_version": "1.0",
+        "model_identity": "fake:model",
+        "generation_identity": "d" * 64,
+    }
+    first = build_analysis_cache_identity(original, document_graph(), packet(), **kwargs)
+    second = build_analysis_cache_identity(changed, document_graph(), packet(), **kwargs)
+    assert first.cache_key != second.cache_key
 
 
 def test_cache_round_trip_is_atomic_validated_and_contained(tmp_path):

@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 
 from zotero_arxiv_daily.analysis.analyzer import (
@@ -154,6 +155,26 @@ def dependencies(tmp_path, *responses):
     ), sleeps
 
 
+def abstract_only_graph():
+    graph = document_graph(visual_count=0)
+    abstract = next(section for section in graph.sections if section.title == "Abstract")
+    block_ids = set(abstract.block_ids)
+    blocks = tuple(block for block in graph.blocks if block.block_id in block_ids)
+    pages = tuple(
+        page.model_copy(
+            update={
+                "block_ids": tuple(
+                    block_id for block_id in page.block_ids if block_id in block_ids
+                )
+            }
+        )
+        for page in graph.pages
+    )
+    return graph.model_copy(
+        update={"blocks": blocks, "sections": (abstract,), "pages": pages, "visuals": ()}
+    )
+
+
 def test_analyzer_materializes_visual_provenance_from_packet_not_llm(tmp_path):
     deps, _ = dependencies(tmp_path, valid_draft().model_dump_json())
     result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
@@ -192,6 +213,34 @@ def test_analyzer_rejects_abstract_only_insight(tmp_path):
     result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
     assert result.status == "failed"
     assert result.issues[0].code == "analysis_abstract_only_insight"
+
+
+def test_analyzer_does_not_call_client_for_an_abstract_only_document(tmp_path):
+    deps, _ = dependencies(tmp_path, valid_draft().model_dump_json())
+    result = analyze_paper(candidate(), abstract_only_graph(), analyzer_settings(), deps)
+    assert result.status == "failed"
+    assert result.issues[0].code == "evidence_packet_non_abstract_empty"
+    assert deps.client.calls == 0
+
+
+def test_analyzer_marks_an_explicitly_missing_insight_as_partial_and_caches_it(tmp_path):
+    draft = valid_draft().model_copy(update={"insights": (), "supporting_visuals": ()})
+    deps, _ = dependencies(tmp_path, draft.model_dump_json())
+    first = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+    second = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+    assert first.status == second.status == "partial"
+    assert first.issues[0].code == "analysis_insight_not_provided"
+    assert second.cache_hit is True
+    assert deps.client.calls == 1
+
+
+def test_analyzer_rejects_claim_kind_in_the_wrong_output_field(tmp_path):
+    payload = json.loads(valid_draft().model_dump_json())
+    payload["insights"][0]["kind"] = "result"
+    deps, _ = dependencies(tmp_path, json.dumps(payload))
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+    assert result.status == "failed"
+    assert result.issues[0].code == "analysis_schema_invalid"
 
 
 def test_analyzer_rejects_non_visual_ablation_and_metadata_tampering(tmp_path):
@@ -255,3 +304,32 @@ def test_identical_second_analysis_is_cache_hit_with_zero_duplicate_call(tmp_pat
     assert second.cache_hit is True
     assert deps.client.calls == 1
     assert first.analysis == second.analysis
+
+
+def test_changed_title_and_links_cannot_reuse_stale_cached_analysis(tmp_path):
+    original = candidate()
+    changed = original.model_copy(
+        update={"title": "Updated Synthetic Paper", "code_url": "https://example.test/code"}
+    )
+    changed_draft = valid_draft().model_copy(
+        update={
+            "english_title": changed.title,
+            "links": PaperLinks(
+                pdf_url=changed.pdf_url,
+                arxiv_url=changed.arxiv_url,
+                code_url=changed.code_url,
+            ),
+        }
+    )
+    deps, _ = dependencies(
+        tmp_path,
+        valid_draft().model_dump_json(),
+        changed_draft.model_dump_json(),
+    )
+    first = analyze_paper(original, document_graph(), analyzer_settings(), deps)
+    second = analyze_paper(changed, document_graph(), analyzer_settings(), deps)
+    assert first.status == second.status == "success"
+    assert second.cache_hit is False
+    assert second.analysis.english_title == changed.title
+    assert second.analysis.links.code_url == changed.code_url
+    assert deps.client.calls == 2

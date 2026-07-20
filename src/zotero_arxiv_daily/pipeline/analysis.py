@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from omegaconf import OmegaConf
 
 from zotero_arxiv_daily.analysis.analyzer import (
     AnalysisDependencies,
     AnalysisSettings,
     analyze_paper,
 )
+from zotero_arxiv_daily.analysis.cache import AnalysisCache
+from zotero_arxiv_daily.analysis.client import build_openai_compatible_client
 from zotero_arxiv_daily.analysis.document_schemas import (
     BoundingBox,
     DocumentBatchResult,
@@ -28,6 +33,69 @@ from zotero_arxiv_daily.analysis.paper_schemas import (
     PaperAnalysisResult,
 )
 from zotero_arxiv_daily.analysis.schemas import CandidateBatch, CandidatePaper
+from zotero_arxiv_daily.documents.evidence import EvidenceBuildSettings
+
+
+def build_production_analysis_pipeline(
+    config_dir: Path,
+    *,
+    environ: Mapping[str, str],
+    client_factory: Callable[..., Any] = build_openai_compatible_client,
+    cache_root: Path | None = None,
+) -> tuple[AnalysisSettings, AnalysisDependencies]:
+    required = ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL")
+    values = {name: environ.get(name, "").strip() for name in required}
+    missing = tuple(name for name, value in values.items() if not value)
+    if missing:
+        raise RuntimeError(
+            "missing required analysis environment variables: " + ", ".join(missing)
+        )
+
+    config_dir = Path(config_dir)
+    config = OmegaConf.load(config_dir / "base.yaml")
+    custom_path = config_dir / "custom.yaml"
+    if custom_path.exists():
+        config = OmegaConf.merge(config, OmegaConf.load(custom_path))
+    analysis = config.analysis_pipeline
+    if int(analysis.max_papers) > 5:
+        raise ValueError("analysis max_papers cannot exceed five")
+    timeout = OmegaConf.to_container(analysis.request_timeout, resolve=True)
+    retry = OmegaConf.to_container(analysis.retry, resolve=True)
+    if not isinstance(timeout, dict) or not isinstance(retry, dict):
+        raise ValueError("analysis timeout and retry configuration must be mappings")
+
+    settings = AnalysisSettings(
+        evidence=EvidenceBuildSettings(
+            max_candidates=int(analysis.max_evidence_candidates),
+            max_chars=int(analysis.max_evidence_chars),
+            max_block_chars=int(analysis.max_block_chars),
+            max_visuals=int(analysis.max_visuals_per_paper),
+        ),
+        prompt_version=str(analysis.prompt_version),
+        schema_version=str(analysis.schema_version),
+        config_version=str(analysis.config_version),
+        max_output_tokens=int(analysis.max_output_tokens),
+        max_attempts=int(retry["max_attempts"]),
+        backoff_seconds=float(retry["backoff_seconds"]),
+        max_retry_after_seconds=float(retry["max_retry_after_seconds"]),
+    )
+    client = client_factory(
+        api_key=values["LLM_API_KEY"],
+        base_url=values["LLM_BASE_URL"],
+        model=values["LLM_MODEL"],
+        connect_timeout=float(timeout["connect"]),
+        read_timeout=float(timeout["read"]),
+        write_timeout=float(timeout["write"]),
+        pool_timeout=float(timeout["pool"]),
+        response_max_bytes=int(analysis.response_max_bytes),
+    )
+    dependencies = AnalysisDependencies(
+        client=client,
+        cache=AnalysisCache(cache_root or Path(str(analysis.cache_root))),
+        clock=lambda: datetime.now(UTC),
+        sleep=time.sleep,
+    )
+    return settings, dependencies
 
 
 def build_analysis_batch(

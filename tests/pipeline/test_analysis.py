@@ -12,7 +12,10 @@ from zotero_arxiv_daily.analysis.document_schemas import (
     PaperDocumentResult,
 )
 from zotero_arxiv_daily.analysis.paper_schemas import PaperLinks
-from zotero_arxiv_daily.pipeline.analysis import build_analysis_batch
+from zotero_arxiv_daily.pipeline.analysis import (
+    build_analysis_batch,
+    build_production_analysis_pipeline,
+)
 from tests.analysis.test_analyzer import analyzer_settings, valid_draft
 from tests.documents.test_evidence import document_graph
 from tests.documents.test_selection import batch
@@ -187,3 +190,44 @@ def test_pipeline_rejects_duplicate_stage_two_paper_results(tmp_path):
     documents = document_batch(candidates, (item, item))
     with pytest.raises(ValueError, match="duplicate"):
         build_analysis_batch(candidates, documents, analyzer_settings(), dependencies(tmp_path))
+
+
+def test_production_factory_uses_environment_only_on_explicit_construction(tmp_path):
+    captured = {}
+
+    def client_factory(**kwargs):
+        captured.update(kwargs)
+        return DynamicFakeClient()
+
+    config_dir = __import__("pathlib").Path(__file__).parents[2] / "config"
+    settings, deps = build_production_analysis_pipeline(
+        config_dir,
+        environ={
+            "LLM_API_KEY": "fake-key-for-composition-only",
+            "LLM_BASE_URL": "https://llm.example.test/v1",
+            "LLM_MODEL": "fake-model",
+        },
+        client_factory=client_factory,
+        cache_root=tmp_path / "analysis-cache",
+    )
+    assert settings.evidence.max_visuals == 3
+    assert settings.evidence.max_candidates == 48
+    assert captured["api_key"] == "fake-key-for-composition-only"
+    assert captured["read_timeout"] == 60
+    assert captured["response_max_bytes"] == 1048576
+    assert deps.cache.root == tmp_path / "analysis-cache"
+    assert not deps.cache.root.exists()
+
+
+def test_production_factory_reports_only_missing_environment_variable_names(tmp_path):
+    config_dir = __import__("pathlib").Path(__file__).parents[2] / "config"
+    with pytest.raises(RuntimeError) as captured:
+        build_production_analysis_pipeline(
+            config_dir,
+            environ={"LLM_API_KEY": "fake-present-value"},
+            cache_root=tmp_path / "cache",
+        )
+    message = str(captured.value)
+    assert "LLM_BASE_URL" in message
+    assert "LLM_MODEL" in message
+    assert "fake-present-value" not in message

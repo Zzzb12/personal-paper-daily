@@ -334,6 +334,11 @@ class PaperAnalysisDraft(StrictModel):
     def normalize_required_text(cls, value: str) -> str:
         return _non_empty(value)
 
+    @model_validator(mode="after")
+    def validate_field_claim_kinds(self) -> Self:
+        _validate_analysis_claim_kinds(self)
+        return self
+
 
 class SupportingVisual(StrictModel):
     evidence_id: str
@@ -416,6 +421,31 @@ class PaperAnalysis(StrictModel):
     @classmethod
     def normalize_required_text(cls, value: str) -> str:
         return _non_empty(value)
+
+    @model_validator(mode="after")
+    def validate_field_claim_kinds(self) -> Self:
+        _validate_analysis_claim_kinds(self)
+        return self
+
+
+def _validate_analysis_claim_kinds(value: PaperAnalysisDraft | PaperAnalysis) -> None:
+    optional_kinds = (
+        (value.chinese_title, "title"),
+        (value.recommendation_reason, "recommendation"),
+        (value.research_problem, "problem"),
+        (value.insight_formation_logic, "insight_logic"),
+        (value.method_overview, "method"),
+        (value.differences_from_prior_work, "difference"),
+    )
+    if any(claim is not None and claim.kind != expected for claim, expected in optional_kinds):
+        raise ValueError("analysis claim kind must match its output field")
+    repeated_kinds = (
+        (value.insights, "insight"),
+        (value.experimental_conclusions, "result"),
+        (value.limitations, "limitation"),
+    )
+    if any(claim.kind != expected for claims, expected in repeated_kinds for claim in claims):
+        raise ValueError("analysis claim kind must match its output field")
 
 
 class PaperAnalysisResult(StrictModel):

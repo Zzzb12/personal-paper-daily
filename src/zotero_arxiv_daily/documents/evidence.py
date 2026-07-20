@@ -121,8 +121,7 @@ def _text_candidates(
         evidence_id = _evidence_id(
             document.pdf.sha256,
             "text",
-            (block.source_mapping.source_item_id,),
-            (block.pdf_page,),
+            (region,),
         )
         candidate = EvidenceCandidate(
             evidence_id=evidence_id,
@@ -165,12 +164,8 @@ def _visual_candidates(
         section = section_by_id.get(visual.section_id) if visual.section_id else None
         path = section_paths.get(visual.section_id, ()) if visual.section_id else ()
         regions = tuple(_evidence_region(region) for region in visual.regions)
-        source_ids = tuple(
-            region.source_mapping.source_item_id for region in visual.regions
-        )
-        pages = tuple(region.pdf_page for region in visual.regions)
         evidence_id = _evidence_id(
-            document.pdf.sha256, visual.kind, source_ids, pages
+            document.pdf.sha256, visual.kind, regions
         )
         candidate = EvidenceCandidate(
             evidence_id=evidence_id,
@@ -288,15 +283,20 @@ def _is_abstract_path(path: tuple[str, ...]) -> bool:
 def _evidence_id(
     pdf_sha256: str,
     kind: str,
-    source_ids: tuple[str, ...],
-    pages: tuple[int, ...],
+    regions: tuple[EvidenceRegion, ...],
 ) -> str:
     payload = json.dumps(
         {
             "pdf_sha256": pdf_sha256,
             "kind": kind,
-            "source_ids": source_ids,
-            "pages": pages,
+            "regions": [
+                {
+                    "source_item_id": region.source_mapping.source_item_id,
+                    "pdf_page": region.pdf_page,
+                    "bbox": region.bbox.model_dump(mode="json"),
+                }
+                for region in regions
+            ],
         },
         ensure_ascii=False,
         sort_keys=True,

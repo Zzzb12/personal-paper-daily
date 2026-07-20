@@ -37,6 +37,7 @@ def _sha256(value: str) -> str:
 
 class AnalysisCacheIdentity(StrictModel):
     paper_id: str
+    paper_metadata_fingerprint: str
     pdf_sha256: str
     document_schema_version: str
     document_parser: str
@@ -71,6 +72,7 @@ class AnalysisCacheIdentity(StrictModel):
 
     @field_validator(
         "pdf_sha256",
+        "paper_metadata_fingerprint",
         "content_fingerprint",
         "packet_fingerprint",
         "generation_identity",
@@ -177,6 +179,7 @@ def build_analysis_cache_identity(
 ) -> AnalysisCacheIdentity:
     return AnalysisCacheIdentity(
         paper_id=paper.paper_id,
+        paper_metadata_fingerprint=_paper_metadata_fingerprint(paper),
         pdf_sha256=document.pdf.sha256,
         document_schema_version=document.schema_version,
         document_parser=document.parser,
@@ -192,3 +195,21 @@ def build_analysis_cache_identity(
         model_identity=model_identity,
         generation_identity=generation_identity,
     )
+
+
+def _paper_metadata_fingerprint(paper: CandidatePaper) -> str:
+    payload = json.dumps(
+        {
+            "paper_id": paper.paper_id,
+            "english_title": paper.title,
+            "links": {
+                "pdf_url": paper.pdf_url,
+                "arxiv_url": paper.arxiv_url,
+                "code_url": paper.code_url,
+            },
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()

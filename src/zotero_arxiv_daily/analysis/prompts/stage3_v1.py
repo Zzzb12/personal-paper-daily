@@ -57,6 +57,7 @@ def build_analysis_request(
             "experimental_conclusions",
             "limitations",
         ],
+        "output_json_schema": PaperAnalysisDraft.model_json_schema(),
     }
     return AnalysisRequest(
         prompt_version=PROMPT_VERSION,
@@ -70,6 +71,7 @@ def build_analysis_request(
 
 
 def _prompt_candidate(candidate: EvidenceCandidate) -> dict[str, Any]:
+    prompt_caption = candidate.evidence_text if candidate.kind != "text" else None
     return {
         "evidence_id": candidate.evidence_id,
         "kind": candidate.kind,
@@ -78,10 +80,10 @@ def _prompt_candidate(candidate: EvidenceCandidate) -> dict[str, Any]:
         "section_title": candidate.section_title,
         "section_path": candidate.section_path,
         "block_ids": candidate.block_ids,
-        "evidence_text": candidate.evidence_text,
+        "evidence_text": candidate.evidence_text if candidate.kind == "text" else None,
         "visual_id": candidate.visual_id,
         "label": candidate.label,
-        "caption": candidate.caption,
+        "caption": prompt_caption,
         "regions": [
             {
                 "pdf_page": region.pdf_page,

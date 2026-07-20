@@ -14,6 +14,12 @@ def test_offline_dry_run_does_not_read_credentials_call_network_or_write_cache(
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.analysis.build_production_analysis_pipeline",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("production dependency construction is forbidden in dry-run")
+        ),
+    )
     result = run_offline_fixture(
         FIXTURE, dry_run=True, cache_root=tmp_path / "cache"
     )

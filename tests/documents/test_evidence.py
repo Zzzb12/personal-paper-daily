@@ -267,3 +267,22 @@ def test_evidence_ids_and_order_do_not_depend_on_input_tuple_order():
     assert [item.evidence_id for item in first.candidates] == [
         item.evidence_id for item in second.candidates
     ]
+
+
+def test_evidence_ids_include_bbox_when_parser_source_ids_are_reused():
+    document = document_graph(visual_count=2)
+    first = document.visuals[0].model_copy(update={"regions": document.visuals[0].regions[:1]})
+    first_region = first.regions[0]
+    second_box = BoundingBox(left=12, top=72, right=88, bottom=94)
+    second_mapping = first_region.source_mapping.model_copy(update={"bbox": second_box})
+    second_region = document.visuals[1].regions[0].model_copy(
+        update={
+            "bbox": second_box,
+            "source_mapping": second_mapping,
+        }
+    )
+    second = document.visuals[1].model_copy(update={"regions": (second_region,)})
+    document = document.model_copy(update={"visuals": (first, second)})
+    packet = build_evidence_packet(PAPER_ID, document, settings(max_visuals=2))
+    visual_ids = [item.evidence_id for item in packet.candidates if item.kind != "text"]
+    assert len(visual_ids) == len(set(visual_ids)) == 2
