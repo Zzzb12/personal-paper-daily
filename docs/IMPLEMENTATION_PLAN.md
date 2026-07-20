@@ -295,23 +295,36 @@ Disable analysis invocation and retain mapped documents. Delete ignored LLM cach
 
 ## Stage 4: Evidence validation and hallucination prevention
 
+**Status: completed on 2026-07-20. Stage 5 has not started.**
+
+The approved implementation is documented in
+`docs/superpowers/specs/2026-07-20-stage-4-evidence-validation-design.md` and
+`docs/superpowers/plans/2026-07-20-stage-4-evidence-validation.md`. The delivered
+boundary is a deterministic validator, strict validation/report schemas, a
+complete-identity validation cache, batch failure isolation, and an artificial
+offline golden fixture. It does not mutate or remove Stage 3 claims: any serious
+claim or provenance error makes the paper `invalid` and publication-blocked;
+Stage 3 `partial` remains `partial` and publication-blocked.
+
 ### Goal
 
 Reject or downgrade every analysis claim that cannot be resolved to real document evidence, with strict Figure/Table, parameter, ablation, source-type, and inference checks.
 
 ### Non-goals
 
-- No new analysis content generation except an explicitly bounded corrective retry.
+- No new analysis content generation; corrective retry was not implemented.
 - No UI or delivery implementation.
 - No confidence-based bypass of missing references.
 
 ### Files
 
-- Create `src/zotero_arxiv_daily/analysis/validator.py`.
-- Extend schemas with validation issues/status and claim publication state.
-- Create `tests/analysis/test_validator.py`.
-- Add golden/negative evidence fixtures under `tests/fixtures/evidence/`.
-- Update Stage 3 analyzer orchestration to require validator output before publication.
+- Create `src/zotero_arxiv_daily/analysis/validator.py`,
+  `validation_schemas.py`, and `validation_cache.py`.
+- Add `src/zotero_arxiv_daily/pipeline/validation.py` as the only Stage 4
+  publication-eligibility boundary.
+- Add focused schema, identity/provenance, rule, cache, pipeline, and offline tests
+  under `tests/analysis/` and `tests/pipeline/`.
+- Add the artificial golden fixture under `tests/fixtures/evidence/`.
 
 ### Data structures
 
@@ -326,8 +339,8 @@ Reject or downgrade every analysis claim that cannot be resolved to real documen
 3. Add tests for missing limitations/parameters that must remain `null` rather than inferred.
 4. Add cross-field tests for source type and `inferred` flag consistency.
 5. Implement pure deterministic validation against the document graph/evidence registry.
-6. Add bounded corrective retry tests that supply validation errors without authorizing new evidence IDs.
-7. Add property tests ensuring every published claim traverses to a real page and every published ablation to a real visual.
+6. Add cache-integrity tests binding Stage 3 status, analysis content, validator version, and validation report content.
+7. Add negative tests ensuring every eligible claim traverses to real evidence and every ablation conclusion cites its declared visual.
 
 ### Acceptance criteria
 
@@ -335,7 +348,7 @@ Reject or downgrade every analysis claim that cannot be resolved to real documen
 - No published Figure/Table/parameter/result references an unresolved artifact or text span.
 - Every published ablation binds to its Figure/Table.
 - Missing facts render as `null`/“论文未明确提供”.
-- Invalid individual claims can be removed while retaining an explicitly partial paper analysis.
+- Invalid claims are never silently removed or rewritten; the immutable paper analysis is blocked as `invalid`.
 - Validation is deterministic, offline, and fully tested.
 
 ### Risks

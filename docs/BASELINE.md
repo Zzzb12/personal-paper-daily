@@ -564,4 +564,104 @@ Known limits and next boundary:
 - Prompt JSON Schema is embedded for broad OpenAI-compatible JSON-object support. Provider-specific native structured-output optimization is deferred until it can preserve the approved injectable-client contract.
 - Acceptance is deterministic and zero-cost. A real model run remains intentionally unexecuted and is not required for Stage 3 completion.
 
-Stage 4 evidence validation and hallucination prevention has not begun.
+Stage 4 evidence validation and hallucination prevention is complete. Stage 5 has not begun.
+
+## Stage 4 completion notes (2026-07-20)
+
+Stage 4 was implemented on `feat/stage-4-evidence-validation` in the isolated
+`.worktrees/stage-4-evidence-validation` worktree, starting exactly from Stage 3
+commit `8603098474db25826de88af407bdfffb00cdb2b7`. No real Zotero or LLM
+credential, real paper, paid API, paper/model download, email, Feishu, viewer,
+feedback feature, GitHub Actions workflow, push, or pull request was used or added.
+
+Implemented boundaries:
+
+- Strict `ValidationIssue`, `ClaimValidationResult`, `ValidationReport`,
+  `ValidatedPaperAnalysis`, `ValidationPaperResult`, and `ValidationBatchResult`
+  schemas distinguish valid, partial, invalid, failed, and skipped outcomes. Only
+  an error-free valid report is publication-eligible.
+- Validation consumes the unchanged Stage 2 `DocumentGraph`, Stage 3
+  `EvidencePacket`, and Stage 3 `PaperAnalysis`. Candidate metadata is restricted
+  to paper identity, English title, and canonical PDF/arXiv/code links.
+- Text evidence is bound to an allowed source block type and a deterministic
+  prefix of the source block. Evidence IDs and packet fingerprints are recomputed;
+  synchronized packet/analysis tampering does not bypass provenance checks.
+- Figure/Table identity, label, caption, page, section hierarchy, bbox, image path,
+  complete `SourceMapping`, regions, and confidence must match the document graph.
+  Supporting visuals bind existing Insights and include a structured support claim.
+- Claims reject missing or duplicate evidence, Abstract-only Insight support,
+  wrong field kinds, and inconsistent `source_type`/`inferred` flags. Parameters
+  and ablations reject dangling references; every ablation conclusion cites its
+  declared real Figure/Table evidence.
+- Stage 3 partial results remain partial and blocked. Serious evidence errors are
+  invalid and blocked. Missing paper-absent optional facts remain `None`/empty and
+  do not become hallucination issues. Invalid analysis is not rewritten or exposed
+  through the strict validated-analysis wrapper.
+- Validation cache identity includes candidate, PDF/document/parser/mapper/config,
+  packet/builder, analysis/schema/generation, Stage 3 status, validator version,
+  and validation schema identities. Reads recompute analysis and report content
+  fingerprints; corrupt, oversized, stale, or valid-JSON-tampered entries are misses.
+- Batch composition handles at most five selected papers, preserves order, converts
+  run-ID mismatches and per-paper identity/cache/validator exceptions into fixed
+  public-safe issues, and continues with later papers. Error messages are bound to
+  controlled codes and cannot contain arbitrary URLs, credentials, paths, paper
+  text, prompts, or model responses.
+- The artificial `tests/fixtures/evidence/stage4_golden.json` command validates one
+  eligible paper entirely offline with a no-write cache:
+
+```powershell
+uv run python -m zotero_arxiv_daily.pipeline.validation --dry-run --offline-fixture tests/fixtures/evidence/stage4_golden.json
+```
+
+Final verification commands:
+
+```powershell
+uv sync --frozen
+uv run pytest tests/analysis/test_validation_schemas.py tests/analysis/test_validator_identity.py tests/analysis/test_validator_rules.py tests/analysis/test_validation_cache.py tests/pipeline/test_validation.py tests/analysis/test_stage4_offline.py -q
+uv run pytest tests/analysis/test_paper_schemas.py tests/analysis/test_prompt.py tests/analysis/test_client.py tests/analysis/test_analysis_cache.py tests/analysis/test_analyzer.py tests/analysis/test_stage3_offline.py tests/documents/test_evidence.py tests/pipeline/test_analysis.py -q
+uv run pytest tests/analysis/test_document_schemas.py tests/documents tests/pipeline/test_documents.py -q
+uv run pytest tests/analysis/test_stage1_schemas.py tests/interest tests/candidates tests/retriever/test_arxiv_metadata.py tests/pipeline/test_candidates.py -q
+uv run pytest -q
+uv run pytest -m "slow or not slow" -q
+uv run python -m compileall -q src
+git diff --check 8603098474db25826de88af407bdfffb00cdb2b7..HEAD
+```
+
+Fresh verification evidence:
+
+- Frozen dependency sync checked `172 packages` successfully.
+- Stage 4 focused suite: `93 passed`.
+- Stage 3 regression suite: `71 passed`.
+- Stage 2 regression suite: `69 passed`.
+- Stage 1 regression suite: `75 passed`.
+- Default suite: `383 passed`, `2 failed`, `1 deselected` in `15.45 seconds`.
+  Both failures are the unchanged Windows one-second multiprocessing spawn-timeout
+  baseline failures.
+- Complete configured suite: `383 passed`, `3 failed` in `509.44 seconds`. The
+  third failure is the unchanged slow local-reranker dependency:
+  `jinaai/jina-embeddings-v5-text-nano-retrieval` could not be reached and was not
+  present in the local Hugging Face cache.
+- Offline golden CLI returned one valid and eligible result, zero partial/invalid/
+  failed/skipped results, and zero cache hits. Source compilation and repository
+  diff checks passed. The repository has no authoritative lint or static type-check
+  command, so none was invented.
+- A scan of `159` tracked files found `0` common secret-shaped values, `0` tracked
+  PDF/ZIP files, `0` private/cache/viewer-state artifacts, and `0` files over
+  5 MiB. The only tracked binary-image matches are the existing small documentation
+  PNG assets. Representative `.env`, paper, Zotero, candidate/document/analysis/
+  validation cache, and viewer-state paths remain ignored; `.env.example` remains
+  trackable.
+
+Known limits and rollback:
+
+- Stage 4 proves deterministic reference and provenance integrity; it does not add
+  OCR, VLM, chart-value recognition, a new parser, or a second LLM analysis flow.
+  Indirect semantic entailment beyond the structured evidence rules remains bounded
+  by the Stage 2 mapping and Stage 3 evidence packet.
+- No corrective retry was implemented, so validation has zero model/network cost and
+  cannot authorize new evidence IDs.
+- Roll back by disabling downstream publication of new analyses, or revert the
+  Stage 4 commits together with validation cache/schema version changes. Retain Stage
+  2 graphs and Stage 3 analyses for later revalidation; never bypass the validator.
+
+Stage 5 static web reader work has not started.
