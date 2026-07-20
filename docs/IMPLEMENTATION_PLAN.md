@@ -226,6 +226,8 @@ Disable the document pipeline and delete ignored parser caches. Candidate batche
 
 ## Stage 3: Structured Chinese Insight, Method, and Ablation analysis
 
+**Status:** Completed on 2026-07-20; offline verification, independent review, cost boundaries, and the three unchanged environment-dependent regression failures are recorded in `docs/BASELINE.md` and the Stage 3 design/plan documents.
+
 ### Goal
 
 Generate a strict Chinese `PaperAnalysis` from the mapped full document, following the fixed Insight/evidence/Method/parameters/ablations/results/limitations order and preserving claim-to-evidence candidates.

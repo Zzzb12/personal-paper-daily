@@ -501,4 +501,67 @@ Known limits:
 - Docling cold import/model initialization is materially slower than PyMuPDF inspection, so conversion is lazy and exact-version graph cache hits occur before Docling is loaded.
 - Acceptance used deterministic runtime-generated fixtures and injected network/parser doubles. No real paper PDF was committed or required.
 
-Stage 3 structured Chinese analysis has not begun.
+## Stage 3 completion notes (2026-07-20)
+
+Stage 3 was implemented on `feat/stage-3-structured-analysis` in the isolated `.worktrees/stage-3-structured-analysis` worktree, starting from Stage 2 commit `b2ad648`. No real Zotero or LLM credential, real paper, paid API, email, Feishu, viewer, feedback feature, or GitHub Actions workflow was used or added. Credentials pasted into chat were not read from the environment, tested, stored, logged, or committed and must be revoked and rotated by the project owner.
+
+Environment and structured-analysis baseline:
+
+- Python `3.13.14`; frozen dependency sync checked `172 packages`.
+- Pydantic `2.12.5` provides frozen, `extra="forbid"` schemas.
+- OpenAI SDK `2.29.0` is isolated behind an injected `StructuredAnalysisClient`; acceptance uses only fake clients.
+- `stage3-v1` is the initial immutable prompt identity; analysis and evidence packet schemas are version `1.0`.
+- The repository still has no authoritative lint or static type-check command, so none was invented.
+
+Implemented boundaries:
+
+- Strict schemas cover the English title, Chinese title, recommendation, research problem, Insight and formation logic, supporting Figure/Table explanation, Method overview/modules, prior-work differences, parameter symbol/role/value/selection/tuning, ablations, experimental conclusions, limitations, links, evidence candidates, generation metadata, issues, and batch metrics.
+- Every claim records `author_statement`, `system_summary`, or `system_inference`; only the last permits `inferred=true`. Schema validators bind each claim kind to its output field.
+- Content evidence is projected only from the Stage 2 `DocumentGraph`. Candidate metadata supplies only paper identity, English title, and canonical PDF/arXiv/code links; candidate Abstract and Zotero fields never enter the analysis prompt.
+- Evidence packets deterministically prioritize Introduction/Motivation/Observation/Analysis, Method, Experiments, Ablation, Appendix, other sections, then Abstract. They retain PDF page, section path, bbox, image path, complete `SourceMapping`, confidence, label, and full Stage 2 caption provenance.
+- Evidence IDs include PDF hash, evidence kind, source item, physical page, and bbox. The prompt sends only bounded evidence text; visual captions use the budgeted projection while final records materialize the original Stage 2 caption and provenance.
+- A full-Abstract evidence packet is rejected before any client call. Each successful Insight has non-Abstract evidence. An explicitly missing Insight produces `partial`, not `success`, and partial/failed results are never written to or reused from the expensive-call cache.
+- The prompt includes the strict draft JSON Schema for providers that support only JSON-object response mode. Responses have a byte limit, strict JSON/Pydantic parsing, safe error codes, explicit HTTP timeout, SDK retries disabled, and analyzer-controlled finite retry/backoff.
+- Successful analysis cache identity includes PDF hash; DocumentGraph schema/parser/mapper/config/content identities; packet schema/builder/content identity; prompt/schema/model/generation identities; and a fingerprint of the prompt-visible title and links. Writes are atomic and validated; corrupt, oversized, mismatched, partial, or stale entries are misses.
+- The batch pipeline preserves `selected_for_full_analysis` order, processes at most five papers, keeps at most three visual evidence records per paper, rejects duplicate or mismatched Stage 2 results, isolates per-paper failures, and counts expensive work per paper rather than per retry attempt.
+- A production composition function reads `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL` only from an explicitly injected environment in the non-dry-run path. Missing-variable errors contain names but never values.
+- The artificial `tests/fixtures/stage3_offline.json` dry-run builds a DocumentGraph evidence packet, prompt, strict draft, analysis, and batch result with a fake client, zero expensive calls, no credential reads, no network, and no filesystem cache or output write:
+
+```powershell
+uv run python -m zotero_arxiv_daily.pipeline.analysis --dry-run --offline-fixture tests/fixtures/stage3_offline.json
+```
+
+Final verification commands:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' sync --frozen
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/analysis/test_paper_schemas.py tests/analysis/test_prompt.py tests/analysis/test_client.py tests/analysis/test_analysis_cache.py tests/analysis/test_analyzer.py tests/analysis/test_stage3_offline.py tests/documents/test_evidence.py tests/pipeline/test_analysis.py -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/analysis/test_document_schemas.py tests/documents tests/pipeline/test_documents.py -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/analysis/test_stage1_schemas.py tests/interest tests/candidates tests/retriever/test_arxiv_metadata.py tests/pipeline/test_candidates.py -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest -m "slow or not slow" -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run python -m compileall -q src
+```
+
+Fresh verification evidence:
+
+- Frozen dependency sync: `172 packages` checked successfully.
+- Stage 3 focused suite: `71 passed`.
+- Stage 2 regression suite: `69 passed`.
+- Stage 1 regression suite: `75 passed`.
+- Default regression suite: `290 passed`, `2 failed`, `1 deselected` in `9.66 seconds`. Both failures are the unchanged Windows one-second multiprocessing spawn-timeout baseline failures.
+- Complete configured suite: `290 passed`, `3 failed` in `498.63 seconds`. The third failure is the unchanged slow local-reranker Hugging Face connection/cache dependency: `jinaai/jina-embeddings-v5-text-nano-retrieval` could not be reached and was absent from the local cache.
+- Offline fixture CLI returned one success with `expensive_call_count=0` and `cache_hit_count=0`; it created no cache directory.
+- Source compilation and repository diff checks passed. No authoritative lint or static type-check command exists.
+- Hygiene scans found no tracked secret, PDF/ZIP, private Zotero data, candidate/document/analysis cache, local viewer state, or file over 5 MiB. `.env.example` remains trackable and representative secret/cache/PDF/private-data paths remain ignored.
+
+Independent Superpowers review initially found five Important issues: the response Schema was not sent to the model, empty/incorrect claim structures could be marked successful, prompt-visible metadata was absent from cache identity, full captions bypassed the prompt budget, and bbox was absent from evidence IDs. RED-to-GREEN fixes addressed all five. A second review found partial analysis caching; the final fix makes partial/failed entries misses. Final independent verdict at commit `4bba9a3`: `Ready`, with no unresolved Critical or Important findings.
+
+Known limits and next boundary:
+
+- Stage 3 checks strict structure and reference-set integrity, but does not decide whether the cited text or Figure/Table semantically proves a claim, verify reported numbers against the document, or determine publication eligibility. Those are Stage 4 responsibilities.
+- Missing parameters, ablations, limitations, links, or other paper-absent facts remain `None`/empty tuples rather than being invented. A missing core Insight downgrades the result to `partial`.
+- Prompt JSON Schema is embedded for broad OpenAI-compatible JSON-object support. Provider-specific native structured-output optimization is deferred until it can preserve the approved injectable-client contract.
+- Acceptance is deterministic and zero-cost. A real model run remains intentionally unexecuted and is not required for Stage 3 completion.
+
+Stage 4 evidence validation and hallucination prevention has not begun.
