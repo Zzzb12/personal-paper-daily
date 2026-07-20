@@ -1,0 +1,59 @@
+{
+  "run_id": "20260720T000000Z",
+  "now": "2026-07-20T00:00:00Z",
+  "candidate": {
+    "paper_id": "arxiv:2401.00001",
+    "arxiv_id": "2401.00001",
+    "version": 1,
+    "title": "Synthetic Offline Paper",
+    "authors": ["Fixture Author"],
+    "abstract": "This abstract is candidate metadata and must not become analysis evidence.",
+    "categories": ["cs.CV"],
+    "primary_category": "cs.CV",
+    "published_at": "2026-07-19T00:00:00Z",
+    "updated_at": "2026-07-19T00:00:00Z",
+    "arxiv_url": "https://arxiv.org/abs/2401.00001",
+    "pdf_url": "https://arxiv.org/pdf/2401.00001",
+    "code_url": null
+  },
+  "document": {
+    "source_url": "https://arxiv.org/pdf/2401.00001",
+    "pdf_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "content_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "section_title": "3 Method",
+    "evidence_text": "The authors explicitly use a deterministic synthetic cache module in this offline fixture."
+  },
+  "fake_structured_response": {
+    "schema_version": "1.0",
+    "paper_id": "arxiv:2401.00001",
+    "english_title": "Synthetic Offline Paper",
+    "chinese_title": null,
+    "recommendation_reason": null,
+    "research_problem": null,
+    "insights": [
+      {
+        "claim_id": "insight-1",
+        "kind": "insight",
+        "text_zh": "离线夹具包含一个确定性的合成缓存模块。",
+        "source_type": "system_summary",
+        "inferred": false,
+        "evidence_ids": ["$TEXT_EVIDENCE_ID"],
+        "confidence": 1.0
+      }
+    ],
+    "supporting_visuals": [],
+    "insight_formation_logic": null,
+    "method_overview": null,
+    "method_modules": [],
+    "differences_from_prior_work": null,
+    "parameters": [],
+    "ablations": [],
+    "experimental_conclusions": [],
+    "limitations": [],
+    "links": {
+      "pdf_url": "https://arxiv.org/pdf/2401.00001",
+      "arxiv_url": "https://arxiv.org/abs/2401.00001",
+      "code_url": null
+    }
+  }
+}

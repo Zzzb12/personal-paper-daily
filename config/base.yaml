@@ -68,3 +68,18 @@ document_pipeline:
   request_timeout: {connect: 10, read: 30, write: 10, pool: 10}
   retry: {max_attempts: 3, backoff_seconds: 1, max_retry_after_seconds: 60}
   config_version: "1"
+
+analysis_pipeline:
+  cache_root: cache/analysis
+  prompt_version: stage3-v1
+  schema_version: "1.0"
+  config_version: "1"
+  max_papers: 5
+  max_visuals_per_paper: 3
+  max_evidence_candidates: 48
+  max_evidence_chars: 24000
+  max_block_chars: 2000
+  max_output_tokens: 8192
+  response_max_bytes: 1048576
+  request_timeout: {connect: 10, read: 60, write: 10, pool: 10}
+  retry: {max_attempts: 3, backoff_seconds: 1, max_retry_after_seconds: 60}
