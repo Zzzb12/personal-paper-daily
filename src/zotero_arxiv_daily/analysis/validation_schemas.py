@@ -4,7 +4,7 @@ import re
 from datetime import UTC, datetime
 from typing import Literal, Self
 
-from pydantic import Field, SkipValidation, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from zotero_arxiv_daily.analysis.paper_schemas import PaperAnalysis
 from zotero_arxiv_daily.analysis.schemas import StrictModel, validate_run_id_value
@@ -13,10 +13,52 @@ from zotero_arxiv_daily.analysis.schemas import StrictModel, validate_run_id_val
 VALIDATION_SCHEMA_VERSION = "1.0"
 VALIDATOR_VERSION = "stage4-v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 ValidationStatus = Literal["valid", "partial", "invalid"]
 PublicationEligibility = Literal["eligible", "blocked"]
 PaperValidationStatus = Literal["validated", "partial", "invalid", "failed", "skipped"]
+
+VALIDATION_MESSAGES = {
+    "analysis_unavailable": "Stage 3 analysis is unavailable for validation",
+    "paper_id_mismatch": "Validation inputs do not share the same paper identity",
+    "candidate_title_mismatch": "Analysis English title does not match candidate identity",
+    "candidate_link_mismatch": "Analysis links do not match candidate identity",
+    "packet_document_mismatch": "Evidence packet does not match the document identity",
+    "packet_fingerprint_mismatch": "Evidence packet fingerprint does not match its contents",
+    "evidence_id_mismatch": "Evidence identifier does not match its source regions",
+    "duplicate_evidence_id": "Evidence identifier is not unique within the packet",
+    "analysis_evidence_candidates_modified": "Saved analysis evidence candidates differ from the evidence packet",
+    "evidence_source_missing": "Evidence source cannot be resolved in the document graph",
+    "text_provenance_mismatch": "Text evidence provenance differs from the document graph",
+    "visual_provenance_mismatch": "Figure or Table provenance differs from the document graph",
+    "unknown_evidence": "Claim references evidence that does not exist",
+    "abstract_only_insight": "Insight lacks non-Abstract evidence",
+    "duplicate_claim_id": "Claim identifier is not unique within the paper",
+    "duplicate_claim_evidence_id": "Claim evidence identifier is not unique within the claim",
+    "claim_kind_mismatch": "Claim kind does not match its analysis field",
+    "claim_source_inference_mismatch": "Claim source type and inference flag are inconsistent",
+    "too_many_supporting_visuals": "Analysis contains more than three supporting visuals",
+    "supporting_visual_requires_figure_or_table": "Supporting visual does not reference Figure or Table evidence",
+    "supporting_visual_unknown_insight": "Supporting visual references an unknown Insight",
+    "invalid_support_explanation": "Supporting visual lacks a structured support explanation",
+    "supporting_visual_provenance_mismatch": "Supporting visual provenance differs from its evidence candidate",
+    "ablation_requires_visual": "Ablation does not reference real Figure or Table evidence",
+    "ablation_conclusion_missing_visual": "Ablation conclusion does not cite its declared visual evidence",
+    "ablation_unknown_parameter": "Ablation references an unknown parameter",
+    "parameter_unknown_ablation": "Parameter references an unknown ablation",
+    "parameter_unknown_evidence": "Parameter references evidence that does not exist",
+    "parameter_source_inference_mismatch": "Parameter source type and inference flag are inconsistent",
+    "duplicate_ablation_id": "Ablation identifier is not unique within the paper",
+    "duplicate_parameter_name": "Parameter name is not unique within the paper",
+    "core_insight_missing": "Analysis does not contain a verifiable core Insight",
+    "validation_run_id_mismatch": "Stage 4 input batches do not share the same run identity",
+    "validation_duplicate_input": "Required Stage 4 validation input is duplicated",
+    "validation_candidate_missing": "Required Stage 4 candidate input is unavailable",
+    "validation_input_missing": "Required Stage 4 validation input is unavailable",
+    "validation_document_unavailable": "Required Stage 4 document input is unavailable",
+    "validation_internal_error": "Stage 4 validation failed safely for this paper",
+}
 
 
 def _non_empty(value: str) -> str:
@@ -28,6 +70,20 @@ def _non_empty(value: str) -> str:
 
 def _optional_text(value: str | None) -> str | None:
     return _non_empty(value) if value is not None else None
+
+
+def normalize_validation_location(value: str | None) -> str | None:
+    normalized = _optional_text(value)
+    if normalized is not None and not _SAFE_IDENTIFIER_RE.fullmatch(normalized):
+        raise ValueError("validation location must be a safe identifier")
+    return normalized
+
+
+def safe_validation_location(value: str | None) -> str | None:
+    try:
+        return normalize_validation_location(value)
+    except ValueError:
+        return None
 
 
 class ValidationIssue(StrictModel):
@@ -48,7 +104,7 @@ class ValidationIssue(StrictModel):
     @field_validator("claim_id", "field_path", "evidence_id", "visual_id")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
-        return _optional_text(value)
+        return normalize_validation_location(value)
 
     @field_validator("message")
     @classmethod
@@ -64,6 +120,8 @@ class ValidationIssue(StrictModel):
     def require_location(self) -> Self:
         if not any((self.claim_id, self.field_path, self.evidence_id, self.visual_id)):
             raise ValueError("validation issue requires a safe location")
+        if VALIDATION_MESSAGES.get(self.code) != self.message:
+            raise ValueError("validation issue requires its controlled message")
         return self
 
 
@@ -133,7 +191,7 @@ class ValidationReport(StrictModel):
 
 
 class ValidatedPaperAnalysis(StrictModel):
-    analysis: SkipValidation[PaperAnalysis]
+    analysis: PaperAnalysis
     report: ValidationReport
 
     @model_validator(mode="after")
@@ -147,6 +205,7 @@ class ValidationPaperResult(StrictModel):
     paper_id: str
     status: PaperValidationStatus
     validated: ValidatedPaperAnalysis | None
+    report: ValidationReport | None = None
     issues: tuple[ValidationIssue, ...] = ()
     processing_seconds: float = Field(ge=0)
     cache_hit: bool = False
@@ -165,16 +224,21 @@ class ValidationPaperResult(StrictModel):
             "invalid": "invalid",
         }
         if self.status in report_status:
-            if self.validated is None:
-                raise ValueError("validated, partial, or invalid result requires validation output")
-            if self.validated.report.status != report_status[self.status]:
+            if self.report is None:
+                raise ValueError("validated, partial, or invalid result requires validation report")
+            if self.report.status != report_status[self.status]:
                 raise ValueError("paper result status must match validation report status")
-            if self.validated.analysis.paper_id != self.paper_id:
-                raise ValueError("validated analysis paper_id must match result paper_id")
-            if self.issues != self.validated.report.issues:
+            if self.status == "invalid" and self.validated is not None:
+                raise ValueError("invalid result must not expose an unvalidated analysis")
+            if self.status in {"validated", "partial"}:
+                if self.validated is None or self.validated.report != self.report:
+                    raise ValueError("validated or partial result requires matching validation output")
+                if self.validated.analysis.paper_id != self.paper_id:
+                    raise ValueError("validated analysis paper_id must match result paper_id")
+            if self.issues != self.report.issues:
                 raise ValueError("paper result issues must match validation report issues")
         else:
-            if self.validated is not None or not self.issues:
+            if self.validated is not None or self.report is not None or not self.issues:
                 raise ValueError("failed or skipped result requires issues and no validation output")
         if any(issue.paper_id != self.paper_id for issue in self.issues):
             raise ValueError("paper result issue paper_id must match result paper_id")

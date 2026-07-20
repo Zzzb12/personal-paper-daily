@@ -7,13 +7,17 @@ from pydantic import ValidationError
 
 from zotero_arxiv_daily.analysis.validation_schemas import (
     VALIDATION_SCHEMA_VERSION,
+    VALIDATION_MESSAGES,
     VALIDATOR_VERSION,
     ClaimValidationResult,
     ValidationBatchResult,
     ValidationIssue,
     ValidationPaperResult,
     ValidationReport,
+    ValidatedPaperAnalysis,
 )
+from zotero_arxiv_daily.pipeline.validation import ValidationSettings
+from tests.analysis.stage4_factories import golden_inputs
 
 
 NOW = datetime(2026, 7, 20, tzinfo=UTC)
@@ -26,7 +30,7 @@ def _issue(*, severity: str = "error") -> ValidationIssue:
         paper_id="arxiv:2401.00001",
         field_path="insights.0.evidence_ids.0",
         evidence_id="missing",
-        message="Referenced evidence does not exist",
+        message=VALIDATION_MESSAGES["unknown_evidence"],
     )
 
 
@@ -62,7 +66,7 @@ def _failed_result(index: int) -> ValidationPaperResult:
         severity="error",
         paper_id=paper_id,
         field_path="analysis",
-        message="Required validation input is unavailable",
+        message=VALIDATION_MESSAGES["validation_input_missing"],
     )
     return ValidationPaperResult(
         paper_id=paper_id,
@@ -100,6 +104,45 @@ def test_validation_issue_is_safe_and_locatable() -> None:
             paper_id="arxiv:2401.00001",
             message="Validation input is invalid",
         )
+
+    with pytest.raises(ValidationError, match="controlled message"):
+        ValidationIssue(
+            code="unknown_evidence",
+            severity="error",
+            paper_id="arxiv:2401.00001",
+            field_path="analysis",
+            message="See https://user:password@example.test/?token=secret",
+        )
+    with pytest.raises(ValidationError, match="controlled message"):
+        ValidationIssue(
+            code="unknown_evidence",
+            severity="error",
+            paper_id="arxiv:2401.00001",
+            field_path="analysis",
+            message="Evidence packet fingerprint does not match its contents",
+        )
+    with pytest.raises(ValidationError, match="safe identifier"):
+        ValidationIssue(
+            code="unknown_evidence",
+            severity="error",
+            paper_id="arxiv:2401.00001",
+            field_path="analysis",
+            evidence_id="https://example.test/?token=secret",
+            message=VALIDATION_MESSAGES["unknown_evidence"],
+        )
+
+
+def test_validated_analysis_uses_strict_paper_analysis_boundary() -> None:
+    inputs = golden_inputs()
+    report = _report()
+
+    with pytest.raises(ValidationError):
+        ValidatedPaperAnalysis(analysis={"paper_id": inputs.candidate.paper_id}, report=report)
+
+
+def test_validation_settings_rejects_unknown_schema_version() -> None:
+    with pytest.raises(ValidationError):
+        ValidationSettings(schema_version="2.0")
     with pytest.raises(ValidationError, match="single line"):
         ValidationIssue(
             code="input_error",

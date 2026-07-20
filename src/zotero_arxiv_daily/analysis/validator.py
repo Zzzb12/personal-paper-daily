@@ -19,49 +19,19 @@ from zotero_arxiv_daily.analysis.paper_schemas import (
 )
 from zotero_arxiv_daily.analysis.schemas import CandidatePaper
 from zotero_arxiv_daily.analysis.validation_schemas import (
+    VALIDATION_MESSAGES,
     VALIDATOR_VERSION,
     ClaimValidationResult,
     ValidatedPaperAnalysis,
     ValidationIssue,
     ValidationPaperResult,
     ValidationReport,
+    safe_validation_location,
 )
 from zotero_arxiv_daily.documents.evidence import (
     evidence_candidate_id,
     evidence_packet_fingerprint,
 )
-
-
-_SAFE_MESSAGES = {
-    "analysis_unavailable": "Stage 3 analysis is unavailable for validation",
-    "paper_id_mismatch": "Validation inputs do not share the same paper identity",
-    "candidate_title_mismatch": "Analysis English title does not match candidate identity",
-    "candidate_link_mismatch": "Analysis links do not match candidate identity",
-    "packet_document_mismatch": "Evidence packet does not match the document identity",
-    "packet_fingerprint_mismatch": "Evidence packet fingerprint does not match its contents",
-    "evidence_id_mismatch": "Evidence identifier does not match its source regions",
-    "analysis_evidence_candidates_modified": "Saved analysis evidence candidates differ from the evidence packet",
-    "evidence_source_missing": "Evidence source cannot be resolved in the document graph",
-    "text_provenance_mismatch": "Text evidence provenance differs from the document graph",
-    "visual_provenance_mismatch": "Figure or Table provenance differs from the document graph",
-    "unknown_evidence": "Claim references evidence that does not exist",
-    "abstract_only_insight": "Insight lacks non-Abstract evidence",
-    "duplicate_claim_id": "Claim identifier is not unique within the paper",
-    "claim_kind_mismatch": "Claim kind does not match its analysis field",
-    "claim_source_inference_mismatch": "Claim source type and inference flag are inconsistent",
-    "supporting_visual_requires_figure_or_table": "Supporting visual does not reference Figure or Table evidence",
-    "supporting_visual_unknown_insight": "Supporting visual references an unknown Insight",
-    "invalid_support_explanation": "Supporting visual lacks a structured support explanation",
-    "supporting_visual_provenance_mismatch": "Supporting visual provenance differs from its evidence candidate",
-    "ablation_requires_visual": "Ablation does not reference real Figure or Table evidence",
-    "ablation_unknown_parameter": "Ablation references an unknown parameter",
-    "parameter_unknown_ablation": "Parameter references an unknown ablation",
-    "parameter_unknown_evidence": "Parameter references evidence that does not exist",
-    "parameter_source_inference_mismatch": "Parameter source type and inference flag are inconsistent",
-    "duplicate_ablation_id": "Ablation identifier is not unique within the paper",
-    "duplicate_parameter_name": "Parameter name is not unique within the paper",
-    "core_insight_missing": "Analysis does not contain a verifiable core Insight",
-}
 
 
 def validate_paper(
@@ -123,7 +93,11 @@ def validate_paper(
         claim_results=claim_results,
         issues=tuple(issues),
     )
-    validated = ValidatedPaperAnalysis(analysis=analysis, report=report)
+    validated = (
+        None
+        if report_status == "invalid"
+        else ValidatedPaperAnalysis(analysis=analysis, report=report)
+    )
     result_status = {
         "valid": "validated",
         "partial": "partial",
@@ -133,6 +107,7 @@ def validate_paper(
         paper_id=candidate.paper_id,
         status=result_status,
         validated=validated,
+        report=report,
         issues=report.issues,
         processing_seconds=time.perf_counter() - started,
         validator_version=validator_version,
@@ -416,6 +391,19 @@ def _validate_analysis_rules(
     packet: EvidencePacket,
     issues: list[ValidationIssue],
 ) -> tuple[ClaimValidationResult, ...]:
+    evidence_ids = tuple(item.evidence_id for item in packet.candidates)
+    duplicate_evidence_ids = {
+        evidence_id for evidence_id in evidence_ids if evidence_ids.count(evidence_id) > 1
+    }
+    for evidence_id in sorted(duplicate_evidence_ids):
+        issues.append(
+            _issue(
+                "duplicate_evidence_id",
+                analysis.paper_id,
+                field_path="evidence_candidates",
+                evidence_id=evidence_id,
+            )
+        )
     candidates = {item.evidence_id: item for item in packet.candidates}
     claim_locations = _claim_locations(analysis)
     claim_ids = tuple(claim.claim_id for claim, _, _ in claim_locations)
@@ -434,6 +422,8 @@ def _validate_analysis_rules(
     seen_claim_ids: set[str] = set()
     for claim, field_path, expected_kind in claim_locations:
         claim_codes: list[str] = []
+        if len(claim.evidence_ids) != len(set(claim.evidence_ids)):
+            claim_codes.append("duplicate_claim_evidence_id")
         if claim.kind != expected_kind:
             claim_codes.append("claim_kind_mismatch")
         if claim.inferred != (claim.source_type == "system_inference"):
@@ -475,15 +465,15 @@ def _validate_analysis_rules(
                 )
         if claim.claim_id not in seen_claim_ids:
             seen_claim_ids.add(claim.claim_id)
+            if claim.claim_id in duplicates:
+                claim_codes.append("duplicate_claim_id")
             results.append(
                 ClaimValidationResult(
                     claim_id=claim.claim_id,
                     status="invalid" if claim_codes or claim.claim_id in duplicates else "valid",
-                    resolved_evidence_ids=tuple(
-                        evidence_id
-                        for evidence_id in claim.evidence_ids
-                        if evidence_id in candidates
-                    ),
+                    resolved_evidence_ids=tuple(dict.fromkeys(
+                        evidence_id for evidence_id in claim.evidence_ids if evidence_id in candidates
+                    )),
                     issue_codes=tuple(dict.fromkeys(claim_codes)),
                 )
             )
@@ -554,6 +544,14 @@ def _validate_supporting_visuals(
     candidates: dict[str, EvidenceCandidate],
     issues: list[ValidationIssue],
 ) -> None:
+    if len(analysis.supporting_visuals) > 3:
+        issues.append(
+            _issue(
+                "too_many_supporting_visuals",
+                analysis.paper_id,
+                field_path="supporting_visuals",
+            )
+        )
     insight_ids = {insight.claim_id for insight in analysis.insights}
     for index, visual in enumerate(analysis.supporting_visuals):
         path = f"supporting_visuals.{index}"
@@ -706,6 +704,17 @@ def _validate_parameters_and_ablations(
                         evidence_id=evidence_id,
                     )
                 )
+        if not set(ablation.visual_evidence_ids).issubset(
+            ablation.conclusion.evidence_ids
+        ):
+            issues.append(
+                _issue(
+                    "ablation_conclusion_missing_visual",
+                    analysis.paper_id,
+                    field_path=f"{path}.conclusion.evidence_ids",
+                    claim_id=ablation.conclusion.claim_id,
+                )
+            )
 
 
 def _is_abstract_path(path: tuple[str, ...]) -> bool:
@@ -727,9 +736,9 @@ def _issue(
         code=code,
         severity=severity,
         paper_id=paper_id,
-        claim_id=claim_id,
-        field_path=field_path,
-        evidence_id=evidence_id,
-        visual_id=visual_id,
-        message=_SAFE_MESSAGES[code],
+        claim_id=safe_validation_location(claim_id),
+        field_path=safe_validation_location(field_path),
+        evidence_id=safe_validation_location(evidence_id),
+        visual_id=safe_validation_location(visual_id),
+        message=VALIDATION_MESSAGES[code],
     )

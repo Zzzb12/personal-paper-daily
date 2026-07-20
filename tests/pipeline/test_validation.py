@@ -358,18 +358,79 @@ def test_stage3_status_change_cannot_reuse_eligible_cache(tmp_path: Path) -> Non
     assert second.results[0].validated.report.publication_eligibility == "blocked"
 
 
-def test_run_id_mismatch_is_rejected_before_processing(tmp_path: Path) -> None:
+def test_run_id_mismatch_is_safe_failed_result(tmp_path: Path) -> None:
     items = _inputs(1)
     analyses = _analysis_batch(items).model_copy(update={"run_id": "other-run"})
-    with pytest.raises(ValueError, match="run_id"):
-        build_validation_batch(
-            _candidate_batch(items),
-            _document_batch(items),
-            tuple(item.packet for item in items),
-            analyses,
-            ValidationSettings(),
-            _deps(tmp_path),
-        )
+    result = build_validation_batch(
+        _candidate_batch(items),
+        _document_batch(items),
+        tuple(item.packet for item in items),
+        analyses,
+        ValidationSettings(),
+        _deps(tmp_path),
+    )
+
+    assert result.results[0].status == "failed"
+    assert result.results[0].issues[0].code == "validation_run_id_mismatch"
+
+
+class _ThrowingCache:
+    def __init__(self, failing_paper_id: str) -> None:
+        self.failing_paper_id = failing_paper_id
+
+    def read(self, identity):
+        if identity.paper_id == self.failing_paper_id:
+            raise RuntimeError("https://secret.test/?token=should-not-leak")
+        return None
+
+    def write(self, identity, validated):
+        return None
+
+
+def test_cache_exception_fails_one_paper_without_leaking_or_stopping_batch() -> None:
+    items = _inputs(2)
+    dependencies = ValidationDependencies(
+        cache=_ThrowingCache(items[0].candidate.paper_id), clock=lambda: NOW
+    )
+
+    result = build_validation_batch(
+        _candidate_batch(items),
+        _document_batch(items),
+        tuple(item.packet for item in items),
+        _analysis_batch(items),
+        ValidationSettings(),
+        dependencies,
+    )
+
+    assert [item.status for item in result.results] == ["failed", "validated"]
+    assert result.results[0].issues[0].code == "validation_internal_error"
+    assert "secret" not in result.results[0].issues[0].message
+
+
+def test_validator_exception_fails_one_paper_and_continues(tmp_path: Path) -> None:
+    items = _inputs(2)
+    def throwing_validator(candidate, document, packet, analysis_result, **kwargs):
+        if candidate.paper_id == items[0].candidate.paper_id:
+            raise RuntimeError("private path C:/Users/example/.env")
+        from zotero_arxiv_daily.analysis.validator import validate_paper
+        return validate_paper(candidate, document, packet, analysis_result, **kwargs)
+
+    dependencies = ValidationDependencies(
+        cache=ValidationCache(tmp_path / "validation"),
+        clock=lambda: NOW,
+        validator=throwing_validator,
+    )
+    result = build_validation_batch(
+        _candidate_batch(items),
+        _document_batch(items),
+        tuple(item.packet for item in items),
+        _analysis_batch(items),
+        ValidationSettings(),
+        dependencies,
+    )
+
+    assert [item.status for item in result.results] == ["failed", "validated"]
+    assert result.results[0].issues[0].code == "validation_internal_error"
 
 
 def test_validation_config_is_non_secret_and_capped() -> None:

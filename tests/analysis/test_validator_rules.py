@@ -17,7 +17,8 @@ def issue_codes(result) -> set[str]:
 def assert_invalid(inputs: GoldenInputs, code: str) -> None:
     result = validate_paper(*inputs)
     assert result.status == "invalid"
-    assert result.validated.report.publication_eligibility == "blocked"
+    assert result.validated is None
+    assert result.report.publication_eligibility == "blocked"
     assert code in issue_codes(result)
 
 
@@ -150,6 +151,73 @@ def test_ablation_requires_real_figure_or_table() -> None:
         replace_analysis(inputs, analysis.model_copy(update={"ablations": (ablation,)})),
         "ablation_requires_visual",
     )
+
+
+def test_ablation_conclusion_must_bind_declared_visual() -> None:
+    inputs = golden_inputs()
+    analysis = inputs.analysis_result.analysis
+    text_id = next(item.evidence_id for item in inputs.packet.candidates if item.kind == "text")
+    ablation = analysis.ablations[0]
+    changed = ablation.model_copy(
+        update={
+            "conclusion": ablation.conclusion.model_copy(
+                update={"evidence_ids": (text_id,)}
+            )
+        }
+    )
+
+    assert_invalid(
+        replace_analysis(inputs, analysis.model_copy(update={"ablations": (changed,)})),
+        "ablation_conclusion_missing_visual",
+    )
+
+
+def test_duplicate_packet_evidence_id_is_safe_invalid_result() -> None:
+    inputs = golden_inputs()
+    duplicate = inputs.packet.candidates[0].model_copy(
+        update={"evidence_id": inputs.packet.candidates[1].evidence_id}
+    )
+    candidates = (duplicate, *inputs.packet.candidates[1:])
+    packet = inputs.packet.model_copy(update={"candidates": candidates})
+    analysis = inputs.analysis_result.analysis.model_copy(
+        update={"evidence_candidates": candidates}
+    )
+
+    result = validate_paper(
+        inputs.candidate,
+        inputs.document,
+        packet,
+        inputs.analysis_result.model_copy(update={"analysis": analysis}),
+    )
+
+    assert result.status == "invalid"
+    assert "duplicate_evidence_id" in issue_codes(result)
+
+
+def test_schema_bypassed_four_supporting_visuals_is_safe_invalid_result() -> None:
+    inputs = golden_inputs()
+    analysis = inputs.analysis_result.analysis.model_copy(
+        update={"supporting_visuals": inputs.analysis_result.analysis.supporting_visuals * 4}
+    )
+
+    result = validate_paper(*replace_analysis(inputs, analysis))
+
+    assert result.status == "invalid"
+    assert "too_many_supporting_visuals" in issue_codes(result)
+
+
+def test_schema_bypassed_duplicate_claim_evidence_is_safe_invalid_result() -> None:
+    inputs = golden_inputs()
+    evidence_id = inputs.analysis_result.analysis.insights[0].evidence_ids[0]
+    changed = _replace_insight(inputs, evidence_ids=(evidence_id, evidence_id))
+
+    result = validate_paper(*changed)
+
+    assert result.status == "invalid"
+    assert "duplicate_claim_evidence_id" in issue_codes(result)
+    claim = next(item for item in result.report.claim_results if item.claim_id == "insight-1")
+    assert claim.resolved_evidence_ids == (evidence_id,)
+    assert "duplicate_claim_evidence_id" in claim.issue_codes
 
 
 def test_ablation_parameter_name_must_resolve() -> None:

@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import Field, field_validator
 
@@ -52,6 +52,7 @@ from zotero_arxiv_daily.analysis.validation_cache import (
 )
 from zotero_arxiv_daily.analysis.validation_schemas import (
     VALIDATION_SCHEMA_VERSION,
+    VALIDATION_MESSAGES,
     VALIDATOR_VERSION,
     ValidationBatchResult,
     ValidationIssue,
@@ -65,7 +66,7 @@ from zotero_arxiv_daily.documents.evidence import (
 
 
 class ValidationSettings(StrictModel):
-    schema_version: str = VALIDATION_SCHEMA_VERSION
+    schema_version: Literal["1.0"] = VALIDATION_SCHEMA_VERSION
     validator_version: str = VALIDATOR_VERSION
     max_papers: int = Field(default=5, ge=1, le=5)
 
@@ -82,6 +83,7 @@ class ValidationSettings(StrictModel):
 class ValidationDependencies:
     cache: ValidationCache
     clock: Callable[[], datetime]
+    validator: Callable[..., ValidationPaperResult] = validate_paper
 
 
 def build_validation_batch(
@@ -93,7 +95,22 @@ def build_validation_batch(
     dependencies: ValidationDependencies,
 ) -> ValidationBatchResult:
     if len({candidates.run_id, documents.run_id, analyses.run_id}) != 1:
-        raise ValueError("candidate, document, and analysis run_id values must match")
+        results = tuple(
+            _unavailable(
+                paper_id,
+                "failed",
+                "validation_run_id_mismatch",
+                settings.validator_version,
+            )
+            for paper_id in candidates.selected_for_full_analysis[: settings.max_papers]
+        )
+        return ValidationBatchResult(
+            validator_version=settings.validator_version,
+            run_id=candidates.run_id,
+            created_at=dependencies.clock(),
+            results=results,
+            cache_hit_count=0,
+        )
 
     paper_by_id = {paper.paper_id: paper for paper in candidates.candidates}
     document_by_id, duplicate_documents = _unique_index(documents.results)
@@ -147,14 +164,22 @@ def build_validation_batch(
             )
             continue
 
-        result = _validate_with_cache(
-            paper,
-            document_result.document,
-            packet,
-            analysis_result,
-            settings,
-            dependencies,
-        )
+        try:
+            result = _validate_with_cache(
+                paper,
+                document_result.document,
+                packet,
+                analysis_result,
+                settings,
+                dependencies,
+            )
+        except Exception:
+            result = _unavailable(
+                paper_id,
+                "failed",
+                "validation_internal_error",
+                settings.validator_version,
+            )
         results.append(result)
 
     return ValidationBatchResult(
@@ -175,7 +200,7 @@ def _validate_with_cache(
     dependencies: ValidationDependencies,
 ) -> ValidationPaperResult:
     if analysis_result.analysis is None:
-        return validate_paper(
+        return dependencies.validator(
             paper,
             document,
             packet,
@@ -202,12 +227,13 @@ def _validate_with_cache(
             paper_id=paper.paper_id,
             status=status,
             validated=cached,
+            report=cached.report,
             issues=cached.report.issues,
             processing_seconds=0,
             cache_hit=True,
             validator_version=settings.validator_version,
         )
-    result = validate_paper(
+    result = dependencies.validator(
         paper,
         document,
         packet,
@@ -242,7 +268,7 @@ def _unavailable(
         severity="error" if status == "failed" else "warning",
         paper_id=paper_id,
         field_path="validation_inputs",
-        message="Required Stage 4 validation input is unavailable or ambiguous",
+        message=VALIDATION_MESSAGES[code],
     )
     return ValidationPaperResult(
         paper_id=paper_id,
