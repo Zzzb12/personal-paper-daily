@@ -210,6 +210,20 @@ def test_pyzotero_gateway_maps_items_without_leaking_extra_fields():
     )
 
 
+def test_pyzotero_gateway_isolates_malformed_item_for_provider_counting():
+    payload = {
+        "items": [
+            {"key": "private-bad-key", "data": {"title": "Private", "abstractNote": "Private", "collections": ["topic"], "dateAdded": "not-a-date"}},
+            {"key": "valid", "data": {"title": "Valid", "abstractNote": "Abstract", "collections": ["topic"], "dateAdded": "2026-07-20T00:00:00Z"}},
+        ]
+    }
+    items = PyzoteroGateway(FakeZoteroClient([payload]), sleeper=lambda _: None).list_items()
+    result = provider(FakeGateway(standard_collections(), items)).read()
+    assert [paper.paper_id for paper in result.papers] == ["zotero:valid"]
+    assert result.invalid_count == 1
+    assert all("private-bad-key" not in issue.message for issue in result.issues)
+
+
 def test_from_credentials_configures_explicit_httpx_timeouts(monkeypatch):
     captured = {}
 

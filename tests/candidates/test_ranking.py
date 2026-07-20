@@ -15,7 +15,10 @@ NOW = datetime(2026, 7, 20, tzinfo=UTC)
 
 
 class FakeProvider:
-    identity = EmbeddingIdentity(provider="fake", model="v1", task="retrieval")
+    identity = EmbeddingIdentity.from_settings(
+        provider="fake", implementation_version="1", model="v1", task="retrieval",
+        settings={}, dimension=2, dtype="float64",
+    )
 
     def __init__(self, vectors):
         self.vectors = vectors

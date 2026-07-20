@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from time import sleep
 from typing import Any, TypeVar
 
@@ -40,16 +40,23 @@ class PyzoteroGateway:
         self._owned_http_client = owned_http_client
 
     @classmethod
-    def from_credentials(cls, library_id: str, api_key: str) -> "PyzoteroGateway":
+    def from_credentials(
+        cls,
+        library_id: str,
+        api_key: str,
+        *,
+        timeout: httpx.Timeout | None = None,
+        retry_policy: RetryPolicy | None = None,
+    ) -> "PyzoteroGateway":
         http_client = httpx.Client(
-            timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10)
+            timeout=timeout or httpx.Timeout(connect=10, read=30, write=10, pool=10)
         )
         try:
             client = zotero.Zotero(library_id, "user", api_key, client=http_client)
         except Exception:
             http_client.close()
             raise
-        return cls(client, owned_http_client=http_client)
+        return cls(client, retry_policy=retry_policy, owned_http_client=http_client)
 
     @staticmethod
     def _transient(exc: Exception) -> bool:
@@ -98,16 +105,25 @@ class PyzoteroGateway:
                 self._client.items(itemType="conferencePaper || journalArticle || preprint")
             )
         )
-        return tuple(
-            ZoteroItem(
-                key=entry["key"],
-                title=entry["data"].get("title", ""),
-                abstract=entry["data"].get("abstractNote", ""),
-                collection_keys=tuple(entry["data"].get("collections", ())),
-                added_at=datetime.fromisoformat(entry["data"]["dateAdded"].replace("Z", "+00:00")),
-            )
-            for entry in raw
-        )
+        items: list[ZoteroItem] = []
+        for entry in raw:
+            try:
+                data = entry["data"]
+                items.append(
+                    ZoteroItem(
+                        key=entry["key"],
+                        title=data.get("title", ""),
+                        abstract=data.get("abstractNote", ""),
+                        collection_keys=tuple(data.get("collections", ())),
+                        added_at=datetime.fromisoformat(data["dateAdded"].replace("Z", "+00:00")),
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                # Preserve only a privacy-safe invalid sentinel for provider-level counting.
+                items.append(
+                    ZoteroItem(key="invalid", title="", abstract="", collection_keys=(), added_at=datetime.min.replace(tzinfo=UTC))
+                )
+        return tuple(items)
 
     def close(self) -> None:
         if self._owned_http_client is not None:

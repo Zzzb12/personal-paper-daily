@@ -15,6 +15,7 @@ from zotero_arxiv_daily.pipeline.candidates import (
     CandidatePipelineSettings,
     EmptyInterestCorpusError,
     build_candidate_batch,
+    build_production_pipeline,
     main,
 )
 from zotero_arxiv_daily.retriever.arxiv_retriever import ArxivMetadataResult
@@ -47,7 +48,10 @@ class MetadataRetriever:
 
 
 class DeterministicEmbeddings:
-    identity = EmbeddingIdentity(provider="fixture", model="v1", task="retrieval")
+    identity = EmbeddingIdentity.from_settings(
+        provider="fixture", implementation_version="1", model="v1", task="retrieval",
+        settings={}, dimension=2, dtype="float64",
+    )
 
     def encode(self, texts):
         return np.asarray([[float(index + 1), 1.0] for index, _ in enumerate(texts)])
@@ -111,6 +115,28 @@ def test_non_dry_run_writes_validated_batch():
     store.write.assert_called_once_with(batch)
 
 
+def test_pipeline_persists_and_honors_smaller_selection_limits():
+    batch = build_candidate_batch(
+        CandidatePipelineSettings(
+            candidate_pool_size=10, llm_rerank_limit=7, full_analysis_limit=3, dry_run=True
+        ),
+        dependencies(),
+        lambda: NOW,
+    )
+    assert batch.limits.model_dump() == {
+        "candidate_pool_size": 10, "llm_rerank_limit": 7, "full_analysis_limit": 3
+    }
+    assert (len(batch.candidates), len(batch.selected_for_llm), len(batch.selected_for_full_analysis)) == (10, 7, 3)
+
+
+def test_dry_run_does_not_change_ranking_config_hash():
+    dry = build_candidate_batch(CandidatePipelineSettings(dry_run=True), dependencies(), lambda: NOW)
+    persistent = build_candidate_batch(
+        CandidatePipelineSettings(dry_run=False), dependencies(store=Mock()), lambda: NOW
+    )
+    assert dry.config_hash == persistent.config_hash
+
+
 def test_empty_interest_corpus_fails_before_metadata_or_embeddings():
     deps = dependencies(interests=())
     deps.arxiv_retriever = Mock()
@@ -135,6 +161,63 @@ def test_offline_fixture_cli_prints_safe_summary_without_network(monkeypatch, ca
     }
     assert not (tmp_path / "data").exists()
     assert not (tmp_path / "cache").exists()
+
+
+def test_production_factory_wires_real_boundaries_from_config_and_environment(monkeypatch):
+    calls = {}
+    zotero_gateway = Mock()
+    arxiv_gateway = Mock()
+    embedding_provider = DeterministicEmbeddings()
+
+    def zotero_factory(library_id, api_key, **kwargs):
+        calls["zotero"] = (library_id, api_key, kwargs)
+        return zotero_gateway
+
+    def arxiv_factory(**kwargs):
+        calls["arxiv"] = kwargs
+        return arxiv_gateway
+
+    def embedding_factory(**kwargs):
+        calls["embedding"] = kwargs
+        return embedding_provider
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.PyzoteroGateway.from_credentials", zotero_factory
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.HttpArxivMetadataGateway.from_defaults", arxiv_factory
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.SentenceTransformerEmbeddingProvider", embedding_factory
+    )
+    settings, deps = build_production_pipeline(
+        Path(__file__).parents[2] / "config",
+        environ={"ZOTERO_ID": "synthetic-id", "ZOTERO_KEY": "synthetic-key"},
+        dry_run=True,
+    )
+    assert settings.categories == ("cs.CV", "cs.LG", "cs.AI")
+    assert settings.include_paths == (
+        "PaperDaily/00-Seeds/**", "PaperDaily/03-Read/**", "PaperDaily/04-Favorite/**"
+    )
+    assert calls["zotero"][0:2] == ("synthetic-id", "synthetic-key")
+    assert calls["embedding"]["model"] == "jinaai/jina-embeddings-v5-text-nano-retrieval"
+    assert deps.store.root == Path("data/candidates")
+    assert deps.ranker.provider.cache.root == Path("cache/embeddings")
+    deps.close()
+    zotero_gateway.close.assert_called_once()
+    arxiv_gateway.close.assert_called_once()
+
+
+def test_production_cli_mode_runs_without_offline_fixture(monkeypatch, capsys):
+    deps = dependencies()
+    deps.close = Mock()
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.build_production_pipeline",
+        lambda config_dir, environ, dry_run: (CandidatePipelineSettings(dry_run=True), deps),
+    )
+    assert main(["--dry-run", "--config-dir", "config"]) == 0
+    assert json.loads(capsys.readouterr().out)["schema_version"] == "1.0"
+    deps.close.assert_called_once()
 
 
 def test_config_contains_exact_stage_one_defaults():

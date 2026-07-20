@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from datetime import timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -7,6 +8,7 @@ from zotero_arxiv_daily.analysis.schemas import (
     CandidateBatch,
     CandidateCounts,
     CandidatePaper,
+    CandidateSelectionLimits,
     InterestPaper,
     RankingModelVersions,
     RankingRecord,
@@ -47,6 +49,7 @@ def ranking(paper_id: str, rank: int, score: float) -> RankingRecord:
             model="deterministic-v1",
             task="retrieval",
             scorer="weighted-similarity-v1",
+            embedding_identity_hash="c" * 64,
         ),
     )
 
@@ -143,4 +146,37 @@ def test_stage_one_rejects_non_null_llm_score():
     payload = batch().model_dump(mode="json")
     payload["rankings"][0]["llm_score"] = 0.9
     with pytest.raises(ValidationError, match="llm_score"):
+        CandidateBatch.model_validate(payload)
+
+
+def test_candidate_batch_validates_configured_smaller_selection_prefixes():
+    payload = batch(10).model_dump(mode="json")
+    payload["limits"] = CandidateSelectionLimits(
+        candidate_pool_size=10, llm_rerank_limit=7, full_analysis_limit=3
+    ).model_dump(mode="json")
+    payload["selected_for_llm"] = [paper["paper_id"] for paper in payload["candidates"][:7]]
+    payload["selected_for_full_analysis"] = [
+        paper["paper_id"] for paper in payload["candidates"][:3]
+    ]
+    validated = CandidateBatch.model_validate(payload)
+    assert len(validated.selected_for_llm) == 7
+    assert len(validated.selected_for_full_analysis) == 3
+
+
+def test_aware_datetimes_are_normalized_to_utc():
+    offset = timezone(timedelta(hours=8))
+    paper = InterestPaper(
+        paper_id="zotero:item", title="Title", abstract="Abstract",
+        collection_paths=("PaperDaily/00-Seeds/Test",),
+        added_at=datetime(2026, 7, 20, 8, tzinfo=offset),
+    )
+    assert paper.added_at == NOW
+    assert paper.added_at.tzinfo is UTC
+
+
+@pytest.mark.parametrize("run_id", ["bad:name", "bad*name", "NUL", "CON.txt", "trailing."])
+def test_candidate_batch_rejects_cross_platform_unsafe_run_ids(run_id):
+    payload = batch().model_dump(mode="json")
+    payload["run_id"] = run_id
+    with pytest.raises(ValidationError, match="run_id"):
         CandidateBatch.model_validate(payload)

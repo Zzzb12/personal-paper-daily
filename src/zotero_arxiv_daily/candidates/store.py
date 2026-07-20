@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
-from zotero_arxiv_daily.analysis.schemas import CandidateBatch
+from zotero_arxiv_daily.analysis.schemas import CandidateBatch, validate_run_id_value
 
 
 @dataclass(frozen=True)
@@ -22,9 +22,7 @@ class CandidateStore:
         self.root = Path(root)
 
     def path_for(self, run_id: str) -> Path:
-        normalized = run_id.strip()
-        if not normalized or normalized in {".", ".."} or "/" in normalized or "\\" in normalized:
-            raise ValueError("run_id must be a safe file name")
+        normalized = validate_run_id_value(run_id)
         return self.root / f"{normalized}.json"
 
     def write(self, batch: CandidateBatch) -> StoredCandidateBatch:

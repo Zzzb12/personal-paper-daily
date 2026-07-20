@@ -30,7 +30,8 @@ def candidate_batch() -> CandidateBatch:
     ranking = RankingRecord(
         paper_id=paper.paper_id, embedding_score=8.0, final_score=8.0, rank=1,
         reason="similarity", model_versions=RankingModelVersions(
-            provider="fake", model="v1", task="retrieval", scorer="weighted-cosine-v1"
+            provider="fake", model="v1", task="retrieval", scorer="weighted-cosine-v1",
+            embedding_identity_hash="c" * 64,
         ),
     )
     return CandidateBatch(
@@ -68,7 +69,9 @@ def test_read_rejects_corrupt_json(tmp_path):
         store.read("broken")
 
 
-@pytest.mark.parametrize("run_id", ["../escape", "folder/run", r"folder\run", ".", ".."])
+@pytest.mark.parametrize(
+    "run_id", ["../escape", "folder/run", r"folder\run", ".", "..", "bad:name", "NUL"]
+)
 def test_path_for_rejects_unsafe_run_id(tmp_path, run_id):
     with pytest.raises(ValueError, match="run_id"):
         CandidateStore(tmp_path).path_for(run_id)

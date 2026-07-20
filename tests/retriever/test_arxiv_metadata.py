@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 from unittest.mock import Mock
 
 import httpx
@@ -120,6 +121,46 @@ def test_http_gateway_retries_transient_status_without_real_network():
     assert sleeps == [1]
 
 
+def test_http_gateway_bounds_numeric_retry_after():
+    calls = []
+    sleeps = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(429, request=request, headers={"Retry-After": "999"})
+        return httpx.Response(200, request=request, content=ATOM)
+
+    gateway = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        retry_policy=ArxivRetryPolicy(max_attempts=2, backoff_seconds=1, max_retry_after_seconds=60),
+        sleeper=sleeps.append,
+    )
+    gateway.retrieve_entries(("cs.CV",), include_cross_list=True)
+    assert sleeps == [60]
+
+
+def test_http_gateway_supports_http_date_retry_after():
+    calls = []
+    sleeps = []
+    retry_at = NOW + timedelta(seconds=12)
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(429, request=request, headers={"Retry-After": format_datetime(retry_at, usegmt=True)})
+        return httpx.Response(200, request=request, content=ATOM)
+
+    gateway = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        retry_policy=ArxivRetryPolicy(max_attempts=2, backoff_seconds=1, max_retry_after_seconds=60),
+        sleeper=sleeps.append,
+        clock=lambda: NOW,
+    )
+    gateway.retrieve_entries(("cs.CV",), include_cross_list=True)
+    assert sleeps == [12]
+
+
 def test_http_gateway_does_not_retry_permanent_error():
     calls = []
 
@@ -144,6 +185,22 @@ def test_http_gateway_honors_cross_list_policy():
     )
     assert gateway.retrieve_entries(("cs.CV",), include_cross_list=False) == ()
     assert len(gateway.retrieve_entries(("cs.CV",), include_cross_list=True)) == 1
+
+
+def test_http_gateway_isolates_malformed_entry_and_counts_it():
+    malformed = b"""<entry><id>not-an-arxiv-id</id><title>Private bad record</title></entry>"""
+    content = ATOM.replace(b"</feed>", malformed + b"</feed>")
+
+    def handler(request):
+        return httpx.Response(200, request=request, content=content)
+
+    gateway = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)), sleeper=lambda _: None
+    )
+    result = ArxivMetadataRetriever(gateway, categories=("cs.CV",), include_cross_list=True).retrieve()
+    assert len(result.candidates) == 1
+    assert result.retrieved_count == 2
+    assert result.invalid_count == 1
 
 
 def test_http_gateway_default_client_has_explicit_timeouts(monkeypatch):

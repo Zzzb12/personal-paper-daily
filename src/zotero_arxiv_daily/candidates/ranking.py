@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import json
 import os
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 import numpy as np
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator
 
 from zotero_arxiv_daily.analysis.schemas import (
     CandidatePaper,
+    CandidateSelectionLimits,
     InterestPaper,
     RankingModelVersions,
     RankingRecord,
@@ -21,28 +23,98 @@ from zotero_arxiv_daily.reranker.base import weighted_similarity_scores
 
 class EmbeddingIdentity(StrictModel):
     provider: str = Field(min_length=1)
+    implementation_version: str = Field(min_length=1)
     model: str = Field(min_length=1)
     task: str = Field(min_length=1)
+    settings_json: str
+    dimension: int = Field(ge=1)
+    dtype: str
+    cache_schema_version: str = "1"
+
+    @field_validator("settings_json")
+    @classmethod
+    def validate_canonical_settings(cls, value: str) -> str:
+        parsed = json.loads(value)
+        canonical = json.dumps(parsed, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        if value != canonical:
+            raise ValueError("settings_json must be canonical JSON")
+        return value
+
+    @field_validator("dtype")
+    @classmethod
+    def normalize_dtype(cls, value: str) -> str:
+        dtype = np.dtype(value)
+        if dtype.kind != "f":
+            raise ValueError("embedding dtype must be floating point")
+        return dtype.name
+
+    @classmethod
+    def from_settings(
+        cls, *, provider: str, implementation_version: str, model: str, task: str,
+        settings: dict[str, object], dimension: int, dtype: str,
+    ) -> "EmbeddingIdentity":
+        return cls(
+            provider=provider, implementation_version=implementation_version, model=model,
+            task=task,
+            settings_json=json.dumps(settings, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            dimension=dimension, dtype=dtype,
+        )
+
+    def fingerprint(self) -> str:
+        payload = json.dumps(
+            self.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
 
 
-class RankingLimits(StrictModel):
-    candidate_pool_size: int = Field(default=30, ge=1, le=30)
-    llm_rerank_limit: int = Field(default=15, ge=1, le=15)
-    full_analysis_limit: int = Field(default=5, ge=1, le=5)
-
-    @model_validator(mode="after")
-    def validate_order(self) -> "RankingLimits":
-        if self.full_analysis_limit > self.llm_rerank_limit:
-            raise ValueError("full_analysis_limit cannot exceed llm_rerank_limit")
-        if self.llm_rerank_limit > self.candidate_pool_size:
-            raise ValueError("llm_rerank_limit cannot exceed candidate_pool_size")
-        return self
+RankingLimits = CandidateSelectionLimits
 
 
 class EmbeddingProvider(Protocol):
     identity: EmbeddingIdentity
 
     def encode(self, texts: Sequence[str]) -> np.ndarray: ...
+
+
+class SentenceTransformerEmbeddingProvider:
+    """Local production embedding provider with a complete cache identity."""
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        task: str,
+        prompt_name: str | None,
+        encode_kwargs: dict[str, Any],
+        model_factory: Callable[[str], Any] | None = None,
+        implementation_version: str | None = None,
+    ) -> None:
+        if model_factory is None:
+            from sentence_transformers import SentenceTransformer
+
+            model_factory = lambda name: SentenceTransformer(name, trust_remote_code=True)
+        self._encoder = model_factory(model)
+        self._prompt_name = prompt_name
+        self._encode_kwargs = dict(encode_kwargs)
+        dimension = self._encoder.get_sentence_embedding_dimension()
+        if not isinstance(dimension, int) or dimension <= 0:
+            raise ValueError("embedding model must report a positive dimension")
+        version = implementation_version or importlib.metadata.version("sentence-transformers")
+        self.identity = EmbeddingIdentity.from_settings(
+            provider="sentence-transformers",
+            implementation_version=version,
+            model=model,
+            task=task,
+            settings={"prompt_name": prompt_name, "encode_kwargs": self._encode_kwargs},
+            dimension=dimension,
+            dtype="float32",
+        )
+
+    def encode(self, texts: Sequence[str]) -> np.ndarray:
+        kwargs = dict(self._encode_kwargs)
+        if self._prompt_name is not None:
+            kwargs["prompt_name"] = self._prompt_name
+        return np.asarray(self._encoder.encode(list(texts), **kwargs), dtype=np.float32)
 
 
 class RankedCandidates(StrictModel):
@@ -58,38 +130,69 @@ class FileEmbeddingCache:
     def __init__(self, root: Path) -> None:
         self.root = Path(root)
 
-    def _path(self, identity: EmbeddingIdentity, text: str) -> Path:
-        payload = json.dumps(
-            {"cache_version": 1, "identity": identity.model_dump(mode="json"), "text": text},
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        return self.root / f"{hashlib.sha256(payload).hexdigest()}.npy"
+    def _paths(self, identity: EmbeddingIdentity, text: str) -> tuple[Path, Path, str]:
+        text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        key = hashlib.sha256(f"{identity.fingerprint()}:{text_hash}".encode("ascii")).hexdigest()
+        return self.root / f"{key}.npy", self.root / f"{key}.json", text_hash
 
     def load(self, identity: EmbeddingIdentity, text: str) -> np.ndarray | None:
-        path = self._path(identity, text)
+        path, manifest_path, text_hash = self._paths(identity, text)
         try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             vector = np.load(path, allow_pickle=False)
-        except (FileNotFoundError, OSError, ValueError):
+        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
             return None
-        if vector.ndim != 1 or vector.size == 0 or not np.isfinite(vector).all():
+        expected_manifest = {
+            "cache_schema_version": identity.cache_schema_version,
+            "identity": identity.model_dump(mode="json"),
+            "text_sha256": text_hash,
+            "dimension": identity.dimension,
+            "dtype": identity.dtype,
+            "shape": [identity.dimension],
+        }
+        if manifest != expected_manifest:
+            return None
+        if (
+            vector.shape != (identity.dimension,)
+            or vector.dtype.name != identity.dtype
+            or not np.isfinite(vector).all()
+        ):
             return None
         return np.asarray(vector)
 
     def store(self, identity: EmbeddingIdentity, text: str, vector: np.ndarray) -> None:
         value = np.asarray(vector)
-        if value.ndim != 1 or value.size == 0 or not np.isfinite(value).all():
-            raise ValueError("embedding must be a non-empty finite vector")
+        if value.shape != (identity.dimension,) or value.dtype.name != identity.dtype or not np.isfinite(value).all():
+            raise ValueError("embedding must match the identity dimension and dtype")
         self.root.mkdir(parents=True, exist_ok=True)
-        destination = self._path(identity, text)
-        temporary = destination.with_suffix(f".{os.getpid()}.tmp")
+        destination, manifest_path, text_hash = self._paths(identity, text)
+        token = f"{os.getpid()}.{hashlib.sha256(text.encode('utf-8')).hexdigest()[:12]}"
+        temporary = destination.with_name(f"{destination.name}.{token}.tmp")
+        manifest_temporary = manifest_path.with_name(f"{manifest_path.name}.{token}.tmp")
+        manifest = {
+            "cache_schema_version": identity.cache_schema_version,
+            "identity": identity.model_dump(mode="json"),
+            "text_sha256": text_hash,
+            "dimension": identity.dimension,
+            "dtype": identity.dtype,
+            "shape": [identity.dimension],
+        }
         try:
             with temporary.open("wb") as stream:
                 np.save(stream, value, allow_pickle=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            with manifest_temporary.open("wb") as stream:
+                stream.write(
+                    (json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+                )
+                stream.flush()
+                os.fsync(stream.fileno())
             os.replace(temporary, destination)
+            os.replace(manifest_temporary, manifest_path)
         finally:
             temporary.unlink(missing_ok=True)
+            manifest_temporary.unlink(missing_ok=True)
 
 
 class CachedEmbeddingProvider:
@@ -109,7 +212,9 @@ class CachedEmbeddingProvider:
             generated = np.asarray(self.delegate.encode(missing_texts))
             if generated.ndim != 2 or generated.shape[0] != len(missing_texts):
                 raise ValueError("embedding provider returned an invalid matrix shape")
-            if generated.shape[1] == 0 or not np.isfinite(generated).all():
+            if generated.shape[1] != self.identity.dimension or generated.dtype.name != self.identity.dtype:
+                raise ValueError("embedding provider output does not match its identity")
+            if not np.isfinite(generated).all():
                 raise ValueError("embedding provider returned invalid values")
             for index, vector in zip(missing_indexes, generated, strict=True):
                 self.cache.store(self.identity, items[index], vector)
@@ -164,6 +269,7 @@ class CandidateRanker:
             model=self.provider.identity.model,
             task=self.provider.identity.task,
             scorer=self.SCORER_VERSION,
+            embedding_identity_hash=self.provider.identity.fingerprint(),
         )
         papers = tuple(item[0] for item in ordered)
         rankings = tuple(

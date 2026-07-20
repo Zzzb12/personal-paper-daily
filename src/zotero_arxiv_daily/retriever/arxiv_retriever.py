@@ -15,7 +15,8 @@ from loguru import logger
 import requests
 import httpx
 import re
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from collections.abc import Callable
 from pydantic import field_validator, model_validator
 
@@ -112,14 +113,16 @@ class ArxivMetadataRetriever:
         candidates = tuple(latest[key].to_candidate() for key in sorted(latest))
         return ArxivMetadataResult(
             candidates=candidates,
-            retrieved_count=len(entries),
+            retrieved_count=getattr(self._gateway, "retrieved_count", len(entries)),
             deduplicated_count=len(candidates),
+            invalid_count=getattr(self._gateway, "invalid_count", 0),
         )
 
 
 class ArxivRetryPolicy(StrictModel):
     max_attempts: int = 3
     backoff_seconds: float = 1
+    max_retry_after_seconds: float = 60
 
 
 class HttpArxivMetadataGateway:
@@ -132,17 +135,28 @@ class HttpArxivMetadataGateway:
         *,
         retry_policy: ArxivRetryPolicy | None = None,
         sleeper: Callable[[float], None] = sleep,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         owns_client: bool = False,
     ) -> None:
         self._client = client
         self._retry = retry_policy or ArxivRetryPolicy()
         self._sleeper = sleeper
+        self._clock = clock
         self._owns_client = owns_client
+        self.invalid_count = 0
+        self.retrieved_count = 0
 
     @classmethod
-    def from_defaults(cls) -> "HttpArxivMetadataGateway":
-        client = httpx.Client(timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10))
-        return cls(client, owns_client=True)
+    def from_defaults(
+        cls,
+        *,
+        timeout: httpx.Timeout | None = None,
+        retry_policy: ArxivRetryPolicy | None = None,
+    ) -> "HttpArxivMetadataGateway":
+        client = httpx.Client(
+            timeout=timeout or httpx.Timeout(connect=10, read=30, write=10, pool=10)
+        )
+        return cls(client, retry_policy=retry_policy, owns_client=True)
 
     def _get(self, params: dict[str, str | int]) -> httpx.Response:
         for attempt in range(1, self._retry.max_attempts + 1):
@@ -157,7 +171,21 @@ class HttpArxivMetadataGateway:
                     transient = status in {408, 425, 429} or status >= 500
                 if not transient or attempt == self._retry.max_attempts:
                     raise
-                self._sleeper(self._retry.backoff_seconds * attempt)
+                fallback = self._retry.backoff_seconds * attempt
+                raw_retry_after = exc.response.headers.get("Retry-After") if isinstance(exc, httpx.HTTPStatusError) else None
+                delay = fallback
+                if raw_retry_after:
+                    try:
+                        delay = float(raw_retry_after)
+                    except ValueError:
+                        try:
+                            retry_at = parsedate_to_datetime(raw_retry_after)
+                            if retry_at.tzinfo is None:
+                                retry_at = retry_at.replace(tzinfo=UTC)
+                            delay = max(0.0, (retry_at - self._clock().astimezone(UTC)).total_seconds())
+                        except (TypeError, ValueError, OverflowError):
+                            delay = fallback
+                self._sleeper(min(max(delay, 0), self._retry.max_retry_after_seconds))
         raise RuntimeError("unreachable retry loop")
 
     @classmethod
@@ -208,7 +236,16 @@ class HttpArxivMetadataGateway:
             }
         )
         feed = feedparser.parse(response.content)
-        parsed = tuple(self._parse_entry(raw) for raw in feed.entries)
+        parsed_items: list[ArxivMetadataEntry] = []
+        invalid_count = 0
+        for raw in feed.entries:
+            try:
+                parsed_items.append(self._parse_entry(raw))
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+                invalid_count += 1
+        parsed = tuple(parsed_items)
+        self.retrieved_count = len(feed.entries)
+        self.invalid_count = invalid_count
         if include_cross_list:
             return parsed
         allowed = set(categories)

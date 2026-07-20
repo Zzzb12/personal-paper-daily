@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -21,7 +21,26 @@ class StrictModel(BaseModel):
 def _aware(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("datetime must be timezone-aware")
-    return value
+    return value.astimezone(UTC)
+
+
+_SAFE_RUN_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL", *(f"COM{index}" for index in range(1, 10)),
+    *(f"LPT{index}" for index in range(1, 10)),
+}
+
+
+def validate_run_id_value(value: str) -> str:
+    normalized = _non_empty(value)
+    stem = normalized.split(".", 1)[0].upper()
+    if (
+        not _SAFE_RUN_ID_RE.fullmatch(normalized)
+        or normalized.endswith((".", " "))
+        or stem in _WINDOWS_RESERVED_NAMES
+    ):
+        raise ValueError("run_id must be a cross-platform safe file name")
+    return normalized
 
 
 def _non_empty(value: str) -> str:
@@ -130,11 +149,19 @@ class RankingModelVersions(StrictModel):
     model: str
     task: str
     scorer: str
+    embedding_identity_hash: str
 
     @field_validator("provider", "model", "task", "scorer")
     @classmethod
     def normalize_text(cls, value: str) -> str:
         return _non_empty(value)
+
+    @field_validator("embedding_identity_hash")
+    @classmethod
+    def validate_identity_hash(cls, value: str) -> str:
+        if not _SHA256_RE.fullmatch(value):
+            raise ValueError("embedding_identity_hash must be a lowercase SHA-256 digest")
+        return value
 
 
 class RankingRecord(StrictModel):
@@ -178,6 +205,20 @@ class CandidateCounts(StrictModel):
         return self
 
 
+class CandidateSelectionLimits(StrictModel):
+    candidate_pool_size: int = Field(default=30, ge=1, le=30)
+    llm_rerank_limit: int = Field(default=15, ge=1, le=15)
+    full_analysis_limit: int = Field(default=5, ge=1, le=5)
+
+    @model_validator(mode="after")
+    def validate_order(self) -> Self:
+        if self.full_analysis_limit > self.llm_rerank_limit:
+            raise ValueError("full_analysis_limit cannot exceed llm_rerank_limit")
+        if self.llm_rerank_limit > self.candidate_pool_size:
+            raise ValueError("llm_rerank_limit cannot exceed candidate_pool_size")
+        return self
+
+
 class CandidateBatch(StrictModel):
     schema_version: Literal["1.0"] = SCHEMA_VERSION
     run_id: str
@@ -191,14 +232,12 @@ class CandidateBatch(StrictModel):
     selected_for_llm: tuple[str, ...]
     selected_for_full_analysis: tuple[str, ...]
     counts: CandidateCounts
+    limits: CandidateSelectionLimits = CandidateSelectionLimits()
 
     @field_validator("run_id")
     @classmethod
     def validate_run_id(cls, value: str) -> str:
-        normalized = _non_empty(value)
-        if "/" in normalized or "\\" in normalized or normalized in {".", ".."}:
-            raise ValueError("run_id must not contain path separators")
-        return normalized
+        return validate_run_id_value(value)
 
     @field_validator("created_at", "retrieved_at")
     @classmethod
@@ -223,18 +262,18 @@ class CandidateBatch(StrictModel):
     @model_validator(mode="after")
     def validate_relationships(self) -> Self:
         ids = tuple(paper.paper_id for paper in self.candidates)
-        if len(ids) > 30:
-            raise ValueError("candidates must be capped at 30")
+        if len(ids) > self.limits.candidate_pool_size:
+            raise ValueError("candidates must be capped at 30 and the configured candidate_pool_size")
         if len(set(ids)) != len(ids):
             raise ValueError("candidate IDs must be unique")
         if tuple(record.paper_id for record in self.rankings) != ids:
             raise ValueError("rankings must follow candidate order")
         if tuple(record.rank for record in self.rankings) != tuple(range(1, len(ids) + 1)):
             raise ValueError("ranks must be consecutive")
-        if self.selected_for_llm != ids[: min(15, len(ids))]:
-            raise ValueError("selected_for_llm must be an ordered prefix capped at 15")
-        if self.selected_for_full_analysis != ids[: min(5, len(ids))]:
-            raise ValueError("selected_for_full_analysis must be an ordered prefix capped at 5")
+        if self.selected_for_llm != ids[: min(self.limits.llm_rerank_limit, len(ids))]:
+            raise ValueError("selected_for_llm must be the configured ordered prefix capped at 15")
+        if self.selected_for_full_analysis != ids[: min(self.limits.full_analysis_limit, len(ids))]:
+            raise ValueError("selected_for_full_analysis must be the configured ordered prefix capped at 5")
         if any(record.llm_score is not None for record in self.rankings):
             raise ValueError("Stage 1 llm_score must be null")
         return self
