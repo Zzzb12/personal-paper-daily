@@ -81,4 +81,3 @@ def test_more_recent_interests_have_greater_weight():
     vectors = {text(recent): [1, 0], text(old): [0, 1], text(paper): [1, 0]}
     result = CandidateRanker(FakeProvider(vectors)).rank((paper,), (old, recent))
     assert result.rankings[0].embedding_score > 5
-

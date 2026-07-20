@@ -50,4 +50,3 @@ class ZoteroGateway(Protocol):
 
     def list_items(self) -> tuple[ZoteroItem, ...]:
         raise NotImplementedError
-

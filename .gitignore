@@ -34,6 +34,7 @@ data/zotero/
 # Generated paper and LLM caches
 cache/
 data/cache/
+data/candidates/
 
 # Local static-viewer feedback state
 viewer/.reader-state.json
