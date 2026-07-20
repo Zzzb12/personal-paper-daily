@@ -40,6 +40,9 @@ def build_analysis_batch(
         raise ValueError("candidate and document batch run_id values must match")
 
     papers = {paper.paper_id: paper for paper in candidates.candidates}
+    document_ids = tuple(item.paper_id for item in documents.results)
+    if len(document_ids) != len(set(document_ids)):
+        raise ValueError("document batch contains duplicate paper results")
     document_results = {item.paper_id: item for item in documents.results}
     results: list[PaperAnalysisResult] = []
     expensive_calls = 0
@@ -65,7 +68,7 @@ def build_analysis_batch(
         after = _call_count(dependencies.client)
         if getattr(dependencies.client, "is_expensive", True):
             if before is not None and after is not None:
-                expensive_calls += max(after - before, 0)
+                expensive_calls += int(after > before)
             elif not result.cache_hit:
                 expensive_calls += 1
         results.append(result)

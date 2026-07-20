@@ -5,6 +5,7 @@ import pytest
 
 from zotero_arxiv_daily.analysis.analyzer import AnalysisDependencies
 from zotero_arxiv_daily.analysis.cache import AnalysisCache
+from zotero_arxiv_daily.analysis.client import AnalysisClientError
 from zotero_arxiv_daily.analysis.document_schemas import (
     DocumentBatchResult,
     DocumentIssue,
@@ -51,6 +52,14 @@ class DynamicFakeClient:
         source_text = source_evidence["chinese_title"]["evidence_ids"][0]
         source_visual = source_evidence["supporting_visuals"][0]["evidence_id"]
         return response.replace(source_text, text_id).replace(source_visual, visual_id)
+
+
+class RetryOnceClient(DynamicFakeClient):
+    def generate(self, request):
+        if self.calls == 0:
+            self.calls += 1
+            raise AnalysisClientError("analysis_timeout", retryable=True)
+        return super().generate(request)
 
 
 def dependencies(tmp_path):
@@ -155,4 +164,26 @@ def test_pipeline_rejects_a_different_document_batch_run(tmp_path):
         results=(document_result(candidates.candidates[0].paper_id),),
     )
     with pytest.raises(ValueError, match="run_id"):
+        build_analysis_batch(candidates, documents, analyzer_settings(), dependencies(tmp_path))
+
+
+def test_pipeline_counts_an_expensive_paper_once_even_when_client_retries(tmp_path):
+    candidates = batch(count=1, selected=1)
+    documents = document_batch(
+        candidates,
+        (document_result(candidates.candidates[0].paper_id),),
+    )
+    deps = dependencies(tmp_path)
+    deps.client = RetryOnceClient()
+    result = build_analysis_batch(candidates, documents, analyzer_settings(), deps)
+    assert result.results[0].status == "success"
+    assert deps.client.calls == 2
+    assert result.expensive_call_count == 1
+
+
+def test_pipeline_rejects_duplicate_stage_two_paper_results(tmp_path):
+    candidates = batch(count=1, selected=1)
+    item = document_result(candidates.candidates[0].paper_id)
+    documents = document_batch(candidates, (item, item))
+    with pytest.raises(ValueError, match="duplicate"):
         build_analysis_batch(candidates, documents, analyzer_settings(), dependencies(tmp_path))
