@@ -182,6 +182,7 @@ class DocumentGraph(StrictModel):
     mapper_version: str
     config_version: str
     content_fingerprint: str
+    evidence_root: Path | None = None
     pdf: PdfArtifact
     pages: tuple[DocumentPage, ...]
     blocks: tuple[DocumentBlock, ...]
@@ -211,18 +212,32 @@ class DocumentGraph(StrictModel):
 
         block_by_id = {block.block_id: block for block in self.blocks}
         section_by_id = {section.section_id: section for section in self.sections}
+        visual_ids = tuple(visual.visual_id for visual in self.visuals)
         if len(block_by_id) != len(self.blocks):
             raise ValueError("block IDs must be unique")
         if len(section_by_id) != len(self.sections):
             raise ValueError("section IDs must be unique")
+        if len(set(visual_ids)) != len(visual_ids):
+            raise ValueError("visual IDs must be unique")
 
         for page in self.pages:
             if any(block_id not in block_by_id for block_id in page.block_ids):
                 raise ValueError("page contains a dangling block reference")
+        page_memberships: dict[str, list[int]] = {block_id: [] for block_id in block_by_id}
+        for page in self.pages:
+            for block_id in page.block_ids:
+                page_memberships[block_id].append(page.pdf_page)
         for block in self.blocks:
             page = page_by_number.get(block.pdf_page)
             if page is None or not block.bbox.within(width=page.width, height=page.height):
                 raise ValueError("block bounding box is outside page bounds")
+            if page_memberships[block.block_id] != [block.pdf_page]:
+                raise ValueError("each block must occur exactly once on its PDF page")
+            if (
+                block.source_mapping.pdf_page != block.pdf_page
+                or block.source_mapping.bbox != block.bbox
+            ):
+                raise ValueError("block source mapping must match its page and bounding box")
             if block.section_id is not None and block.section_id not in section_by_id:
                 raise ValueError("block contains a dangling section reference")
         for section in self.sections:
@@ -230,15 +245,35 @@ class DocumentGraph(StrictModel):
                 raise ValueError("section contains a dangling parent reference")
             if any(block_id not in block_by_id for block_id in section.block_ids):
                 raise ValueError("section contains a dangling block reference")
+        for section in self.sections:
+            visited: set[str] = set()
+            current: SectionNode | None = section
+            while current is not None:
+                if current.section_id in visited:
+                    raise ValueError("section parent cycle is not allowed")
+                visited.add(current.section_id)
+                current = section_by_id.get(current.parent_id) if current.parent_id else None
         for visual in self.visuals:
             if visual.section_id is not None and visual.section_id not in section_by_id:
                 raise ValueError("visual contains a dangling section reference")
             if any(block_id not in block_by_id for block_id in visual.caption_block_ids):
                 raise ValueError("visual contains a dangling caption block reference")
+            if any(block_by_id[block_id].block_type != "caption" for block_id in visual.caption_block_ids):
+                raise ValueError("visual caption block reference must point to a caption block")
             for region in visual.regions:
                 page = page_by_number.get(region.pdf_page)
                 if page is None or not region.bbox.within(width=page.width, height=page.height):
                     raise ValueError("visual region is outside page bounds")
+                if (
+                    region.source_mapping.pdf_page != region.pdf_page
+                    or region.source_mapping.bbox != region.bbox
+                ):
+                    raise ValueError("visual source mapping must match its page and bounding box")
+                if region.image_path is not None:
+                    if self.evidence_root is None or not region.image_path.resolve().is_relative_to(
+                        self.evidence_root.resolve()
+                    ):
+                        raise ValueError("visual image path must remain inside the evidence root")
         return self
 
 
@@ -256,6 +291,18 @@ class PaperDocumentResult(StrictModel):
             raise ValueError("successful or partial results require a document")
         if self.status in {"failed", "skipped"} and self.document is not None:
             raise ValueError("failed or skipped results must not contain a document")
+        if self.status == "success":
+            all_issues = (
+                *self.issues,
+                *(self.document.issues if self.document else ()),
+                *(
+                    issue
+                    for visual in (self.document.visuals if self.document else ())
+                    for issue in visual.issues
+                ),
+            )
+            if any(issue.severity == "error" for issue in all_issues):
+                raise ValueError("success result cannot contain error severity issues")
         return self
 
 

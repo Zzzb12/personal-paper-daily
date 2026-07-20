@@ -11,12 +11,13 @@ def test_evidence_extractor_writes_deterministic_pngs_for_every_visual_region(tm
     )
 
     first = extract_evidence_images(document, tmp_path / "evidence", scale=1.5)
+    first.visuals[0].regions[0].image_path.write_bytes(b"corrupt png cache")
     second = extract_evidence_images(document, tmp_path / "evidence", scale=1.5)
 
     first_paths = [region.image_path for region in first.visuals[0].regions]
     second_paths = [region.image_path for region in second.visuals[0].regions]
     assert first_paths == second_paths
-    signatures = [path.read_bytes()[:8] if path is not None else None for path in first_paths]
+    signatures = [path.read_bytes()[:8] if path is not None else None for path in second_paths]
     assert signatures == [b"\x89PNG\r\n\x1a\n", b"\x89PNG\r\n\x1a\n"], [
         (issue.code, issue.message) for issue in first.visuals[0].issues
     ]

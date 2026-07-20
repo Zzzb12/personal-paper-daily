@@ -11,6 +11,7 @@ from zotero_arxiv_daily.analysis.document_schemas import (
     DocumentGraph,
     DocumentIssue,
     DocumentPage,
+    PaperDocumentResult,
     PdfArtifact,
     SectionNode,
     SourceMapping,
@@ -137,6 +138,7 @@ def graph() -> DocumentGraph:
         mapper_version="1",
         config_version="1",
         content_fingerprint="b" * 64,
+        evidence_root=Path("cache/documents/images"),
         pdf=artifact(),
         pages=(
             DocumentPage(
@@ -239,4 +241,60 @@ def test_source_mapping_requires_one_based_page_and_bounded_confidence():
             bbox=box,
             mapping_method="provenance",
             confidence=1.01,
+        )
+
+
+def test_document_graph_rejects_source_mapping_that_disagrees_with_its_entity():
+    payload = graph().model_dump()
+    payload["blocks"][0]["source_mapping"]["pdf_page"] = 2
+    with pytest.raises(ValidationError, match="block source mapping"):
+        DocumentGraph.model_validate(payload)
+
+    payload = graph().model_dump()
+    payload["visuals"][0]["regions"][0]["source_mapping"]["bbox"]["left"] = 11
+    with pytest.raises(ValidationError, match="visual source mapping"):
+        DocumentGraph.model_validate(payload)
+
+
+def test_document_graph_requires_each_block_on_exactly_its_own_page():
+    payload = graph().model_dump()
+    payload["pages"][0]["block_ids"] = ()
+    with pytest.raises(ValidationError, match="exactly once on its PDF page"):
+        DocumentGraph.model_validate(payload)
+
+
+def test_document_graph_rejects_duplicate_visuals_cycles_and_non_caption_evidence():
+    payload = graph().model_dump()
+    payload["visuals"] = (payload["visuals"][0], payload["visuals"][0])
+    with pytest.raises(ValidationError, match="visual IDs"):
+        DocumentGraph.model_validate(payload)
+
+    payload = graph().model_dump()
+    payload["sections"][0]["parent_id"] = payload["sections"][0]["section_id"]
+    with pytest.raises(ValidationError, match="section parent cycle"):
+        DocumentGraph.model_validate(payload)
+
+    payload = graph().model_dump()
+    payload["visuals"][0]["caption_block_ids"] = ("heading-1",)
+    with pytest.raises(ValidationError, match="caption block reference"):
+        DocumentGraph.model_validate(payload)
+
+
+def test_document_graph_rejects_evidence_images_outside_declared_root():
+    payload = graph().model_dump()
+    payload["visuals"][0]["regions"][0]["image_path"] = Path("../escape.png").resolve()
+    with pytest.raises(ValidationError, match="evidence root"):
+        DocumentGraph.model_validate(payload)
+
+
+def test_success_result_rejects_error_severity_issues():
+    with pytest.raises(ValidationError, match="success result cannot contain error"):
+        PaperDocumentResult(
+            paper_id="arxiv:2401.00001",
+            status="success",
+            document=graph(),
+            issues=(
+                DocumentIssue(code="broken", severity="error", message="blocking issue"),
+            ),
+            processing_seconds=0,
         )

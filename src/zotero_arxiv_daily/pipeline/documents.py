@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -17,9 +17,17 @@ from zotero_arxiv_daily.analysis.document_schemas import (
     PdfArtifact,
 )
 from zotero_arxiv_daily.analysis.schemas import CandidateBatch, StrictModel
-from zotero_arxiv_daily.documents.downloader import DownloadedPdf, PdfDownloadError, PdfDownloadPolicy
-from zotero_arxiv_daily.documents.inspector import PdfInspection
-from zotero_arxiv_daily.documents.parser import ParsedDocumentResult
+from zotero_arxiv_daily.documents.cache import DocumentGraphCache
+from zotero_arxiv_daily.documents.downloader import (
+    DownloadedPdf,
+    PdfDownloadError,
+    PdfDownloadPolicy,
+    SafePdfDownloader,
+)
+from zotero_arxiv_daily.documents.images import extract_evidence_images
+from zotero_arxiv_daily.documents.inspector import PdfInspection, inspect_pdf
+from zotero_arxiv_daily.documents.mapper import MAPPER_VERSION, map_document
+from zotero_arxiv_daily.documents.parser import DoclingDocumentParser, ParsedDocumentResult
 from zotero_arxiv_daily.documents.selection import selected_papers
 
 
@@ -28,12 +36,14 @@ class DocumentPipelineSettings(StrictModel):
     docling_artifacts_path: Path = Path("models/docling")
     max_download_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
     max_pages: int = Field(default=100, ge=1)
+    document_timeout_seconds: float = Field(default=300, gt=0)
     connect_timeout: float = Field(default=10, gt=0)
     read_timeout: float = Field(default=30, gt=0)
     write_timeout: float = Field(default=10, gt=0)
     pool_timeout: float = Field(default=10, gt=0)
     max_attempts: int = Field(default=3, ge=1, le=5)
     backoff_seconds: float = Field(default=1, ge=0, le=60)
+    max_retry_after_seconds: float = Field(default=60, ge=0, le=300)
     config_version: str = "1"
 
     def download_policy(self) -> PdfDownloadPolicy:
@@ -44,6 +54,7 @@ class DocumentPipelineSettings(StrictModel):
             pool_timeout=self.pool_timeout,
             max_attempts=self.max_attempts,
             backoff_seconds=self.backoff_seconds,
+            max_retry_after_seconds=self.max_retry_after_seconds,
             max_bytes=self.max_download_bytes,
         )
 
@@ -53,12 +64,23 @@ class Downloader(Protocol):
 
 
 class Parser(Protocol):
+    parser_version: str
+
     def parse(
         self, path: Path, *, max_pages: int, max_file_size: int
     ) -> ParsedDocumentResult: ...
 
 
 class Cache(Protocol):
+    def read(
+        self,
+        *,
+        pdf_sha256: str,
+        parser_version: str,
+        mapper_version: str,
+        config_version: str,
+    ) -> DocumentGraph | None: ...
+
     def write(self, document: DocumentGraph) -> Any: ...
 
 
@@ -71,6 +93,33 @@ class DocumentPipelineDependencies:
     image_extractor: Callable[[DocumentGraph, Path], DocumentGraph]
     cache: Cache
     clock: Callable[[], datetime]
+    close_callbacks: tuple[Callable[[], None], ...] = ()
+
+    def close(self) -> None:
+        for callback in reversed(self.close_callbacks):
+            callback()
+
+
+def build_document_dependencies(
+    settings: DocumentPipelineSettings,
+) -> DocumentPipelineDependencies:
+    downloader = SafePdfDownloader(
+        settings.cache_root / "downloads", policy=settings.download_policy()
+    )
+    parser = DoclingDocumentParser(
+        artifacts_path=settings.docling_artifacts_path,
+        document_timeout_seconds=settings.document_timeout_seconds,
+    )
+    return DocumentPipelineDependencies(
+        downloader=downloader,
+        inspector=inspect_pdf,
+        parser=parser,
+        mapper=map_document,
+        image_extractor=extract_evidence_images,
+        cache=DocumentGraphCache(settings.cache_root),
+        clock=lambda: datetime.now(UTC),
+        close_callbacks=(downloader.close,),
+    )
 
 
 def build_document_batch(
@@ -100,6 +149,27 @@ def _process_paper(
         if not inspection.can_parse:
             return _failed_result(paper_id, inspection.issues, started)
 
+        artifact = _pdf_artifact(downloaded, inspection, dependencies.clock())
+        cached = dependencies.cache.read(
+            pdf_sha256=downloaded.sha256,
+            parser_version=dependencies.parser.parser_version,
+            mapper_version=MAPPER_VERSION,
+            config_version=settings.config_version,
+        )
+        if cached is not None:
+            cached = DocumentGraph.model_validate(
+                cached.model_copy(update={"pdf": artifact}).model_dump()
+            )
+            issues = _graph_issues(cached)
+            return PaperDocumentResult(
+                paper_id=paper_id,
+                status="partial" if issues else "success",
+                document=cached,
+                issues=issues,
+                processing_seconds=time.perf_counter() - started,
+                cache_hit=True,
+            )
+
         parsed = dependencies.parser.parse(
             downloaded.path,
             max_pages=settings.max_pages,
@@ -108,7 +178,6 @@ def _process_paper(
         if parsed.status == "failed" or parsed.document is None:
             return _failed_result(paper_id, parsed.issues, started)
 
-        artifact = _pdf_artifact(downloaded, inspection, dependencies.clock())
         graph = dependencies.mapper(
             parsed.document,
             artifact,
@@ -172,6 +241,12 @@ def _all_document_issues(
 ) -> tuple[DocumentIssue, ...]:
     return (
         *parsed.issues,
+        *_graph_issues(graph),
+    )
+
+
+def _graph_issues(graph: DocumentGraph) -> tuple[DocumentIssue, ...]:
+    return (
         *graph.issues,
         *(issue for visual in graph.visuals for issue in visual.issues),
     )

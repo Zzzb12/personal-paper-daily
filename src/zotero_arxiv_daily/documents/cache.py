@@ -9,6 +9,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from zotero_arxiv_daily.analysis.document_schemas import DocumentGraph
+from zotero_arxiv_daily.documents.images import _valid_png
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,12 @@ class DocumentGraphCache:
             or graph.parser_version != parser_version
             or graph.mapper_version != mapper_version
             or graph.config_version != config_version
+        ):
+            return None
+        if any(
+            region.image_path is not None and not _valid_png(region.image_path)
+            for visual in graph.visuals
+            for region in visual.regions
         ):
             return None
         return graph

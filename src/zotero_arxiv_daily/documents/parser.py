@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
@@ -8,6 +9,9 @@ from pydantic import Field
 
 from zotero_arxiv_daily.analysis.document_schemas import DocumentIssue
 from zotero_arxiv_daily.analysis.schemas import StrictModel
+
+
+DOCLING_VERSION = version("docling")
 
 
 class ParsedBoundingBox(StrictModel):
@@ -47,6 +51,8 @@ class ParsedDocumentResult(StrictModel):
 
 
 class DocumentParser(Protocol):
+    parser_version: str
+
     def parse(
         self, path: Path, *, max_pages: int, max_file_size: int
     ) -> ParsedDocumentResult: ...
@@ -58,6 +64,7 @@ class DoclingParserConfig(StrictModel):
     do_table_structure: Literal[True] = True
     pipeline: Literal["standard"] = "standard"
     allow_remote_services: Literal[False] = False
+    document_timeout_seconds: float = Field(default=300, gt=0)
 
 
 class Converter(Protocol):
@@ -70,8 +77,13 @@ class DoclingDocumentParser:
         *,
         artifacts_path: Path,
         converter_factory: Callable[[DoclingParserConfig], Converter] | None = None,
+        document_timeout_seconds: float = 300,
     ) -> None:
-        self.config = DoclingParserConfig(artifacts_path=Path(artifacts_path))
+        self.config = DoclingParserConfig(
+            artifacts_path=Path(artifacts_path),
+            document_timeout_seconds=document_timeout_seconds,
+        )
+        self.parser_version = DOCLING_VERSION
         self.converter_factory = converter_factory or _build_docling_converter
 
     def parse(
@@ -95,6 +107,8 @@ class DoclingDocumentParser:
                 max_num_pages=max_pages,
                 max_file_size=max_file_size,
             )
+        except TimeoutError:
+            return _failure("parser_timeout", "Docling conversion exceeded its configured timeout")
         except (FileNotFoundError, OSError) as exc:
             return _failure(
                 "parser_model_unavailable",
@@ -106,6 +120,10 @@ class DoclingDocumentParser:
         status = _status_value(getattr(result, "status", "failure"))
         document = getattr(result, "document", None)
         if status == "failure" or document is None:
+            if "timeout" in " ".join(str(error) for error in (getattr(result, "errors", ()) or ())).lower():
+                return _failure(
+                    "parser_timeout", "Docling conversion exceeded its configured timeout"
+                )
             return _failure("parser_failed", "Docling returned a failed conversion")
         try:
             parsed = _map_docling_document(document)
@@ -138,6 +156,9 @@ def _build_docling_converter(config: DoclingParserConfig) -> Converter:
     options.generate_page_images = False
     options.generate_picture_images = False
     options.artifacts_path = config.artifacts_path
+    options.document_timeout = config.document_timeout_seconds
+    options.enable_remote_services = config.allow_remote_services
+    options.allow_external_plugins = False
     return DocumentConverter(
         allowed_formats=[InputFormat.PDF],
         format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)},
@@ -145,8 +166,6 @@ def _build_docling_converter(config: DoclingParserConfig) -> Converter:
 
 
 def _map_docling_document(document: Any) -> ParsedDocument:
-    import docling
-
     items: list[ParsedItem] = []
     for reading_order, (item, level) in enumerate(
         document.iterate_items(with_groups=True, traverse_pictures=True)
@@ -174,7 +193,7 @@ def _map_docling_document(document: Any) -> ParsedDocument:
                 provenance=provenance,
             )
         )
-    return ParsedDocument(parser_version=str(getattr(docling, "__version__", "unknown")), items=tuple(items))
+    return ParsedDocument(parser_version=DOCLING_VERSION, items=tuple(items))
 
 
 def _map_provenance(value: Any) -> ParsedProvenance:

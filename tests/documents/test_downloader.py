@@ -135,3 +135,102 @@ def test_download_uses_validated_cache_without_a_second_request(tmp_path):
     assert attempts == 1
     assert first.path == second.path
     assert second.cache_hit is True
+
+
+def test_download_rejects_unapproved_hosts_and_credentials_before_network(tmp_path):
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        raise AssertionError("unsafe URL must not reach the transport")
+
+    service = downloader(tmp_path, handler)
+    with pytest.raises(PdfDownloadError) as private_failure:
+        service.download("http://127.0.0.1/private.pdf")
+    assert private_failure.value.code == "unsafe_pdf_url"
+
+    with pytest.raises(PdfDownloadError) as credential_failure:
+        service.download("https://user:super-secret@arxiv.org/pdf/paper.pdf")
+    assert credential_failure.value.code == "unsafe_pdf_url"
+    assert "super-secret" not in str(credential_failure.value)
+    assert attempts == 0
+
+
+def test_download_validates_redirect_target_before_following_it(tmp_path):
+    requested_hosts = []
+
+    def handler(request):
+        requested_hosts.append(request.url.host)
+        return httpx.Response(302, headers={"location": "http://127.0.0.1/internal.pdf"})
+
+    with pytest.raises(PdfDownloadError) as failure:
+        downloader(tmp_path, handler).download("https://arxiv.org/pdf/paper.pdf")
+    assert failure.value.code == "unsafe_pdf_url"
+    assert requested_hosts == ["arxiv.org"]
+
+
+def test_download_rejects_a_truncated_response(tmp_path):
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/pdf", "content-length": str(len(PDF_BYTES) + 10)},
+            content=PDF_BYTES,
+        )
+
+    with pytest.raises(PdfDownloadError) as failure:
+        downloader(tmp_path, handler).download(URL)
+    assert failure.value.code == "truncated_response"
+    assert not tuple(tmp_path.rglob("*.pdf"))
+
+
+def test_cached_pdf_must_still_respect_current_size_limit(tmp_path):
+    def handler(request):
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=PDF_BYTES)
+
+    downloader(tmp_path, handler).download(URL)
+    with pytest.raises(PdfDownloadError) as failure:
+        downloader(tmp_path, handler, max_bytes=8).download(URL)
+    assert failure.value.code == "size_limit_exceeded"
+
+
+@pytest.mark.parametrize("status_code", [409, 425])
+def test_download_retries_additional_transient_http_statuses(tmp_path, status_code):
+    attempts = 0
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(status_code, request=request)
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=PDF_BYTES)
+
+    assert downloader(tmp_path, handler).download(URL).path.is_file()
+    assert attempts == 2
+
+
+def test_download_bounds_retry_after_delay(tmp_path):
+    attempts = 0
+    delays = []
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(429, headers={"retry-after": "999"}, request=request)
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=PDF_BYTES)
+
+    policy = PdfDownloadPolicy(
+        max_attempts=2,
+        backoff_seconds=0,
+        max_retry_after_seconds=60,
+        max_bytes=1024,
+    )
+    service = SafePdfDownloader(
+        tmp_path,
+        policy=policy,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=delays.append,
+    )
+    service.download(URL)
+    assert delays == [60]

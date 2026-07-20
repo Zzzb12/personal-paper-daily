@@ -57,13 +57,23 @@ def map_document(
     for item in sorted(parsed.items, key=lambda value: value.reading_order):
         if is_heading(item.label) and item.provenance:
             mapping = _source_mapping(parsed, item, item.provenance[0], page_by_number, 0)
-            if mapping is not None and mapping.bbox is not None:
+            if not item.text.strip():
+                issues.append(
+                    DocumentIssue(
+                        code="section_title_not_found",
+                        severity="warning",
+                        message="heading item has no title text; no section was created",
+                        pdf_page=item.provenance[0].pdf_page,
+                        source_item_id=item.item_id,
+                    )
+                )
+            elif mapping is not None and mapping.bbox is not None:
                 level = normalized_section_level(item.level)
                 while section_stack and section_stack[-1].level >= level:
                     section_stack.pop()
                 section = _SectionBuilder(
                     section_id=_stable_id(pdf.sha256, "section", item.item_id),
-                    title=item.text or "Untitled section",
+                    title=item.text,
                     level=level,
                     parent_id=section_stack[-1].section_id if section_stack else None,
                     source_mapping=mapping,
@@ -150,9 +160,20 @@ def map_document(
             for block_id in block_ids_by_source.get(caption_item.item_id, ())
         )
         caption_texts = tuple(value.text.strip() for value in caption_items if value.text.strip())
-        caption = " ".join(caption_texts) or None
+        raw_caption = " ".join(caption_texts) or None
+        caption = raw_caption if raw_caption is not None and caption_block_ids else None
         kind = "table" if item.label.lower() == "table" else "figure"
-        if caption is None:
+        if raw_caption is not None and not caption_block_ids:
+            visual_issues.append(
+                DocumentIssue(
+                    code="caption_source_not_mapped",
+                    severity="warning",
+                    message="caption text has no mapped PDF text block and was not emitted",
+                    pdf_page=regions[0].pdf_page,
+                    source_item_id=item.item_id,
+                )
+            )
+        elif caption is None:
             visual_issues.append(
                 DocumentIssue(
                     code="caption_not_found",

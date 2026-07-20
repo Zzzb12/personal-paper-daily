@@ -83,7 +83,11 @@ def test_parser_disables_ocr_and_vlm_and_preserves_docling_provenance(tmp_path):
         observed_config = config
         return converter
 
-    parser = DoclingDocumentParser(artifacts_path=models, converter_factory=factory)
+    parser = DoclingDocumentParser(
+        artifacts_path=models,
+        converter_factory=factory,
+        document_timeout_seconds=12,
+    )
     pdf = text_pdf(tmp_path / "paper.pdf", pages=2)
     result = parser.parse(pdf, max_pages=10, max_file_size=1024 * 1024)
 
@@ -91,7 +95,9 @@ def test_parser_disables_ocr_and_vlm_and_preserves_docling_provenance(tmp_path):
     assert observed_config.do_ocr is False
     assert observed_config.pipeline == "standard"
     assert observed_config.allow_remote_services is False
+    assert observed_config.document_timeout_seconds == 12
     assert converter.calls == [(pdf, {"raises_on_error": False, "max_num_pages": 10, "max_file_size": 1024 * 1024})]
+    assert result.document.parser_version == "2.113.0"
     table = result.document.items[2]
     assert table.item_id == "#/tables/0"
     assert table.label == "table"
@@ -120,6 +126,14 @@ def test_parser_translates_partial_and_failed_conversion_states(tmp_path):
     assert failed.status == "failed"
     assert failed.document is None
     assert failed.issues[0].code == "parser_failed"
+
+    timed_out = DoclingDocumentParser(
+        artifacts_path=models,
+        converter_factory=lambda config: FakeConverter(
+            SimpleNamespace(status="failure", document=None, errors=("document timeout",))
+        ),
+    ).parse(text_pdf(tmp_path / "timeout.pdf"), max_pages=10, max_file_size=1024 * 1024)
+    assert timed_out.issues[0].code == "parser_timeout"
 
 
 def test_parser_rejects_urls_so_download_policy_cannot_be_bypassed(tmp_path):

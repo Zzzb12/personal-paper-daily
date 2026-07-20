@@ -176,3 +176,39 @@ def test_mapper_marks_overlapping_rows_in_separate_columns_as_uncertain():
     graph = map_document(parsed, pdf(), inspection())
     assert [block.text for block in graph.blocks] == ["left column", "right column"]
     assert "two_column_order_uncertain" in {issue.code for issue in graph.issues}
+
+
+def test_mapper_does_not_invent_a_title_for_an_empty_heading():
+    parsed = ParsedDocument(
+        parser_version="2.113.0",
+        items=(
+            item("heading", "section_header", "", 0, [provenance(1, 50, 760, 550, 730)]),
+            item("body", "text", "body", 1, [provenance(1, 50, 700, 550, 650)]),
+        ),
+    )
+    document = map_document(parsed, pdf(), inspection())
+    assert document.sections == ()
+    assert document.blocks[0].section_id is None
+    assert "section_title_not_found" in {issue.code for issue in document.issues}
+
+
+def test_mapper_does_not_emit_caption_text_without_mapped_caption_evidence():
+    parsed = ParsedDocument(
+        parser_version="2.113.0",
+        items=(
+            item("caption", "caption", "Figure 1. Unmapped caption", 0, []),
+            item(
+                "picture",
+                "picture",
+                "",
+                1,
+                [provenance(1, 50, 650, 550, 250)],
+                captions=("caption",),
+            ),
+        ),
+    )
+    visual = map_document(parsed, pdf(), inspection()).visuals[0]
+    assert visual.caption is None
+    assert visual.label is None
+    assert visual.caption_block_ids == ()
+    assert "caption_source_not_mapped" in {issue.code for issue in visual.issues}

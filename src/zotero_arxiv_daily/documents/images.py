@@ -65,7 +65,7 @@ def extract_evidence_images(
                     if not target.resolve().is_relative_to(root):
                         raise ValueError("evidence image path escapes its cache root")
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    if not target.is_file():
+                    if not _valid_png(target):
                         pixmap = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=clip, alpha=False)
                         _atomic_write(target, pixmap.tobytes("png"))
                     regions.append(region.model_copy(update={"image_path": target}))
@@ -83,7 +83,9 @@ def extract_evidence_images(
             visuals.append(
                 visual.model_copy(update={"regions": tuple(regions), "issues": tuple(issues)})
             )
-        return DocumentGraph.model_validate(graph.model_copy(update={"visuals": tuple(visuals)}).model_dump())
+        return DocumentGraph.model_validate(
+            graph.model_copy(update={"visuals": tuple(visuals), "evidence_root": root}).model_dump()
+        )
     finally:
         document.close()
 
@@ -110,3 +112,13 @@ def _atomic_write(target: Path, data: bytes) -> None:
         os.replace(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _valid_png(path: Path) -> bool:
+    try:
+        if not path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
+            return False
+        pixmap = pymupdf.Pixmap(path)
+        return pixmap.width > 0 and pixmap.height > 0
+    except (OSError, RuntimeError, ValueError):
+        return False

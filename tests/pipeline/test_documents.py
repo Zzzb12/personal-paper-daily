@@ -11,6 +11,7 @@ from zotero_arxiv_daily.documents.parser import ParsedDocument, ParsedDocumentRe
 from zotero_arxiv_daily.pipeline.documents import (
     DocumentPipelineDependencies,
     DocumentPipelineSettings,
+    build_document_dependencies,
     build_document_batch,
 )
 from tests.analysis.test_document_schemas import graph
@@ -66,6 +67,8 @@ class FakeDownloader:
 
 
 class FakeParser:
+    parser_version = "2.113.0"
+
     def __init__(self):
         self.paths = []
 
@@ -78,18 +81,24 @@ class FakeParser:
 
 
 class FakeCache:
-    def __init__(self):
+    def __init__(self, cached=None):
         self.documents = []
+        self.cached = cached
+        self.reads = []
+
+    def read(self, **kwargs):
+        self.reads.append(kwargs)
+        return self.cached
 
     def write(self, document):
         self.documents.append(document)
         return SimpleNamespace(path=Path("cache/documents/graph.json"))
 
 
-def dependencies(downloader=None, inspection=None):
+def dependencies(downloader=None, inspection=None, cached=None):
     downloader = downloader or FakeDownloader()
     parser = FakeParser()
-    cache = FakeCache()
+    cache = FakeCache(cached)
     clean = graph()
     clean = clean.model_copy(
         update={
@@ -170,6 +179,28 @@ def test_pipeline_stops_scanned_document_before_docling(tmp_path):
     assert not cache.documents
 
 
+def test_pipeline_uses_exact_version_graph_cache_before_docling(tmp_path):
+    cached = graph().model_copy(update={"parser_version": "2.113.0"})
+    deps, parser, cache = dependencies(cached=cached)
+    result = build_document_batch(
+        batch(count=1, selected=1),
+        DocumentPipelineSettings(cache_root=tmp_path, docling_artifacts_path=tmp_path / "models"),
+        deps,
+    )
+    assert result.results[0].cache_hit is True
+    assert result.results[0].status == "partial"
+    assert not parser.paths
+    assert not cache.documents
+    assert cache.reads == [
+        {
+            "pdf_sha256": "a" * 64,
+            "parser_version": "2.113.0",
+            "mapper_version": "1",
+            "config_version": "1",
+        }
+    ]
+
+
 def test_stage_two_config_has_bounded_resource_defaults():
     base = OmegaConf.load(Path(__file__).parents[2] / "config" / "base.yaml")
     assert OmegaConf.to_container(base.document_pipeline, resolve=True) == {
@@ -177,7 +208,26 @@ def test_stage_two_config_has_bounded_resource_defaults():
         "docling_artifacts_path": "models/docling",
         "max_download_bytes": 52428800,
         "max_pages": 100,
+        "document_timeout_seconds": 300,
         "request_timeout": {"connect": 10, "read": 30, "write": 10, "pool": 10},
-        "retry": {"max_attempts": 3, "backoff_seconds": 1},
+        "retry": {"max_attempts": 3, "backoff_seconds": 1, "max_retry_after_seconds": 60},
         "config_version": "1",
     }
+
+
+def test_production_dependency_factory_wires_local_bounded_components(tmp_path):
+    settings = DocumentPipelineSettings(
+        cache_root=tmp_path / "cache",
+        docling_artifacts_path=tmp_path / "models",
+        max_download_bytes=1234,
+        document_timeout_seconds=12,
+    )
+    deps = build_document_dependencies(settings)
+    try:
+        assert deps.downloader.root == tmp_path / "cache" / "downloads"
+        assert deps.downloader.policy.max_bytes == 1234
+        assert deps.parser.config.artifacts_path == tmp_path / "models"
+        assert deps.parser.config.document_timeout_seconds == 12
+        assert deps.cache.root == (tmp_path / "cache").resolve()
+    finally:
+        deps.close()

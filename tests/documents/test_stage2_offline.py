@@ -38,6 +38,8 @@ def test_stage_two_offline_path_downloads_only_selected_and_emits_grounded_graph
     )
 
     class OfflineParser:
+        parser_version = "2.113.0"
+
         def parse(self, path, **kwargs):
             return ParsedDocumentResult(
                 status="success", document=parsed_with_cross_page_table()

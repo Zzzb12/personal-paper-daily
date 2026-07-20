@@ -64,6 +64,7 @@ document_pipeline:
   docling_artifacts_path: models/docling
   max_download_bytes: 52428800
   max_pages: 100
+  document_timeout_seconds: 300
   request_timeout: {connect: 10, read: 30, write: 10, pool: 10}
-  retry: {max_attempts: 3, backoff_seconds: 1}
+  retry: {max_attempts: 3, backoff_seconds: 1, max_retry_after_seconds: 60}
   config_version: "1"
