@@ -18,10 +18,10 @@ No paid LLM call, real email delivery, bulk PDF download, or upstream write is a
 - Stage 0 branch: `chore/bootstrap-personal-paper-daily`.
 - Private GitHub repository name, when GitHub CLI authentication is available: `personal-paper-daily`.
 - Private repository remote name: `origin`.
-- Never force-push, create a public repository, create a pull request, modify upstream, add Hermes as a submodule, or merge Hermes Git history.
+- Never force-push, create a public repository, create a pull request, modify upstream, add Hermes as a submodule, or merge unrelated Git history.
 - The local Hermes archive remains outside the repository at `F:\Yan_0\Video_generaton\PaperDaily\hermes-arxiv-agent-main.zip` and must not be tracked.
 
-The base repository is AGPL-3.0 and its license and notices remain intact. The user explicitly authorized inspection and modification of the local Hermes archive. The archive contains no `LICENSE`, `COPYING`, or `NOTICE`; its source and absent license are recorded. Stage 0 does not migrate Hermes business code. Later direct reuse must preserve provenance and be rechecked before any public distribution.
+The base repository is AGPL-3.0 and its license and notices remain intact. The project owner confirms that the user-supplied Hermes archive is licensed for use, modification, adaptation, and code reuse in this project. Its source and provenance are recorded. Stage 0 does not migrate Hermes business code because that work belongs to later roadmap stages.
 
 ## Baseline Audit
 
@@ -43,7 +43,7 @@ Fast, slow, Docker-backed, network-dependent, credential-dependent, model-downlo
 - `docs/PRODUCT_SPEC.md`: user scenario, inputs, recommendation and PDF-analysis flows, Chinese output contract, evidence binding, Feishu and web outputs, feedback states, non-goals, and first-version limits.
 - `docs/ARCHITECTURE.md`: module inputs, outputs, dependencies, data flow, caches, error isolation, test seams, and reuse/adaptation/new-module decisions.
 - `docs/IMPLEMENTATION_PLAN.md`: independently acceptable Stages 0–9, each with goal, non-goals, files, structures, implementation and test-first steps, acceptance criteria, risks, rollback, and proposed commits.
-- `docs/BASELINE.md`: upstream revision, tree, reusable modules, commands and results, known issues, local operation, upstream updates, and Hermes provenance/license notes.
+- `docs/BASELINE.md`: upstream revision, tree, reusable modules, commands and results, known issues, local operation, upstream updates, and Hermes licensed-source provenance.
 - `.env.example`: empty documented placeholders for Zotero, LLM, and Feishu settings.
 - `.gitignore`: upstream rules plus `.env` exceptions, PDFs, parsed-paper and LLM caches, private Zotero data, local reader state, Python/test/IDE caches, logs, and temporary directories.
 
@@ -51,7 +51,7 @@ Fast, slow, Docker-backed, network-dependent, credential-dependent, model-downlo
 
 The architecture retains narrow, testable boundaries. Existing retriever and reranker registries are preferred for reuse. The existing executor, Zotero access, configuration, protocols, PDF/LLM calls, and email path are classified after source inspection as direct reuse, adaptation, or replacement; no core interface is removed or changed without approval.
 
-New design boundaries cover the Zotero interest provider, candidate store, PDF downloader and parser, section parser, caption detector, evidence extractor, document mapper, structured analysis schemas, LLM analyzer, evidence validator, Feishu renderer/client, static viewer builder, feedback store, and GitHub Actions pipeline.
+New design boundaries cover the Zotero interest provider, candidate store, PDF downloader and parser, section parser, caption detector, evidence extractor, document mapper, structured analysis schemas, LLM analyzer, evidence validator, Feishu renderer/client, static viewer builder, feedback store, and GitHub Actions pipeline. The licensed Hermes source may be reused, modified, or adapted where it provides a suitable implementation, with provenance retained and integration performed in later stage-specific commits.
 
 The long-term data flow is:
 
@@ -65,12 +65,6 @@ The long-term data flow is:
 8. Persist read, favorite, and irrelevant feedback outside tracked local state.
 
 Every evidence item records PDF page, section, Figure/Table label, caption, evidence text, image path, confidence, and how the visual supports the claim. Missing information is `null` or explicitly “论文未明确提供”. Outputs distinguish author statements, system summaries, and system inference; inference always has `inferred=true`.
-
-## Hermes Reference Boundary
-
-Stage 0 may extract the user-provided archive into an isolated reference location and inspect its Feishu rendering, Chinese generation prompts/data, static viewer, JSON files, and browser-local feedback. It does not add the archive or extracted datasets to Git and does not copy business code into the product in Stage 0.
-
-Later stages may adapt or reimplement the useful concepts, including compact Chinese cards, date/search views, a generated static data bundle, GitHub Pages publishing, and `localStorage` feedback. Any direct code migration is isolated in a reviewable commit with provenance noted and is prohibited from silently replacing upstream core interfaces.
 
 ## Verification and Git Completion
 
