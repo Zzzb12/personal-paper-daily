@@ -232,14 +232,14 @@ def _validate_packet_against_document(
     section_by_id = {section.section_id: section for section in document.sections}
     visual_by_id = {visual.visual_id: visual for visual in document.visuals}
     section_paths: dict[str, tuple[str, ...]] = {}
-    for section_id, section in section_by_id.items():
+    for section_index, (section_id, section) in enumerate(section_by_id.items()):
         path = _section_path(section, section_by_id)
         if path is None:
             issues.append(
                 _issue(
                     "section_hierarchy_invalid",
                     paper_id,
-                    field_path=f"sections.{section_id}",
+                    field_path=f"sections.{section_index}",
                 )
             )
             path = ()

@@ -227,3 +227,26 @@ def test_invalid_text_or_visual_section_hierarchy_is_rejected(
 
     assert result.status == "invalid"
     assert "section_hierarchy_invalid" in issue_codes(result)
+
+
+@pytest.mark.parametrize("unsafe_section_id", ["section/unsafe", "section unsafe"])
+def test_unsafe_section_id_hierarchy_error_is_structured_invalid(
+    unsafe_section_id: str,
+) -> None:
+    inputs = golden_inputs()
+    original = inputs.document.sections[0]
+    corrupt = original.model_copy(
+        update={"section_id": unsafe_section_id, "parent_id": unsafe_section_id}
+    )
+    sections = (corrupt, *inputs.document.sections[1:])
+
+    result = validate_paper(
+        inputs.candidate,
+        inputs.document.model_copy(update={"sections": sections}),
+        inputs.packet,
+        inputs.analysis_result,
+    )
+
+    assert result.status == "invalid"
+    issue = next(item for item in result.issues if item.code == "section_hierarchy_invalid")
+    assert issue.field_path == "sections.0"
