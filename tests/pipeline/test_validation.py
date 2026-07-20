@@ -23,6 +23,10 @@ from zotero_arxiv_daily.analysis.schemas import (
     RankingRecord,
 )
 from zotero_arxiv_daily.analysis.validation_cache import ValidationCache
+from zotero_arxiv_daily.documents.evidence import (
+    evidence_candidate_id,
+    evidence_packet_fingerprint,
+)
 from zotero_arxiv_daily.pipeline.validation import (
     ValidationDependencies,
     ValidationSettings,
@@ -61,23 +65,92 @@ def _clone(inputs: GoldenInputs, index: int) -> GoldenInputs:
         }
     )
     packet_candidates = tuple(
-        item.model_copy(update={"paper_id": paper_id})
+        item.model_copy(
+            update={
+                "paper_id": paper_id,
+                "evidence_id": evidence_candidate_id(
+                    document.pdf.sha256, item.kind, item.regions
+                ),
+            }
+        )
         for item in inputs.packet.candidates
     )
+    old_to_new = {
+        old.evidence_id: new.evidence_id
+        for old, new in zip(inputs.packet.candidates, packet_candidates, strict=True)
+    }
+    def remap_claim(claim):
+        return claim.model_copy(
+            update={"evidence_ids": tuple(old_to_new[item] for item in claim.evidence_ids)}
+        )
     packet = inputs.packet.model_copy(
         update={
             "paper_id": paper_id,
             "document_fingerprint": document.content_fingerprint,
-            "packet_fingerprint": f"{index + 8:x}"[-1] * 64,
             "candidates": packet_candidates,
         }
     )
+    packet = packet.model_copy(
+        update={
+            "packet_fingerprint": evidence_packet_fingerprint(
+                paper_id=paper_id,
+                document_fingerprint=document.content_fingerprint,
+                builder_version=packet.builder_version,
+                candidates=packet_candidates,
+            )
+        }
+    )
+    source_analysis = inputs.analysis_result.analysis
     analysis = inputs.analysis_result.analysis.model_copy(
         update={
             "paper_id": paper_id,
             "english_title": title,
             "links": PaperLinks(pdf_url=pdf_url, arxiv_url=arxiv_url, code_url=None),
             "evidence_candidates": packet_candidates,
+            "insights": tuple(remap_claim(item) for item in source_analysis.insights),
+            "chinese_title": remap_claim(source_analysis.chinese_title),
+            "recommendation_reason": remap_claim(source_analysis.recommendation_reason),
+            "research_problem": remap_claim(source_analysis.research_problem),
+            "insight_formation_logic": remap_claim(source_analysis.insight_formation_logic),
+            "differences_from_prior_work": remap_claim(source_analysis.differences_from_prior_work),
+            "method_overview": remap_claim(source_analysis.method_overview),
+            "method_modules": tuple(
+                item.model_copy(update={"purpose": remap_claim(item.purpose)})
+                for item in source_analysis.method_modules
+            ),
+            "experimental_conclusions": tuple(
+                remap_claim(item) for item in source_analysis.experimental_conclusions
+            ),
+            "limitations": tuple(remap_claim(item) for item in source_analysis.limitations),
+            "parameters": tuple(
+                item.model_copy(
+                    update={
+                        "role": remap_claim(item.role),
+                        "evidence_ids": tuple(old_to_new[eid] for eid in item.evidence_ids),
+                    }
+                )
+                for item in source_analysis.parameters
+            ),
+            "ablations": tuple(
+                item.model_copy(
+                    update={
+                        "conclusion": remap_claim(item.conclusion),
+                        "visual_evidence_ids": tuple(
+                            old_to_new[eid] for eid in item.visual_evidence_ids
+                        ),
+                    }
+                )
+                for item in source_analysis.ablations
+            ),
+            "supporting_visuals": tuple(
+                item.model_copy(
+                    update={
+                        "evidence_id": old_to_new[item.evidence_id],
+                        "support_explanation": remap_claim(item.support_explanation),
+                    }
+                )
+                for item in source_analysis.supporting_visuals
+            ),
         }
     )
     analysis_result = inputs.analysis_result.model_copy(
@@ -256,6 +329,33 @@ def test_batch_cache_hit_and_validator_version_identity(tmp_path: Path) -> None:
     assert first.cache_hit_count == 0
     assert second.cache_hit_count == 1
     assert changed.cache_hit_count == 0
+
+
+def test_stage3_status_change_cannot_reuse_eligible_cache(tmp_path: Path) -> None:
+    items = _inputs(1)
+    dependencies = _deps(tmp_path)
+    common = (
+        _candidate_batch(items),
+        _document_batch(items),
+        tuple(item.packet for item in items),
+    )
+    first = build_validation_batch(
+        *common, _analysis_batch(items), ValidationSettings(), dependencies
+    )
+    partial_item = items[0]._replace(
+        analysis_result=items[0].analysis_result.model_copy(update={"status": "partial"})
+    )
+    second = build_validation_batch(
+        *common,
+        _analysis_batch((partial_item,)),
+        ValidationSettings(),
+        dependencies,
+    )
+
+    assert first.results[0].status == "validated"
+    assert second.cache_hit_count == 0
+    assert second.results[0].status == "partial"
+    assert second.results[0].validated.report.publication_eligibility == "blocked"
 
 
 def test_run_id_mismatch_is_rejected_before_processing(tmp_path: Path) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import pytest
 
@@ -142,3 +143,23 @@ def test_cache_path_stays_inside_root(tmp_path: Path) -> None:
     target = cache.path_for(_identity())
 
     assert target.resolve().is_relative_to(cache.root.resolve())
+
+
+@pytest.mark.parametrize("tamper", ["claim", "evidence", "report"])
+def test_cache_rejects_schema_valid_payload_tampering(
+    tmp_path: Path, tamper: str
+) -> None:
+    identity = _identity()
+    cache = ValidationCache(tmp_path / "validation")
+    target = cache.write(identity, _validated())
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    if tamper == "claim":
+        payload["analysis"]["insights"][0]["text_zh"] = "被篡改但仍符合 schema 的结论。"
+    elif tamper == "evidence":
+        payload["analysis"]["evidence_candidates"][0]["evidence_text"] = "tampered"
+    else:
+        payload["report"]["status"] = "partial"
+        payload["report"]["publication_eligibility"] = "blocked"
+    target.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert cache.read(identity) is None

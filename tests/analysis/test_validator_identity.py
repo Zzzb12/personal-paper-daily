@@ -15,6 +15,15 @@ from tests.analysis.stage4_factories import (
 )
 
 
+def _replace_packet_and_saved_candidates(inputs, candidates):
+    packet = inputs.packet.model_copy(update={"candidates": candidates})
+    analysis = inputs.analysis_result.analysis.model_copy(
+        update={"evidence_candidates": candidates}
+    )
+    analysis_result = inputs.analysis_result.model_copy(update={"analysis": analysis})
+    return inputs._replace(packet=packet, analysis_result=analysis_result)
+
+
 def issue_codes(result) -> set[str]:
     return {issue.code for issue in result.issues}
 
@@ -77,3 +86,59 @@ def test_nonexistent_figure_or_table_is_invalid() -> None:
 
     assert result.status == "invalid"
     assert "evidence_source_missing" in issue_codes(result)
+
+
+def test_synchronized_text_tampering_is_invalid() -> None:
+    inputs = golden_inputs()
+    candidates = tuple(
+        item.model_copy(update={"evidence_text": "Fabricated source text"})
+        if item.kind == "text" and not item.abstract_only
+        else item
+        for item in inputs.packet.candidates
+    )
+
+    result = validate_paper(*_replace_packet_and_saved_candidates(inputs, candidates))
+
+    assert result.status == "invalid"
+    assert "text_provenance_mismatch" in issue_codes(result)
+
+
+def test_text_candidate_cannot_reference_heading_block() -> None:
+    inputs = golden_inputs()
+    text = next(item for item in inputs.packet.candidates if item.kind == "text")
+    blocks = tuple(
+        block.model_copy(update={"block_type": "heading"})
+        if block.block_id == text.block_ids[0]
+        else block
+        for block in inputs.document.blocks
+    )
+
+    result = validate_paper(*inputs._replace(document=inputs.document.model_copy(update={"blocks": blocks})))
+
+    assert result.status == "invalid"
+    assert "text_provenance_mismatch" in issue_codes(result)
+
+
+def test_synchronized_evidence_id_tampering_is_invalid() -> None:
+    inputs = golden_inputs()
+    candidates = tuple(
+        item.model_copy(update={"evidence_id": "evidence-" + "f" * 24})
+        if item.kind == "text" and not item.abstract_only
+        else item
+        for item in inputs.packet.candidates
+    )
+
+    result = validate_paper(*_replace_packet_and_saved_candidates(inputs, candidates))
+
+    assert result.status == "invalid"
+    assert "evidence_id_mismatch" in issue_codes(result)
+
+
+def test_stale_packet_fingerprint_is_invalid() -> None:
+    inputs = golden_inputs()
+    packet = inputs.packet.model_copy(update={"packet_fingerprint": "f" * 64})
+
+    result = validate_paper(*inputs._replace(packet=packet))
+
+    assert result.status == "invalid"
+    assert "packet_fingerprint_mismatch" in issue_codes(result)

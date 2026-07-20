@@ -187,6 +187,7 @@ def _validate_with_cache(
         document,
         packet,
         analysis_result.analysis,
+        analysis_result.status,
         validator_version=settings.validator_version,
         validation_schema_version=settings.schema_version,
     )

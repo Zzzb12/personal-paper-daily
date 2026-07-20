@@ -5,7 +5,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 from pydantic import field_validator, model_validator
 
@@ -55,6 +55,7 @@ class ValidationCacheIdentity(StrictModel):
     evidence_builder_version: str
     packet_fingerprint: str
     analysis_schema_version: str
+    analysis_status: Literal["success", "partial"]
     analysis_generation_key: str
     analysis_fingerprint: str
     input_fingerprint: str
@@ -104,6 +105,12 @@ class ValidationCacheEnvelope(StrictModel):
     identity: ValidationCacheIdentity
     analysis: PaperAnalysis
     report: ValidationReport
+    report_fingerprint: str
+
+    @field_validator("report_fingerprint")
+    @classmethod
+    def validate_report_fingerprint(cls, value: str) -> str:
+        return _sha256(value)
 
     @model_validator(mode="after")
     def validate_relationships(self) -> Self:
@@ -117,6 +124,10 @@ class ValidationCacheEnvelope(StrictModel):
             raise ValueError("cached validation schema must match validation cache identity")
         if self.report.input_fingerprint != self.identity.input_fingerprint:
             raise ValueError("cached input fingerprint must match validation cache identity")
+        if _canonical_sha256(self.analysis.model_dump(mode="json")) != self.identity.analysis_fingerprint:
+            raise ValueError("cached analysis fingerprint must match validation cache identity")
+        if _canonical_sha256(self.report.model_dump(mode="json")) != self.report_fingerprint:
+            raise ValueError("cached report fingerprint must match cached validation report")
         return self
 
 
@@ -161,6 +172,7 @@ class ValidationCache:
             identity=identity,
             analysis=validated.analysis,
             report=validated.report,
+            report_fingerprint=_canonical_sha256(validated.report.model_dump(mode="json")),
         )
         payload = envelope.model_dump_json(indent=2) + "\n"
         if len(payload.encode("utf-8")) > self.max_cache_bytes:
@@ -199,6 +211,7 @@ def build_validation_cache_identity(
     document: DocumentGraph,
     packet: EvidencePacket,
     analysis: PaperAnalysis,
+    analysis_status: Literal["success", "partial"] = "success",
     *,
     validator_version: str = VALIDATOR_VERSION,
     validation_schema_version: str = VALIDATION_SCHEMA_VERSION,
@@ -227,10 +240,11 @@ def build_validation_cache_identity(
         evidence_builder_version=packet.builder_version,
         packet_fingerprint=packet.packet_fingerprint,
         analysis_schema_version=analysis.schema_version,
+        analysis_status=analysis_status,
         analysis_generation_key=analysis.generation.cache_key,
         analysis_fingerprint=_canonical_sha256(analysis.model_dump(mode="json")),
         input_fingerprint=validation_input_fingerprint(
-            candidate, document, packet, analysis
+            candidate, document, packet, analysis, analysis_status
         ),
     )
 

@@ -26,6 +26,10 @@ from zotero_arxiv_daily.analysis.validation_schemas import (
     ValidationPaperResult,
     ValidationReport,
 )
+from zotero_arxiv_daily.documents.evidence import (
+    evidence_candidate_id,
+    evidence_packet_fingerprint,
+)
 
 
 _SAFE_MESSAGES = {
@@ -34,6 +38,8 @@ _SAFE_MESSAGES = {
     "candidate_title_mismatch": "Analysis English title does not match candidate identity",
     "candidate_link_mismatch": "Analysis links do not match candidate identity",
     "packet_document_mismatch": "Evidence packet does not match the document identity",
+    "packet_fingerprint_mismatch": "Evidence packet fingerprint does not match its contents",
+    "evidence_id_mismatch": "Evidence identifier does not match its source regions",
     "analysis_evidence_candidates_modified": "Saved analysis evidence candidates differ from the evidence packet",
     "evidence_source_missing": "Evidence source cannot be resolved in the document graph",
     "text_provenance_mismatch": "Text evidence provenance differs from the document graph",
@@ -86,7 +92,7 @@ def validate_paper(
     analysis = analysis_result.analysis
     issues: list[ValidationIssue] = []
     _validate_identities(candidate, document, packet, analysis_result, analysis, issues)
-    _validate_packet_against_document(document, packet, issues)
+    _validate_packet_against_document(candidate.paper_id, document, packet, issues)
     if analysis.evidence_candidates != packet.candidates:
         issues.append(
             _issue(
@@ -112,7 +118,7 @@ def validate_paper(
         status=report_status,
         publication_eligibility="eligible" if report_status == "valid" else "blocked",
         input_fingerprint=validation_input_fingerprint(
-            candidate, document, packet, analysis
+            candidate, document, packet, analysis, analysis_result.status
         ),
         claim_results=claim_results,
         issues=tuple(issues),
@@ -138,6 +144,7 @@ def validation_input_fingerprint(
     document: DocumentGraph,
     packet: EvidencePacket,
     analysis: PaperAnalysis,
+    analysis_status: str,
 ) -> str:
     payload = json.dumps(
         {
@@ -159,6 +166,7 @@ def validation_input_fingerprint(
             },
             "packet": packet.model_dump(mode="json"),
             "analysis": analysis.model_dump(mode="json"),
+            "analysis_status": analysis_status,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -223,10 +231,25 @@ def _validate_identities(
 
 
 def _validate_packet_against_document(
+    paper_id: str,
     document: DocumentGraph,
     packet: EvidencePacket,
     issues: list[ValidationIssue],
 ) -> None:
+    expected_packet_fingerprint = evidence_packet_fingerprint(
+        paper_id=packet.paper_id,
+        document_fingerprint=packet.document_fingerprint,
+        builder_version=packet.builder_version,
+        candidates=packet.candidates,
+    )
+    if packet.packet_fingerprint != expected_packet_fingerprint:
+        issues.append(
+            _issue(
+                "packet_fingerprint_mismatch",
+                paper_id,
+                field_path="packet_fingerprint",
+            )
+        )
     block_by_id = {block.block_id: block for block in document.blocks}
     section_by_id = {section.section_id: section for section in document.sections}
     visual_by_id = {visual.visual_id: visual for visual in document.visuals}
@@ -236,9 +259,20 @@ def _validate_packet_against_document(
     }
     for index, candidate in enumerate(packet.candidates):
         field_path = f"evidence_candidates.{index}"
+        if candidate.evidence_id != evidence_candidate_id(
+            document.pdf.sha256, candidate.kind, candidate.regions
+        ):
+            issues.append(
+                _issue(
+                    "evidence_id_mismatch",
+                    paper_id,
+                    field_path=field_path,
+                    evidence_id=candidate.evidence_id,
+                )
+            )
         if candidate.kind == "text":
             _validate_text_candidate(
-                packet.paper_id,
+                paper_id,
                 candidate,
                 block_by_id,
                 section_by_id,
@@ -252,7 +286,7 @@ def _validate_packet_against_document(
             issues.append(
                 _issue(
                     "evidence_source_missing",
-                    packet.paper_id,
+                    paper_id,
                     field_path=field_path,
                     evidence_id=candidate.evidence_id,
                     visual_id=candidate.visual_id,
@@ -265,7 +299,7 @@ def _validate_packet_against_document(
             issues.append(
                 _issue(
                     "visual_provenance_mismatch",
-                    packet.paper_id,
+                    paper_id,
                     field_path=field_path,
                     evidence_id=candidate.evidence_id,
                     visual_id=candidate.visual_id,
@@ -297,7 +331,10 @@ def _validate_text_candidate(
     region = candidate.regions[0] if len(candidate.regions) == 1 else None
     expected_path = section_paths.get(block.section_id or "", ())
     matches = (
-        candidate.pdf_page == block.pdf_page
+        block.block_type in {"text", "list_item", "formula"}
+        and bool(candidate.evidence_text)
+        and block.text.startswith(candidate.evidence_text or "")
+        and candidate.pdf_page == block.pdf_page
         and candidate.section_id == block.section_id
         and candidate.section_title == (section.title if section else None)
         and candidate.section_path == expected_path

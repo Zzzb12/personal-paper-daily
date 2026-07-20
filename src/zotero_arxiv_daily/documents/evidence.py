@@ -82,7 +82,7 @@ def build_evidence_packet(
     )[: settings.max_visuals]
     ordered = sorted((*text_candidates, *visual_candidates), key=lambda item: item.key)
     bounded = _apply_budget(ordered, settings)
-    fingerprint = _packet_fingerprint(
+    fingerprint = evidence_packet_fingerprint(
         paper_id=paper_id,
         document_fingerprint=document.content_fingerprint,
         builder_version=settings.builder_version,
@@ -118,7 +118,7 @@ def _text_candidates(
             source_mapping=block.source_mapping,
             confidence=block.source_mapping.confidence,
         )
-        evidence_id = _evidence_id(
+        evidence_id = evidence_candidate_id(
             document.pdf.sha256,
             "text",
             (region,),
@@ -164,7 +164,7 @@ def _visual_candidates(
         section = section_by_id.get(visual.section_id) if visual.section_id else None
         path = section_paths.get(visual.section_id, ()) if visual.section_id else ()
         regions = tuple(_evidence_region(region) for region in visual.regions)
-        evidence_id = _evidence_id(
+        evidence_id = evidence_candidate_id(
             document.pdf.sha256, visual.kind, regions
         )
         candidate = EvidenceCandidate(
@@ -280,7 +280,7 @@ def _is_abstract_path(path: tuple[str, ...]) -> bool:
     )
 
 
-def _evidence_id(
+def evidence_candidate_id(
     pdf_sha256: str,
     kind: str,
     regions: tuple[EvidenceRegion, ...],
@@ -305,7 +305,7 @@ def _evidence_id(
     return f"ev-{hashlib.sha256(payload).hexdigest()[:24]}"
 
 
-def _packet_fingerprint(
+def evidence_packet_fingerprint(
     *,
     paper_id: str,
     document_fingerprint: str,
