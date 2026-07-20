@@ -252,6 +252,12 @@ class DocumentGraph(StrictModel):
                 raise ValueError("section contains a dangling block reference")
             if section.end_pdf_page > self.pdf.page_count:
                 raise ValueError("section page range must remain inside the PDF")
+            member_pages = [block_by_id[block_id].pdf_page for block_id in section.block_ids]
+            if member_pages and (
+                section.start_pdf_page != min(member_pages)
+                or section.end_pdf_page != max(member_pages)
+            ):
+                raise ValueError("section member page range must match its referenced blocks")
             source_page = page_by_number.get(section.source_mapping.pdf_page)
             if (
                 source_page is None

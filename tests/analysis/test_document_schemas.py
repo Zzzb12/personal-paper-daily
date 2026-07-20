@@ -334,6 +334,11 @@ def test_document_graph_enforces_section_page_source_and_bidirectional_membershi
     with pytest.raises(ValidationError, match="parser identity"):
         DocumentGraph.model_validate(payload)
 
+    payload = graph().model_dump()
+    payload["sections"][0]["end_pdf_page"] = 1
+    with pytest.raises(ValidationError, match="member page range"):
+        DocumentGraph.model_validate(payload)
+
 
 def test_document_graph_rejects_untraceable_non_empty_caption():
     payload = graph().model_dump()
