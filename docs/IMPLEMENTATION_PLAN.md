@@ -79,6 +79,8 @@ Keep the upstream clone and approved design commits. Revert only the final Stage
 
 ## Stage 1: Zotero interest reading and candidate paper JSON
 
+**Status:** Completed on 2026-07-20; verification results and known baseline failures are recorded in the Stage 1 completion notes and Git history.
+
 ### Goal
 
 Read the approved Zotero collection tree, retrieve metadata-only arXiv candidates, rank them against the interest corpus, and persist a validated candidate JSON batch without downloading full PDFs or performing full LLM analysis.

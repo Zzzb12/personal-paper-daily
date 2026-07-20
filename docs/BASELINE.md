@@ -416,3 +416,34 @@ Replace the date in the branch name with the actual synchronization date. Resolv
 - The current branch redacts three upstream secret-shaped Docker-documentation examples; inherited upstream history still contains the original public blob and has not been rewritten.
 
 These are reported baseline facts, not hidden failures and not Stage 0 implementation work.
+
+## Stage 1 completion notes (2026-07-20)
+
+Stage 1 was implemented on `feat/stage-1-interest-candidates` in the isolated `.worktrees/stage-1-interest-candidates` worktree. No real Zotero credentials, paid API, PDF download, LLM call, email, Feishu, static viewer, or feedback feature was used or added.
+
+Implemented boundaries:
+
+- Strict Pydantic schemas for privacy-safe interest records, metadata-only arXiv candidates, ranking provenance, actual selection limits, counts, and deterministic candidate batches.
+- Production and fakeable Zotero interest providers for the approved include/exclude paths, with bounded retry, explicit HTTP timeouts, item/collection isolation, and privacy-safe issue reporting.
+- Metadata-only arXiv retrieval for `cs.CV`, `cs.LG`, and `cs.AI`, including stable ID/version normalization, deduplication, malformed-entry isolation, cross-list policy, explicit timeouts, and bounded `Retry-After` handling.
+- Deterministic weighted-cosine ranking with stable tie ordering, local SentenceTransformer production embeddings, and a versioned `.npy` plus JSON-manifest cache keyed by complete embedding identity and text hash.
+- Atomic, schema-validated candidate JSON persistence under the ignored `data/candidates/` boundary.
+- A production composition path using environment-only `ZOTERO_ID`/`ZOTERO_KEY`, merged base/custom configuration, local embeddings, ignored cache/store paths, and resource cleanup.
+- A credential-free offline fixture command whose dry-run performs no candidate or embedding-cache write:
+
+```powershell
+uv run python -m zotero_arxiv_daily.pipeline.candidates --dry-run --offline-fixture tests/fixtures/stage1_offline.json
+```
+
+Final verification evidence:
+
+- Stage 1 suite: `75 passed`.
+- Default regression suite: `155 passed`, `2 failed`, `1 deselected`; both failures are the unchanged Windows one-second multiprocessing spawn-timeout baseline failures.
+- Complete configured suite: `155 passed`, `3 failed` in 542.59 seconds with `90%` total coverage. The third failure is the unchanged slow local-reranker Hugging Face connection/cache dependency; the model could not be downloaded and was absent locally.
+- Offline fixture CLI: exit code `0`; no credential variables, candidate output directory, or embedding cache required/created.
+- No authoritative lint or static type-check command exists, so none was invented.
+- `git diff --check` passed. Representative candidate, embedding-cache, `.env`, and `.env.*` paths are ignored; `.env.example` remains trackable.
+- No tracked PDF/ZIP, candidate/cache artifact, private Zotero export, file over 5 MiB, or common secret-shaped value was found.
+- Independent Superpowers code review initially found production composition, malformed-record, cache identity, limit, retry, dry-run, task-provenance, UTC, and run-ID issues. All confirmed Critical/Important findings were fixed with regression tests. Final review verdict: `Ready to merge? Yes`.
+
+The production path was composition-tested with injected fakes only. A real Zotero/arXiv run remains intentionally unexecuted until the user configures credentials locally in a later session. Stage 2 PDF extraction has not begun.
