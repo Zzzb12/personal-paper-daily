@@ -1,0 +1,22 @@
+{
+  "now": "2026-07-20T00:00:00Z",
+  "collections": [
+    {"key": "root", "name": "PaperDaily", "parent_key": null},
+    {"key": "seeds", "name": "00-Seeds", "parent_key": "root"},
+    {"key": "topic", "name": "Diffusion", "parent_key": "seeds"},
+    {"key": "excluded", "name": "99-Exclude", "parent_key": "root"}
+  ],
+  "items": [
+    {"key": "synthetic-seed", "title": "Synthetic Seed", "abstract": "Caching diffusion features", "collection_keys": ["topic"], "added_at": "2026-07-19T00:00:00Z"},
+    {"key": "synthetic-excluded", "title": "Excluded Seed", "abstract": "Not relevant", "collection_keys": ["excluded"], "added_at": "2026-07-18T00:00:00Z"}
+  ],
+  "arxiv_entries": [
+    {"arxiv_id": "2401.00001", "version": 1, "title": "Fast Diffusion", "authors": ["Alice Example"], "abstract": "Feature cache acceleration", "categories": ["cs.CV"], "primary_category": "cs.CV", "published_at": "2026-07-20T00:00:00Z", "updated_at": "2026-07-20T00:00:00Z", "arxiv_url": "https://arxiv.org/abs/2401.00001", "pdf_url": "https://arxiv.org/pdf/2401.00001"},
+    {"arxiv_id": "2401.00002", "version": 1, "title": "Token Reuse", "authors": ["Bob Example"], "abstract": "Adaptive token reuse", "categories": ["cs.CV", "cs.LG"], "primary_category": "cs.CV", "published_at": "2026-07-20T00:00:00Z", "updated_at": "2026-07-20T00:00:00Z", "arxiv_url": "https://arxiv.org/abs/2401.00002", "pdf_url": "https://arxiv.org/pdf/2401.00002"}
+  ],
+  "embeddings": {
+    "Synthetic Seed\n\nCaching diffusion features": [1.0, 0.0],
+    "Fast Diffusion\n\nFeature cache acceleration": [1.0, 0.0],
+    "Token Reuse\n\nAdaptive token reuse": [0.8, 0.2]
+  }
+}

@@ -1,7 +1,8 @@
 zotero:
   user_id: ${oc.env:ZOTERO_ID}
   api_key: ${oc.env:ZOTERO_KEY}
-  include_path: null # Or set a list of glob patterns, e.g. ["2026/survey/**","2026/reading-group/**"]
+  include_path: ["PaperDaily/00-Seeds/**", "PaperDaily/03-Read/**", "PaperDaily/04-Favorite/**"]
+  ignore_path: ["PaperDaily/99-Exclude/**"]
 
 email:
   sender: ${oc.env:SENDER}
@@ -19,7 +20,7 @@ llm:
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+    category: ["cs.CV", "cs.LG", "cs.AI"]
 
 executor:
   debug: ${oc.env:DEBUG,null}
