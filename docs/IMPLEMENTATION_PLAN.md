@@ -151,6 +151,10 @@ Disable the new candidate CLI/config and retain existing `Executor` behavior. Re
 
 ## Stage 2: PDF text, page, and Figure/Table extraction
 
+**Status:** Completed on 2026-07-20; verification results, parser limits, and known baseline failures are recorded in `docs/BASELINE.md` and the Stage 2 design/plan documents.
+
+**Implementation note:** The approved implementation uses Docling Standard as the layout-aware parser with PyMuPDF for deterministic PDF inspection and evidence-image rendering. This supersedes the roadmap's original PyMuPDF-first adapter wording without changing the Stage 2 product boundary. Runtime-generated PDF fixtures remain untracked.
+
 ### Goal
 
 Download only selected PDFs and produce a page-aware document graph containing text blocks, sections, figures, tables, captions, coordinates, and stable mappings.

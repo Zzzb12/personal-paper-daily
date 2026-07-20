@@ -446,4 +446,59 @@ Final verification evidence:
 - No tracked PDF/ZIP, candidate/cache artifact, private Zotero export, file over 5 MiB, or common secret-shaped value was found.
 - Independent Superpowers code review initially found production composition, malformed-record, cache identity, limit, retry, dry-run, task-provenance, UTC, and run-ID issues. All confirmed Critical/Important findings were fixed with regression tests. Final review verdict: `Ready to merge? Yes`.
 
-The production path was composition-tested with injected fakes only. A real Zotero/arXiv run remains intentionally unexecuted until the user configures credentials locally in a later session. Stage 2 PDF extraction has not begun.
+The Stage 1 production path was composition-tested with injected fakes only. A real Zotero/arXiv run remains intentionally unexecuted until the user configures credentials locally in a later session. At that Stage 1 snapshot, Stage 2 PDF extraction had not begun; its completed baseline follows.
+
+## Stage 2 completion notes (2026-07-20)
+
+Stage 2 was implemented on `feat/stage-2-pdf-documents` in the isolated `.worktrees/stage-2-pdf-documents` worktree. The stage starts from Stage 1 commit `7c1036a`. No real Zotero credentials, paid API, LLM call, email, Feishu, viewer, feedback feature, or GitHub Actions workflow was used or added.
+
+Environment and parser baseline:
+
+- Python `3.13.14`, managed through the existing local uv executable.
+- Docling `2.113.0` for layout-aware document conversion.
+- PyMuPDF `1.27.2.2` for bounded inspection and evidence-region rendering.
+- ReportLab `5.0.0` only for runtime-generated test fixtures; no PDF binary is tracked.
+- Docling artifacts must already exist at the configured local artifacts path. Stage 2 validation did not download a model or invoke a remote/paid service.
+
+Implemented boundaries:
+
+- A strict Stage 2 document schema covering physical PDF pages, text blocks, coordinates, source provenance, section hierarchy, Figure/Table regions, captions, evidence-image paths, structured issues, confidence, parser/config versions, and processing status.
+- Selection gating that preserves Stage 1 metadata-only ranking and downloads only `selected_for_full_analysis` papers, capped at five.
+- A content-addressed arXiv PDF downloader with an exact HTTPS host allowlist, userinfo rejection/redaction, validation of every redirect target, explicit timeouts, finite retries, bounded numeric or HTTP-date `Retry-After`, response/cache size limits, content-length/signature/media-type checks, atomic writes, and partial-file cleanup.
+- Pre-parser PDF inspection with explicit statuses for malformed PDFs, empty documents, missing text layers/scanned pages, mixed text layers, and unsupported/encrypted inputs. One paper fails independently without aborting its batch.
+- A lazy Docling adapter with a fixed local artifact boundary, document timeout, remote services disabled, external plugins disabled, and the installed parser version recorded in every graph.
+- Page-aware mapping for text blocks, sections, captions, figures, and tables. Graph validation enforces page/bbox resolution, parser identity, cycle freedom, bidirectional section membership, exact section member-page boundaries, caption provenance, evidence-root containment, and success/error consistency.
+- Figure/Table values remain `null` or carry structured issues when a label, caption, provenance mapping, or crop cannot be established. No fallback invents a label, caption, section title, or evidence claim.
+- Versioned graph caching by PDF hash plus parser/mapper/config versions. Cache reads reject corrupt JSON, mismatched versions, external evidence roots, missing/corrupt PNG files, and partial parse results. Evidence images are atomically rendered under the ignored cache boundary.
+- An injected, offline Stage 2 pipeline test path from a Stage 1 candidate batch through selection, safe download, inspection, conversion, mapping, evidence rendering, and result isolation.
+
+Verification commands:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' sync --frozen
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/analysis/test_document_schemas.py tests/documents tests/pipeline/test_documents.py -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/analysis/test_stage1_schemas.py tests/interest tests/candidates tests/retriever/test_arxiv_metadata.py tests/pipeline/test_candidates.py -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest -m "slow or not slow" -q
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run python -m compileall -q src
+```
+
+Verification evidence:
+
+- Frozen dependency sync: `172 packages` checked successfully.
+- Stage 2 suite: `64 passed`.
+- Stage 1 regression suite: `75 passed`.
+- Default regression suite: `219 passed`, `2 failed`, `1 deselected`; both failures are the unchanged Windows one-second multiprocessing spawn-timeout baseline failures.
+- Complete configured suite: `219 passed`, `3 failed` in `76.11 seconds` on the final run. The third failure is the unchanged slow local-reranker Hugging Face connection/cache dependency; the model could not be downloaded and was absent locally. An earlier run with the same failure set took `506.78 seconds`, so this network-dependent duration is not stable.
+- Source compilation and `git diff --check` passed. No authoritative lint or static type-check command exists, so none was invented.
+- No tracked secret, PDF/ZIP, private Zotero data, parser/LLM cache, local reading state, or file over 5 MiB was found. Representative runtime paths remain ignored.
+- Independent Superpowers review found and drove fixes for SSRF/redirect handling, cache reads and containment, parser timeouts/version identity, graph invariants, caption provenance, retry semantics, corrupt images, and partial-result caching. After all confirmed Critical/Important findings were fixed with tests, the final verdict was `Ready: Yes`.
+
+Known limits:
+
+- Scanned or image-only papers are reported as explicit failure/partial states; Stage 2 does not add OCR.
+- Cross-page captions and complex multi-page tables are retained only when Docling provenance resolves them; otherwise the corresponding fields remain `null` with structured issues.
+- Docling cold import/model initialization is materially slower than PyMuPDF inspection, so conversion is lazy and exact-version graph cache hits occur before Docling is loaded.
+- Acceptance used deterministic runtime-generated fixtures and injected network/parser doubles. No real paper PDF was committed or required.
+
+Stage 3 structured Chinese analysis has not begun.
