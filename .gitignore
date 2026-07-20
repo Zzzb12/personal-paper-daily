@@ -24,6 +24,7 @@ config/private.yaml
 
 # Project-local bootstrap tooling and environments
 .bootstrap-tools/
+/.worktrees/
 
 # Downloaded papers and private Zotero exports
 data/papers/
