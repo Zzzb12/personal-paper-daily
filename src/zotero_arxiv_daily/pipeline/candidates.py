@@ -6,7 +6,7 @@ import json
 import os
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -205,7 +205,7 @@ def _offline_dependencies(fixture: dict[str, Any]) -> CandidatePipelineDependenc
         arxiv_retriever=retriever,
         ranker=CandidateRanker(_FixtureEmbeddings(fixture)),
         store=CandidateStore(Path("data/candidates")),
-        run_id_factory=lambda value: value.strftime("%Y%m%dT%H%M%SZ"),
+        run_id_factory=lambda value: value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"),
     )
 
 
@@ -269,8 +269,12 @@ def build_production_pipeline(
         embedding_cache_dir=Path(str(config.candidate_pipeline.embedding_cache_dir)),
         dry_run=dry_run,
     )
-    cached_provider = CachedEmbeddingProvider(
-        embedding_provider, FileEmbeddingCache(settings.embedding_cache_dir)
+    ranking_provider = (
+        embedding_provider
+        if dry_run
+        else CachedEmbeddingProvider(
+            embedding_provider, FileEmbeddingCache(settings.embedding_cache_dir)
+        )
     )
     dependencies = CandidatePipelineDependencies(
         interest_provider=ZoteroInterestProvider(
@@ -283,9 +287,9 @@ def build_production_pipeline(
             categories=settings.categories,
             include_cross_list=settings.include_cross_list,
         ),
-        ranker=CandidateRanker(cached_provider),
+        ranker=CandidateRanker(ranking_provider),
         store=CandidateStore(settings.output_dir),
-        run_id_factory=lambda value: value.strftime("%Y%m%dT%H%M%SZ"),
+        run_id_factory=lambda value: value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"),
         close_callbacks=(zotero_gateway.close, arxiv_gateway.close),
     )
     return settings, dependencies
@@ -309,7 +313,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         settings, dependencies = build_production_pipeline(
             args.config_dir, environ=os.environ, dry_run=args.dry_run
         )
-        clock = lambda: datetime.now().astimezone()
+        clock = lambda: datetime.now(UTC)
     try:
         batch = build_candidate_batch(settings, dependencies, clock)
     finally:

@@ -94,6 +94,7 @@ class SentenceTransformerEmbeddingProvider:
 
             model_factory = lambda name: SentenceTransformer(name, trust_remote_code=True)
         self._encoder = model_factory(model)
+        self._task = task
         self._prompt_name = prompt_name
         self._encode_kwargs = dict(encode_kwargs)
         dimension = self._encoder.get_sentence_embedding_dimension()
@@ -112,6 +113,7 @@ class SentenceTransformerEmbeddingProvider:
 
     def encode(self, texts: Sequence[str]) -> np.ndarray:
         kwargs = dict(self._encode_kwargs)
+        kwargs["task"] = self._task
         if self._prompt_name is not None:
             kwargs["prompt_name"] = self._prompt_name
         return np.asarray(self._encoder.encode(list(texts), **kwargs), dtype=np.float32)

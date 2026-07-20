@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -193,7 +193,7 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
     settings, deps = build_production_pipeline(
         Path(__file__).parents[2] / "config",
         environ={"ZOTERO_ID": "synthetic-id", "ZOTERO_KEY": "synthetic-key"},
-        dry_run=True,
+        dry_run=False,
     )
     assert settings.categories == ("cs.CV", "cs.LG", "cs.AI")
     assert settings.include_paths == (
@@ -203,9 +203,36 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
     assert calls["embedding"]["model"] == "jinaai/jina-embeddings-v5-text-nano-retrieval"
     assert deps.store.root == Path("data/candidates")
     assert deps.ranker.provider.cache.root == Path("cache/embeddings")
+    offset_time = datetime(2026, 7, 20, 8, tzinfo=timezone(timedelta(hours=8)))
+    assert deps.run_id_factory(offset_time) == "20260720T000000Z"
     deps.close()
     zotero_gateway.close.assert_called_once()
     arxiv_gateway.close.assert_called_once()
+
+
+def test_production_dry_run_does_not_construct_writable_embedding_cache(monkeypatch):
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.PyzoteroGateway.from_credentials",
+        lambda *args, **kwargs: Mock(close=Mock()),
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.HttpArxivMetadataGateway.from_defaults",
+        lambda **kwargs: Mock(close=Mock()),
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.SentenceTransformerEmbeddingProvider",
+        lambda **kwargs: DeterministicEmbeddings(),
+    )
+    _, deps = build_production_pipeline(
+        Path(__file__).parents[2] / "config",
+        environ={"ZOTERO_ID": "synthetic-id", "ZOTERO_KEY": "synthetic-key"},
+        dry_run=True,
+    )
+    try:
+        assert deps.ranker.provider.identity.provider == "fixture"
+        assert not hasattr(deps.ranker.provider, "cache")
+    finally:
+        deps.close()
 
 
 def test_production_cli_mode_runs_without_offline_fixture(monkeypatch, capsys):

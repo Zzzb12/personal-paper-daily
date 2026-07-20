@@ -96,7 +96,9 @@ def test_sentence_transformer_provider_records_settings_without_network():
 
         def encode(self, texts, **kwargs):
             assert texts == ["alpha"]
-            assert kwargs == {"prompt_name": "document", "normalize_embeddings": True}
+            assert kwargs == {
+                "task": "retrieval", "prompt_name": "document", "normalize_embeddings": True
+            }
             return np.asarray([[1, 2, 3]], dtype=np.float32)
 
     provider = SentenceTransformerEmbeddingProvider(
