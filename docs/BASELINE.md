@@ -667,7 +667,8 @@ Independent review history:
 - The third review confirmed those bypasses closed and found one remaining unsafe
   dynamic section location. Commit `df136d8` replaced it with a stable index path
   and added direct-validator regressions for unsafe section IDs. The final short
-  review is recorded with the final Stage 4 commit below.
+  review of commit `13d79bb` returned `Ready to merge? Yes`, with no unresolved
+  Critical or Important findings.
 
 Known limits and rollback:
 
