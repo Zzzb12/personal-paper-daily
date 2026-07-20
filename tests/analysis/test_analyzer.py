@@ -223,15 +223,15 @@ def test_analyzer_does_not_call_client_for_an_abstract_only_document(tmp_path):
     assert deps.client.calls == 0
 
 
-def test_analyzer_marks_an_explicitly_missing_insight_as_partial_and_caches_it(tmp_path):
+def test_analyzer_marks_an_explicitly_missing_insight_as_partial_without_caching_it(tmp_path):
     draft = valid_draft().model_copy(update={"insights": (), "supporting_visuals": ()})
-    deps, _ = dependencies(tmp_path, draft.model_dump_json())
+    deps, _ = dependencies(tmp_path, draft.model_dump_json(), draft.model_dump_json())
     first = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
     second = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
     assert first.status == second.status == "partial"
     assert first.issues[0].code == "analysis_insight_not_provided"
-    assert second.cache_hit is True
-    assert deps.client.calls == 1
+    assert second.cache_hit is False
+    assert deps.client.calls == 2
 
 
 def test_analyzer_rejects_claim_kind_in_the_wrong_output_field(tmp_path):

@@ -104,11 +104,13 @@ def analyze_paper(
         )
         cached = dependencies.cache.read(identity)
         if cached is not None:
-            return _analysis_result(
+            cached_result = _analysis_result(
                 cached,
                 processing_seconds=time.perf_counter() - started,
                 cache_hit=True,
             )
+            if cached_result.status == "success":
+                return cached_result
 
         request = build_analysis_request(
             paper, packet, max_output_tokens=settings.max_output_tokens
@@ -124,12 +126,14 @@ def analyze_paper(
             cache_key=identity.cache_key,
             generated_at=dependencies.clock(),
         )
-        dependencies.cache.write(identity, analysis)
-        return _analysis_result(
+        result = _analysis_result(
             analysis,
             processing_seconds=time.perf_counter() - started,
             cache_hit=False,
         )
+        if result.status == "success":
+            dependencies.cache.write(identity, analysis)
+        return result
     except AnalysisClientError as exc:
         return _failed_result(paper.paper_id, exc.code, started)
     except _AnalysisProtocolError as exc:
