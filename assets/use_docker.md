@@ -35,11 +35,11 @@ environment:
     environment:
       # 必填参数（示例值）
       - ZOTERO_ID=1234567
-      - ZOTERO_KEY=AbCdEfGhIjKlMnOpQrStUvWx
+      - ZOTERO_KEY=${ZOTERO_KEY}
       - SMTP_SERVER=smtp.example.com
       - SMTP_PORT=465
       - SENDER=your_email@example.com
-      - SENDER_PASSWORD=your_email_password
+      - SENDER_PASSWORD=${SENDER_PASSWORD}
       - RECEIVER=receiver_email@example.com
 
       # 可选参数（带默认值）
@@ -48,7 +48,7 @@ environment:
       - SEND_EMPTY=False
       - MAX_PAPER_NUM=5
       - USE_LLM_API=1
-      - OPENAI_API_KEY=sk-your-openai-key-here
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_API_BASE=https://api.openai.com/v1
       - MODEL_NAME=Qwen/Qwen1.5-7B-Instruct
       - LANGUAGE=English

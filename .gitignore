@@ -17,3 +17,43 @@ models
 test-compose.yml
 outputs
 config/private.yaml
+
+# Local secrets (keep the documented template)
+.env.*
+!.env.example
+
+# Project-local bootstrap tooling and environments
+.bootstrap-tools/
+
+# Downloaded papers and private Zotero exports
+data/papers/
+data/zotero/
+*.pdf
+
+# Generated paper and LLM caches
+cache/
+data/cache/
+
+# Local static-viewer feedback state
+viewer/.reader-state.json
+viewer/favorites.json
+viewer/feedback.json
+viewer/**/.reader-state.json
+viewer/**/reader-state.json
+viewer/**/favorites.json
+viewer/**/feedback.json
+
+# Python and test caches
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDE-local configuration
+.idea/
+
+# Logs and temporary directories
+*.log
+tmp/
+temp/
