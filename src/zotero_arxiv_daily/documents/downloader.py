@@ -6,6 +6,8 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urljoin, urlsplit, urlunsplit
@@ -74,12 +76,14 @@ class SafePdfDownloader:
         policy: PdfDownloadPolicy | None = None,
         client: httpx.Client | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.root = Path(root)
         self.policy = policy or PdfDownloadPolicy()
         self.client = client or httpx.Client(follow_redirects=True)
         self._owns_client = client is None
         self.sleep = sleep
+        self.clock = clock
 
     def close(self) -> None:
         if self._owns_client:
@@ -166,7 +170,9 @@ class SafePdfDownloader:
                 f"HTTP {response.status_code}",
                 source_url=source_url,
                 retry_after_seconds=_retry_after_seconds(
-                    response.headers.get("retry-after"), self.policy.max_retry_after_seconds
+                    response.headers.get("retry-after"),
+                    self.policy.max_retry_after_seconds,
+                    self.clock(),
                 ),
             )
         if response.is_error:
@@ -335,13 +341,23 @@ def _content_length(value: str | None) -> int | None:
     return length if length >= 0 else None
 
 
-def _retry_after_seconds(value: str | None, maximum: float) -> float | None:
+def _retry_after_seconds(
+    value: str | None, maximum: float, now: datetime
+) -> float | None:
     if value is None:
         return None
     try:
         seconds = float(value)
     except ValueError:
-        return None
+        try:
+            target = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if target.tzinfo is None or target.utcoffset() is None:
+            target = target.replace(tzinfo=UTC)
+        if now.tzinfo is None or now.utcoffset() is None:
+            return None
+        seconds = (target.astimezone(UTC) - now.astimezone(UTC)).total_seconds()
     if seconds < 0:
         return None
     return min(seconds, maximum)

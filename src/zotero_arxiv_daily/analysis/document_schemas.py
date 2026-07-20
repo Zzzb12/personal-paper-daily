@@ -238,6 +238,11 @@ class DocumentGraph(StrictModel):
                 or block.source_mapping.bbox != block.bbox
             ):
                 raise ValueError("block source mapping must match its page and bounding box")
+            if (
+                block.source_mapping.parser != self.parser
+                or block.source_mapping.parser_version != self.parser_version
+            ):
+                raise ValueError("source mapping parser identity must match the document graph")
             if block.section_id is not None and block.section_id not in section_by_id:
                 raise ValueError("block contains a dangling section reference")
         for section in self.sections:
@@ -245,6 +250,35 @@ class DocumentGraph(StrictModel):
                 raise ValueError("section contains a dangling parent reference")
             if any(block_id not in block_by_id for block_id in section.block_ids):
                 raise ValueError("section contains a dangling block reference")
+            if section.end_pdf_page > self.pdf.page_count:
+                raise ValueError("section page range must remain inside the PDF")
+            source_page = page_by_number.get(section.source_mapping.pdf_page)
+            if (
+                source_page is None
+                or section.source_mapping.bbox is None
+                or not section.source_mapping.bbox.within(
+                    width=source_page.width, height=source_page.height
+                )
+                or not (
+                    section.start_pdf_page
+                    <= section.source_mapping.pdf_page
+                    <= section.end_pdf_page
+                )
+            ):
+                raise ValueError("section source mapping must resolve inside its page range")
+            if (
+                section.source_mapping.parser != self.parser
+                or section.source_mapping.parser_version != self.parser_version
+            ):
+                raise ValueError("source mapping parser identity must match the document graph")
+            if any(block_by_id[block_id].section_id != section.section_id for block_id in section.block_ids):
+                raise ValueError("section membership must agree with every referenced block")
+        for block in self.blocks:
+            if (
+                block.section_id is not None
+                and block.block_id not in section_by_id[block.section_id].block_ids
+            ):
+                raise ValueError("section membership must be bidirectionally complete")
         for section in self.sections:
             visited: set[str] = set()
             current: SectionNode | None = section
@@ -260,6 +294,8 @@ class DocumentGraph(StrictModel):
                 raise ValueError("visual contains a dangling caption block reference")
             if any(block_by_id[block_id].block_type != "caption" for block_id in visual.caption_block_ids):
                 raise ValueError("visual caption block reference must point to a caption block")
+            if visual.caption is not None and not visual.caption_block_ids:
+                raise ValueError("non-empty caption requires mapped caption block evidence")
             for region in visual.regions:
                 page = page_by_number.get(region.pdf_page)
                 if page is None or not region.bbox.within(width=page.width, height=page.height):
@@ -269,6 +305,11 @@ class DocumentGraph(StrictModel):
                     or region.source_mapping.bbox != region.bbox
                 ):
                     raise ValueError("visual source mapping must match its page and bounding box")
+                if (
+                    region.source_mapping.parser != self.parser
+                    or region.source_mapping.parser_version != self.parser_version
+                ):
+                    raise ValueError("source mapping parser identity must match the document graph")
                 if region.image_path is not None:
                     if self.evidence_root is None or not region.image_path.resolve().is_relative_to(
                         self.evidence_root.resolve()

@@ -63,6 +63,12 @@ class DocumentGraphCache:
             or graph.config_version != config_version
         ):
             return None
+        expected_evidence_root = (self.root / "evidence").resolve()
+        if (
+            graph.evidence_root is not None
+            and graph.evidence_root.resolve() != expected_evidence_root
+        ):
+            return None
         if any(
             region.image_path is not None and not _valid_png(region.image_path)
             for visual in graph.visuals

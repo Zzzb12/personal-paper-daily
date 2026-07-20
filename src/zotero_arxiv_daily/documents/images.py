@@ -116,8 +116,9 @@ def _atomic_write(target: Path, data: bytes) -> None:
 
 def _valid_png(path: Path) -> bool:
     try:
-        if not path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n"):
-            return False
+        with path.open("rb") as stream:
+            if stream.read(8) != b"\x89PNG\r\n\x1a\n":
+                return False
         pixmap = pymupdf.Pixmap(path)
         return pixmap.width > 0 and pixmap.height > 0
     except (OSError, RuntimeError, ValueError):

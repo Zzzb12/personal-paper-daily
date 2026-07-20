@@ -45,10 +45,15 @@ def test_bounding_box_accepts_a_positive_finite_rectangle():
     }
 
 
-def mapping(source_id: str, page: int, box: BoundingBox) -> SourceMapping:
+def mapping(
+    source_id: str,
+    page: int,
+    box: BoundingBox,
+    parser_version: str = "2.0",
+) -> SourceMapping:
     return SourceMapping(
         parser="docling",
-        parser_version="2.0",
+        parser_version=parser_version,
         source_item_id=source_id,
         pdf_page=page,
         bbox=box,
@@ -70,7 +75,7 @@ def artifact() -> PdfArtifact:
     )
 
 
-def graph() -> DocumentGraph:
+def graph(parser_version: str = "2.0") -> DocumentGraph:
     page_one_box = BoundingBox(left=10, top=10, right=90, bottom=30)
     page_two_box = BoundingBox(left=10, top=20, right=90, bottom=60)
     blocks = (
@@ -82,7 +87,7 @@ def graph() -> DocumentGraph:
             bbox=page_one_box,
             reading_order=0,
             section_id="section-1",
-            source_mapping=mapping("docling-heading", 1, page_one_box),
+            source_mapping=mapping("docling-heading", 1, page_one_box, parser_version),
         ),
         DocumentBlock(
             block_id="caption-1",
@@ -92,7 +97,7 @@ def graph() -> DocumentGraph:
             bbox=page_two_box,
             reading_order=1,
             section_id="section-1",
-            source_mapping=mapping("docling-caption", 2, page_two_box),
+            source_mapping=mapping("docling-caption", 2, page_two_box, parser_version),
         ),
     )
     issue = DocumentIssue(
@@ -114,7 +119,10 @@ def graph() -> DocumentGraph:
                 bbox=BoundingBox(left=10, top=40, right=90, bottom=90),
                 image_path=Path("cache/documents/images/table-1-page-1.png"),
                 source_mapping=mapping(
-                    "docling-table", 1, BoundingBox(left=10, top=40, right=90, bottom=90)
+                    "docling-table",
+                    1,
+                    BoundingBox(left=10, top=40, right=90, bottom=90),
+                    parser_version,
                 ),
                 confidence=0.9,
             ),
@@ -123,7 +131,10 @@ def graph() -> DocumentGraph:
                 bbox=BoundingBox(left=10, top=70, right=90, bottom=110),
                 image_path=Path("cache/documents/images/table-1-page-2.png"),
                 source_mapping=mapping(
-                    "docling-table", 2, BoundingBox(left=10, top=70, right=90, bottom=110)
+                    "docling-table",
+                    2,
+                    BoundingBox(left=10, top=70, right=90, bottom=110),
+                    parser_version,
                 ),
                 confidence=0.85,
             ),
@@ -134,7 +145,7 @@ def graph() -> DocumentGraph:
     return DocumentGraph(
         schema_version="1.0",
         parser="docling",
-        parser_version="2.0",
+        parser_version=parser_version,
         mapper_version="1",
         config_version="1",
         content_fingerprint="b" * 64,
@@ -166,7 +177,9 @@ def graph() -> DocumentGraph:
                 block_ids=("heading-1", "caption-1"),
                 start_pdf_page=1,
                 end_pdf_page=2,
-                source_mapping=mapping("docling-heading", 1, page_one_box),
+                source_mapping=mapping(
+                    "docling-heading", 1, page_one_box, parser_version
+                ),
                 confidence=0.95,
             ),
         ),
@@ -298,3 +311,32 @@ def test_success_result_rejects_error_severity_issues():
             ),
             processing_seconds=0,
         )
+
+
+def test_document_graph_enforces_section_page_source_and_bidirectional_membership():
+    payload = graph().model_dump()
+    payload["sections"][0]["end_pdf_page"] = 999
+    with pytest.raises(ValidationError, match="section page range"):
+        DocumentGraph.model_validate(payload)
+
+    payload = graph().model_dump()
+    payload["sections"][0]["source_mapping"]["pdf_page"] = 999
+    with pytest.raises(ValidationError, match="section source mapping"):
+        DocumentGraph.model_validate(payload)
+
+    payload = graph().model_dump()
+    payload["sections"][0]["block_ids"] = ()
+    with pytest.raises(ValidationError, match="section membership"):
+        DocumentGraph.model_validate(payload)
+
+    payload = graph().model_dump()
+    payload["blocks"][0]["source_mapping"]["parser_version"] = "wrong"
+    with pytest.raises(ValidationError, match="parser identity"):
+        DocumentGraph.model_validate(payload)
+
+
+def test_document_graph_rejects_untraceable_non_empty_caption():
+    payload = graph().model_dump()
+    payload["visuals"][0]["caption_block_ids"] = ()
+    with pytest.raises(ValidationError, match="non-empty caption"):
+        DocumentGraph.model_validate(payload)

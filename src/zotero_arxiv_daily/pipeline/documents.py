@@ -185,7 +185,8 @@ def _process_paper(
             config_version=settings.config_version,
         )
         graph = dependencies.image_extractor(graph, settings.cache_root / "evidence")
-        dependencies.cache.write(graph)
+        if parsed.status == "success":
+            dependencies.cache.write(graph)
         issues = _all_document_issues(parsed, graph)
         return PaperDocumentResult(
             paper_id=paper_id,

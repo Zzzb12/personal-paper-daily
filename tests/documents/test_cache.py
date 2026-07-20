@@ -1,5 +1,6 @@
 from zotero_arxiv_daily.documents.cache import DocumentGraphCache
 from tests.analysis.test_document_schemas import graph
+from PIL import Image
 
 
 def graph_without_images():
@@ -54,8 +55,8 @@ def test_document_cache_treats_corrupt_json_as_a_miss(tmp_path):
 
 def test_document_cache_treats_missing_or_corrupt_evidence_image_as_a_miss(tmp_path):
     document = graph()
-    evidence_root = tmp_path / "evidence"
-    evidence_root.mkdir()
+    evidence_root = tmp_path / "cache" / "evidence"
+    evidence_root.mkdir(parents=True)
     bad_image = evidence_root / "bad.png"
     bad_image.write_bytes(b"not png")
     visuals = tuple(
@@ -69,6 +70,36 @@ def test_document_cache_treats_missing_or_corrupt_evidence_image_as_a_miss(tmp_p
         for visual in document.visuals
     )
     document = document.model_copy(update={"visuals": visuals, "evidence_root": evidence_root})
+    cache = DocumentGraphCache(tmp_path / "cache")
+    cache.write(document)
+    assert cache.read(
+        pdf_sha256=document.pdf.sha256,
+        parser_version=document.parser_version,
+        mapper_version=document.mapper_version,
+        config_version=document.config_version,
+    ) is None
+
+
+def test_document_cache_rejects_graph_declaring_evidence_root_outside_cache(tmp_path):
+    document = graph()
+    external_root = tmp_path / "external"
+    external_root.mkdir()
+    external_png = external_root / "valid.png"
+    Image.new("RGB", (2, 2), "white").save(external_png)
+    visuals = tuple(
+        visual.model_copy(
+            update={
+                "regions": tuple(
+                    region.model_copy(update={"image_path": external_png})
+                    for region in visual.regions
+                )
+            }
+        )
+        for visual in document.visuals
+    )
+    document = document.model_copy(
+        update={"visuals": visuals, "evidence_root": external_root}
+    )
     cache = DocumentGraphCache(tmp_path / "cache")
     cache.write(document)
     assert cache.read(

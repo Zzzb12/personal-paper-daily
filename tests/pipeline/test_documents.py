@@ -69,14 +69,20 @@ class FakeDownloader:
 class FakeParser:
     parser_version = "2.113.0"
 
-    def __init__(self):
+    def __init__(self, status="success"):
         self.paths = []
+        self.status = status
 
     def parse(self, path, **kwargs):
         self.paths.append(path)
         return ParsedDocumentResult(
-            status="success",
+            status=self.status,
             document=ParsedDocument(parser_version="2.113.0", items=()),
+            issues=(
+                DocumentIssue(
+                    code="parser_partial", severity="warning", message="partial conversion"
+                ),
+            ) if self.status == "partial" else (),
         )
 
 
@@ -180,7 +186,7 @@ def test_pipeline_stops_scanned_document_before_docling(tmp_path):
 
 
 def test_pipeline_uses_exact_version_graph_cache_before_docling(tmp_path):
-    cached = graph().model_copy(update={"parser_version": "2.113.0"})
+    cached = graph(parser_version="2.113.0")
     deps, parser, cache = dependencies(cached=cached)
     result = build_document_batch(
         batch(count=1, selected=1),
@@ -199,6 +205,19 @@ def test_pipeline_uses_exact_version_graph_cache_before_docling(tmp_path):
             "config_version": "1",
         }
     ]
+
+
+def test_pipeline_does_not_cache_partial_parser_result(tmp_path):
+    deps, _, cache = dependencies()
+    deps.parser = FakeParser(status="partial")
+    result = build_document_batch(
+        batch(count=1, selected=1),
+        DocumentPipelineSettings(cache_root=tmp_path, docling_artifacts_path=tmp_path / "models"),
+        deps,
+    )
+    assert result.results[0].status == "partial"
+    assert "parser_partial" in {issue.code for issue in result.results[0].issues}
+    assert not cache.documents
 
 
 def test_stage_two_config_has_bounded_resource_defaults():

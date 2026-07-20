@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -234,3 +235,29 @@ def test_download_bounds_retry_after_delay(tmp_path):
     )
     service.download(URL)
     assert delays == [60]
+
+
+def test_download_supports_http_date_retry_after_with_injected_clock(tmp_path):
+    attempts = 0
+    delays = []
+
+    def handler(request):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(
+                429,
+                headers={"retry-after": "Mon, 20 Jul 2026 00:00:45 GMT"},
+                request=request,
+            )
+        return httpx.Response(200, headers={"content-type": "application/pdf"}, content=PDF_BYTES)
+
+    service = SafePdfDownloader(
+        tmp_path,
+        policy=PdfDownloadPolicy(max_attempts=2, max_retry_after_seconds=30),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        sleep=delays.append,
+        clock=lambda: datetime(2026, 7, 20, tzinfo=UTC),
+    )
+    service.download(URL)
+    assert delays == [30]
