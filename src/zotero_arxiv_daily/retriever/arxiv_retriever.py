@@ -46,7 +46,7 @@ class ArxivMetadataEntry(StrictModel):
     @classmethod
     def normalize_id(cls, value: str) -> str:
         value = value.strip().removeprefix("arxiv:")
-        if value.lower().endswith(tuple(f"v{i}" for i in range(10))):
+        if re.search(r"v\d+$", value, re.IGNORECASE):
             raise ValueError("arxiv_id must not include a version suffix")
         return value
 

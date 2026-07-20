@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from zotero_arxiv_daily.retriever import arxiv_retriever
 from zotero_arxiv_daily.retriever.arxiv_retriever import (
@@ -74,6 +75,11 @@ def test_candidates_are_sorted_by_stable_id_before_ranking():
         FakeGateway((entry("2401.00002"), entry("2401.00001"))), categories=("cs.CV",)
     ).retrieve()
     assert [paper.paper_id for paper in result.candidates] == ["arxiv:2401.00001", "arxiv:2401.00002"]
+
+
+def test_metadata_entry_rejects_multi_digit_version_suffix():
+    with pytest.raises(ValidationError, match="version suffix"):
+        entry("2401.00001v10", version=10)
 
 
 ATOM = b"""<?xml version="1.0" encoding="UTF-8"?>
