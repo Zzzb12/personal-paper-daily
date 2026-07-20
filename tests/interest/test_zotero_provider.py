@@ -1,7 +1,10 @@
 from datetime import UTC, datetime
 
+import httpx
+import pytest
+
 from zotero_arxiv_daily.interest.base import ZoteroCollection, ZoteroItem
-from zotero_arxiv_daily.interest.zotero import ZoteroInterestProvider
+from zotero_arxiv_daily.interest.zotero import PyzoteroGateway, RetryPolicy, ZoteroInterestProvider
 
 
 NOW = datetime(2026, 7, 20, tzinfo=UTC)
@@ -115,3 +118,117 @@ def test_output_and_fingerprint_are_independent_of_gateway_order():
     second = provider(FakeGateway(tuple(reversed(collections)), tuple(reversed(items)))).read()
     assert first == second
     assert len(first.corpus_fingerprint) == 64
+
+
+class FakeZoteroClient:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = 0
+
+    def collections(self):
+        return "collections"
+
+    def items(self, **kwargs):
+        assert kwargs["itemType"] == "conferencePaper || journalArticle || preprint"
+        return "items"
+
+    def everything(self, query):
+        self.calls += 1
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome[query]
+
+
+def status_error(status, retry_after=None):
+    request = httpx.Request("GET", "https://api.zotero.org/users/1/collections")
+    headers = {"Retry-After": str(retry_after)} if retry_after is not None else {}
+    response = httpx.Response(status, request=request, headers=headers)
+    return httpx.HTTPStatusError("status", request=request, response=response)
+
+
+def collection_payload():
+    return {
+        "collections": [
+            {"key": "root", "data": {"name": "PaperDaily", "parentCollection": False}}
+        ]
+    }
+
+
+def test_pyzotero_gateway_retries_transient_status_and_bounds_retry_after():
+    sleeps = []
+    client = FakeZoteroClient([status_error(429, retry_after=999), collection_payload()])
+    gateway = PyzoteroGateway(
+        client,
+        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=1, max_retry_after_seconds=60),
+        sleeper=sleeps.append,
+    )
+    assert gateway.list_collections()[0].name == "PaperDaily"
+    assert client.calls == 2
+    assert sleeps == [60]
+
+
+def test_pyzotero_gateway_retries_timeout():
+    client = FakeZoteroClient([httpx.ReadTimeout("slow"), collection_payload()])
+    gateway = PyzoteroGateway(client, sleeper=lambda _: None)
+    assert len(gateway.list_collections()) == 1
+    assert client.calls == 2
+
+
+def test_pyzotero_gateway_does_not_retry_authentication_failure():
+    client = FakeZoteroClient([status_error(401)])
+    gateway = PyzoteroGateway(client, sleeper=lambda _: None)
+    with pytest.raises(httpx.HTTPStatusError):
+        gateway.list_collections()
+    assert client.calls == 1
+
+
+def test_pyzotero_gateway_maps_items_without_leaking_extra_fields():
+    payload = {
+        "items": [
+            {
+                "key": "item-1",
+                "data": {
+                    "title": "Title",
+                    "abstractNote": "Abstract",
+                    "collections": ["root"],
+                    "dateAdded": "2026-07-20T00:00:00Z",
+                    "note": "private note must not be retained",
+                },
+            }
+        ]
+    }
+    result = PyzoteroGateway(FakeZoteroClient([payload]), sleeper=lambda _: None).list_items()
+    assert result == (
+        ZoteroItem(
+            key="item-1",
+            title="Title",
+            abstract="Abstract",
+            collection_keys=("root",),
+            added_at=NOW,
+        ),
+    )
+
+
+def test_from_credentials_configures_explicit_httpx_timeouts(monkeypatch):
+    captured = {}
+
+    def fake_constructor(library_id, library_type, api_key, *, client):
+        captured.update(
+            library_id=library_id,
+            library_type=library_type,
+            api_key=api_key,
+            timeout=client.timeout,
+        )
+        return FakeZoteroClient([collection_payload()])
+
+    monkeypatch.setattr("zotero_arxiv_daily.interest.zotero.zotero.Zotero", fake_constructor)
+    gateway = PyzoteroGateway.from_credentials("1", "test-key")
+    try:
+        assert captured["library_type"] == "user"
+        assert captured["timeout"].connect == 10
+        assert captured["timeout"].read == 30
+        assert captured["timeout"].write == 10
+        assert captured["timeout"].pool == 10
+    finally:
+        gateway.close()

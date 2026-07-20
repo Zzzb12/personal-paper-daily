@@ -2,11 +2,117 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from collections.abc import Mapping
+from datetime import datetime
+from time import sleep
+from typing import Any, TypeVar
 
-from ..analysis.schemas import InterestPaper
+import httpx
+from pyzotero import zotero
+
+from ..analysis.schemas import InterestPaper, StrictModel
 from ..utils import glob_match
-from .base import InterestIssue, InterestReadResult, ZoteroCollection, ZoteroGateway
+from .base import InterestIssue, InterestReadResult, ZoteroCollection, ZoteroGateway, ZoteroItem
+
+
+T = TypeVar("T")
+
+
+class RetryPolicy(StrictModel):
+    max_attempts: int = 3
+    backoff_seconds: float = 1
+    max_retry_after_seconds: float = 60
+
+
+class PyzoteroGateway:
+    def __init__(
+        self,
+        client: Any,
+        *,
+        retry_policy: RetryPolicy | None = None,
+        sleeper: Callable[[float], None] = sleep,
+        owned_http_client: httpx.Client | None = None,
+    ) -> None:
+        self._client = client
+        self._retry = retry_policy or RetryPolicy()
+        self._sleeper = sleeper
+        self._owned_http_client = owned_http_client
+
+    @classmethod
+    def from_credentials(cls, library_id: str, api_key: str) -> "PyzoteroGateway":
+        http_client = httpx.Client(
+            timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10)
+        )
+        try:
+            client = zotero.Zotero(library_id, "user", api_key, client=http_client)
+        except Exception:
+            http_client.close()
+            raise
+        return cls(client, owned_http_client=http_client)
+
+    @staticmethod
+    def _transient(exc: Exception) -> bool:
+        if isinstance(exc, (httpx.TimeoutException, httpx.TransportError)):
+            return True
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = exc.response.status_code
+            return status in {408, 425, 429} or status >= 500
+        return False
+
+    def _retry_delay(self, attempt: int, exc: Exception) -> float:
+        fallback = self._retry.backoff_seconds * attempt
+        if not isinstance(exc, httpx.HTTPStatusError):
+            return fallback
+        raw = exc.response.headers.get("Retry-After")
+        try:
+            retry_after = float(raw) if raw is not None else fallback
+        except ValueError:
+            retry_after = fallback
+        return min(max(retry_after, 0), self._retry.max_retry_after_seconds)
+
+    def _call(self, operation: Callable[[], T]) -> T:
+        for attempt in range(1, self._retry.max_attempts + 1):
+            try:
+                return operation()
+            except Exception as exc:
+                if attempt == self._retry.max_attempts or not self._transient(exc):
+                    raise
+                self._sleeper(self._retry_delay(attempt, exc))
+        raise RuntimeError("unreachable retry loop")
+
+    def list_collections(self) -> tuple[ZoteroCollection, ...]:
+        raw = self._call(lambda: self._client.everything(self._client.collections()))
+        return tuple(
+            ZoteroCollection(
+                key=entry["key"],
+                name=entry["data"]["name"],
+                parent_key=entry["data"].get("parentCollection") or None,
+            )
+            for entry in raw
+        )
+
+    def list_items(self) -> tuple[ZoteroItem, ...]:
+        raw = self._call(
+            lambda: self._client.everything(
+                self._client.items(itemType="conferencePaper || journalArticle || preprint")
+            )
+        )
+        return tuple(
+            ZoteroItem(
+                key=entry["key"],
+                title=entry["data"].get("title", ""),
+                abstract=entry["data"].get("abstractNote", ""),
+                collection_keys=tuple(entry["data"].get("collections", ())),
+                added_at=datetime.fromisoformat(entry["data"]["dateAdded"].replace("Z", "+00:00")),
+            )
+            for entry in raw
+        )
+
+    def close(self) -> None:
+        if self._owned_http_client is not None:
+            self._owned_http_client.close()
+            self._owned_http_client = None
 
 
 class CollectionPathError(ValueError):
