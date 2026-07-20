@@ -10,15 +10,107 @@ import multiprocessing
 import os
 from queue import Empty
 from time import sleep
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Protocol, TypeVar
 from loguru import logger
 import requests
+from pydantic import field_validator, model_validator
+
+from ..analysis.schemas import CandidatePaper, StrictModel
 
 T = TypeVar("T")
 
 DOWNLOAD_TIMEOUT = (10, 60)
 PDF_EXTRACT_TIMEOUT = 180
 TAR_EXTRACT_TIMEOUT = 180
+
+
+class ArxivMetadataEntry(StrictModel):
+    arxiv_id: str
+    version: int
+    title: str
+    authors: tuple[str, ...]
+    abstract: str
+    categories: tuple[str, ...]
+    primary_category: str
+    published_at: Any
+    updated_at: Any
+    arxiv_url: str
+    pdf_url: str
+    code_url: str | None = None
+
+    @field_validator("arxiv_id")
+    @classmethod
+    def normalize_id(cls, value: str) -> str:
+        value = value.strip().removeprefix("arxiv:")
+        if value.lower().endswith(tuple(f"v{i}" for i in range(10))):
+            raise ValueError("arxiv_id must not include a version suffix")
+        return value
+
+    @model_validator(mode="after")
+    def validate_as_candidate(self):
+        self.to_candidate()
+        return self
+
+    def to_candidate(self) -> CandidatePaper:
+        return CandidatePaper(
+            paper_id=f"arxiv:{self.arxiv_id}",
+            arxiv_id=self.arxiv_id,
+            version=self.version,
+            title=self.title,
+            authors=self.authors,
+            abstract=self.abstract,
+            categories=self.categories,
+            primary_category=self.primary_category,
+            published_at=self.published_at,
+            updated_at=self.updated_at,
+            arxiv_url=self.arxiv_url,
+            pdf_url=self.pdf_url,
+            code_url=self.code_url,
+        )
+
+
+class ArxivMetadataGateway(Protocol):
+    def retrieve_entries(
+        self, categories: tuple[str, ...], include_cross_list: bool
+    ) -> tuple[ArxivMetadataEntry, ...]:
+        raise NotImplementedError
+
+
+class ArxivMetadataResult(StrictModel):
+    candidates: tuple[CandidatePaper, ...]
+    retrieved_count: int
+    deduplicated_count: int
+    invalid_count: int = 0
+
+
+class ArxivMetadataRetriever:
+    def __init__(
+        self,
+        gateway: ArxivMetadataGateway,
+        *,
+        categories: tuple[str, ...],
+        include_cross_list: bool = False,
+    ) -> None:
+        self._gateway = gateway
+        self._categories = categories
+        self._include_cross_list = include_cross_list
+
+    def retrieve(self) -> ArxivMetadataResult:
+        entries = self._gateway.retrieve_entries(self._categories, self._include_cross_list)
+        latest: dict[str, ArxivMetadataEntry] = {}
+        for entry in entries:
+            previous = latest.get(entry.arxiv_id)
+            if previous is None or (entry.version, entry.updated_at) > (
+                previous.version,
+                previous.updated_at,
+            ):
+                latest[entry.arxiv_id] = entry
+        candidates = tuple(latest[key].to_candidate() for key in sorted(latest))
+        return ArxivMetadataResult(
+            candidates=candidates,
+            retrieved_count=len(entries),
+            deduplicated_count=len(candidates),
+        )
 
 
 def _download_file(url: str, path: str) -> None:
