@@ -1,0 +1,19 @@
+{
+  "run_id": "stage4-offline",
+  "now": "2026-07-20T00:00:00Z",
+  "paper_id": "arxiv:2401.00001",
+  "arxiv_id": "2401.00001",
+  "english_title": "Synthetic Offline Evidence Paper",
+  "pdf_url": "https://arxiv.org/pdf/2401.00001",
+  "arxiv_url": "https://arxiv.org/abs/2401.00001",
+  "pdf_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "content_fingerprint": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "section_title": "3 Method",
+  "method_text": "Synthetic method evidence states that the cache interval is evaluated.",
+  "table_label": "Table 1",
+  "table_caption": "Table 1: Synthetic ablation evidence for the cache interval.",
+  "parameter_name": "cache interval",
+  "insight_zh": "人工证据表明该方法通过受控缓存间隔形成核心机制。",
+  "support_zh": "该人工表格直接对比缓存间隔设置并支撑核心 Insight。",
+  "ablation_zh": "人工消融表格显示缓存间隔会影响结果。"
+}

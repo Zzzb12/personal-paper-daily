@@ -83,3 +83,10 @@ analysis_pipeline:
   response_max_bytes: 1048576
   request_timeout: {connect: 10, read: 60, write: 10, pool: 10}
   retry: {max_attempts: 3, backoff_seconds: 1, max_retry_after_seconds: 60}
+
+validation_pipeline:
+  schema_version: "1.0"
+  validator_version: stage4-v1
+  cache_root: cache/validation
+  max_papers: 5
+  max_cache_bytes: 10485760
