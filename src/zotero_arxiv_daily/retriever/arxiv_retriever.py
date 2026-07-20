@@ -13,6 +13,10 @@ from time import sleep
 from typing import Any, Callable, Protocol, TypeVar
 from loguru import logger
 import requests
+import httpx
+import re
+from datetime import datetime
+from collections.abc import Callable
 from pydantic import field_validator, model_validator
 
 from ..analysis.schemas import CandidatePaper, StrictModel
@@ -32,8 +36,8 @@ class ArxivMetadataEntry(StrictModel):
     abstract: str
     categories: tuple[str, ...]
     primary_category: str
-    published_at: Any
-    updated_at: Any
+    published_at: datetime
+    updated_at: datetime
     arxiv_url: str
     pdf_url: str
     code_url: str | None = None
@@ -111,6 +115,109 @@ class ArxivMetadataRetriever:
             retrieved_count=len(entries),
             deduplicated_count=len(candidates),
         )
+
+
+class ArxivRetryPolicy(StrictModel):
+    max_attempts: int = 3
+    backoff_seconds: float = 1
+
+
+class HttpArxivMetadataGateway:
+    API_URL = "https://export.arxiv.org/api/query"
+    _ID_RE = re.compile(r"(?P<base>(?:[a-z-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5}))(?:v(?P<version>\d+))?$", re.I)
+
+    def __init__(
+        self,
+        client: httpx.Client,
+        *,
+        retry_policy: ArxivRetryPolicy | None = None,
+        sleeper: Callable[[float], None] = sleep,
+        owns_client: bool = False,
+    ) -> None:
+        self._client = client
+        self._retry = retry_policy or ArxivRetryPolicy()
+        self._sleeper = sleeper
+        self._owns_client = owns_client
+
+    @classmethod
+    def from_defaults(cls) -> "HttpArxivMetadataGateway":
+        client = httpx.Client(timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10))
+        return cls(client, owns_client=True)
+
+    def _get(self, params: dict[str, str | int]) -> httpx.Response:
+        for attempt in range(1, self._retry.max_attempts + 1):
+            try:
+                response = self._client.get(self.API_URL, params=params)
+                response.raise_for_status()
+                return response
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                transient = isinstance(exc, (httpx.TimeoutException, httpx.TransportError))
+                if isinstance(exc, httpx.HTTPStatusError):
+                    status = exc.response.status_code
+                    transient = status in {408, 425, 429} or status >= 500
+                if not transient or attempt == self._retry.max_attempts:
+                    raise
+                self._sleeper(self._retry.backoff_seconds * attempt)
+        raise RuntimeError("unreachable retry loop")
+
+    @classmethod
+    def _parse_entry(cls, raw: Any) -> ArxivMetadataEntry:
+        match = cls._ID_RE.search(str(raw.id))
+        if match is None:
+            raise ValueError("invalid arXiv identifier")
+        base = match.group("base")
+        version = int(match.group("version") or 1)
+        categories = tuple(sorted({tag.term for tag in raw.get("tags", ())}))
+        primary_data = raw.get("arxiv_primary_category", {})
+        primary = primary_data.get("term") if hasattr(primary_data, "get") else None
+        if not primary:
+            primary = categories[0]
+        pdf_url = next(
+            (
+                link.href
+                for link in raw.get("links", ())
+                if link.get("type") == "application/pdf" or link.get("title") == "pdf"
+            ),
+            f"https://arxiv.org/pdf/{base}v{version}",
+        )
+        return ArxivMetadataEntry(
+            arxiv_id=base,
+            version=version,
+            title=raw.title,
+            authors=tuple(author.name for author in raw.get("authors", ())),
+            abstract=raw.summary,
+            categories=categories,
+            primary_category=primary,
+            published_at=datetime.fromisoformat(raw.published.replace("Z", "+00:00")),
+            updated_at=datetime.fromisoformat(raw.updated.replace("Z", "+00:00")),
+            arxiv_url=str(raw.id),
+            pdf_url=pdf_url,
+        )
+
+    def retrieve_entries(
+        self, categories: tuple[str, ...], include_cross_list: bool
+    ) -> tuple[ArxivMetadataEntry, ...]:
+        query = " OR ".join(f"cat:{category}" for category in categories)
+        response = self._get(
+            {
+                "search_query": query,
+                "start": 0,
+                "max_results": 200,
+                "sortBy": "submittedDate",
+                "sortOrder": "descending",
+            }
+        )
+        feed = feedparser.parse(response.content)
+        parsed = tuple(self._parse_entry(raw) for raw in feed.entries)
+        if include_cross_list:
+            return parsed
+        allowed = set(categories)
+        return tuple(entry for entry in parsed if entry.primary_category in allowed)
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
+            self._owns_client = False
 
 
 def _download_file(url: str, path: str) -> None:

@@ -1,10 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
+import httpx
+import pytest
+
 from zotero_arxiv_daily.retriever import arxiv_retriever
 from zotero_arxiv_daily.retriever.arxiv_retriever import (
     ArxivMetadataEntry,
     ArxivMetadataRetriever,
+    ArxivRetryPolicy,
+    HttpArxivMetadataGateway,
 )
 
 
@@ -69,3 +74,84 @@ def test_candidates_are_sorted_by_stable_id_before_ranking():
         FakeGateway((entry("2401.00002"), entry("2401.00001"))), categories=("cs.CV",)
     ).retrieve()
     assert [paper.paper_id for paper in result.candidates] == ["arxiv:2401.00001", "arxiv:2401.00002"]
+
+
+ATOM = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>https://arxiv.org/abs/2401.00001v2</id>
+    <updated>2026-07-20T01:00:00Z</updated>
+    <published>2026-07-20T00:00:00Z</published>
+    <title> Metadata title </title>
+    <summary> Metadata abstract </summary>
+    <author><name>A. Author</name></author>
+    <arxiv:primary_category term="cs.LG" />
+    <category term="cs.LG"/><category term="cs.CV"/>
+    <link href="https://arxiv.org/abs/2401.00001v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2401.00001v2" rel="related" type="application/pdf" title="pdf"/>
+  </entry>
+</feed>"""
+
+
+def test_http_gateway_retries_transient_status_without_real_network():
+    calls = []
+    sleeps = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            return httpx.Response(503, request=request)
+        return httpx.Response(200, request=request, content=ATOM)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    gateway = HttpArxivMetadataGateway(
+        client,
+        retry_policy=ArxivRetryPolicy(max_attempts=3, backoff_seconds=1),
+        sleeper=sleeps.append,
+    )
+    assert len(gateway.retrieve_entries(("cs.CV",), include_cross_list=True)) == 1
+    assert len(calls) == 2
+    assert sleeps == [1]
+
+
+def test_http_gateway_does_not_retry_permanent_error():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(401, request=request)
+
+    gateway = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)), sleeper=lambda _: None
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        gateway.retrieve_entries(("cs.CV",), include_cross_list=False)
+    assert len(calls) == 1
+
+
+def test_http_gateway_honors_cross_list_policy():
+    def handler(request):
+        return httpx.Response(200, request=request, content=ATOM)
+
+    gateway = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)), sleeper=lambda _: None
+    )
+    assert gateway.retrieve_entries(("cs.CV",), include_cross_list=False) == ()
+    assert len(gateway.retrieve_entries(("cs.CV",), include_cross_list=True)) == 1
+
+
+def test_http_gateway_default_client_has_explicit_timeouts(monkeypatch):
+    captured = {}
+    real_client = httpx.Client
+
+    def constructor(*args, **kwargs):
+        captured["timeout"] = kwargs["timeout"]
+        return real_client(transport=httpx.MockTransport(lambda request: httpx.Response(200, request=request, content=ATOM)), **kwargs)
+
+    monkeypatch.setattr(arxiv_retriever.httpx, "Client", constructor)
+    gateway = HttpArxivMetadataGateway.from_defaults()
+    try:
+        timeout = captured["timeout"]
+        assert (timeout.connect, timeout.read, timeout.write, timeout.pool) == (10, 30, 10, 10)
+    finally:
+        gateway.close()
