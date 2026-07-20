@@ -630,14 +630,14 @@ git diff --check 8603098474db25826de88af407bdfffb00cdb2b7..HEAD
 Fresh verification evidence:
 
 - Frozen dependency sync checked `172 packages` successfully.
-- Stage 4 focused suite: `93 passed`.
+- Stage 4 focused suite: `103 passed`.
 - Stage 3 regression suite: `71 passed`.
 - Stage 2 regression suite: `69 passed`.
 - Stage 1 regression suite: `75 passed`.
-- Default suite: `383 passed`, `2 failed`, `1 deselected` in `15.45 seconds`.
+- Default suite: `393 passed`, `2 failed`, `1 deselected` in `16.42 seconds`.
   Both failures are the unchanged Windows one-second multiprocessing spawn-timeout
   baseline failures.
-- Complete configured suite: `383 passed`, `3 failed` in `509.44 seconds`. The
+- Complete configured suite: `393 passed`, `3 failed` in `509.42 seconds`. The
   third failure is the unchanged slow local-reranker dependency:
   `jinaai/jina-embeddings-v5-text-nano-retrieval` could not be reached and was not
   present in the local Hugging Face cache.
@@ -651,6 +651,23 @@ Fresh verification evidence:
   PNG assets. Representative `.env`, paper, Zotero, candidate/document/analysis/
   validation cache, and viewer-state paths remain ignored; `.env.example` remains
   trackable.
+
+Independent review history:
+
+- The first review found cache reuse across Stage 3 status changes, text evidence
+  body/ID gaps, valid-JSON cache tampering, batch exception leakage, incomplete
+  ablation binding, schema-bypass invariants, a weak validated-analysis boundary,
+  and uncontrolled issue messages. All confirmed findings were reproduced with
+  failing tests and fixed.
+- The second review reproduced a numbered Abstract/Summary eligibility bypass,
+  unresolved section cycles/dangling parents, and a combined paper-ID/claim-error
+  exception. Stage 2 and Stage 4 now share one Abstract classifier; invalid section
+  hierarchies are explicit provenance errors; rule issues use the trusted Candidate
+  paper ID.
+- The third review confirmed those bypasses closed and found one remaining unsafe
+  dynamic section location. Commit `df136d8` replaced it with a stable index path
+  and added direct-validator regressions for unsafe section IDs. The final short
+  review is recorded with the final Stage 4 commit below.
 
 Known limits and rollback:
 
