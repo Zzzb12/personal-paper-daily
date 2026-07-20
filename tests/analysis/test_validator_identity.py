@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from zotero_arxiv_daily.analysis.validator import validate_paper
+from zotero_arxiv_daily.documents.evidence import evidence_packet_fingerprint
 from tests.analysis.stage4_factories import (
     golden_inputs,
     mutate_analysis_title,
@@ -142,3 +143,87 @@ def test_stale_packet_fingerprint_is_invalid() -> None:
 
     assert result.status == "invalid"
     assert "packet_fingerprint_mismatch" in issue_codes(result)
+
+
+@pytest.mark.parametrize("title", ["1. Abstract", "A.1 Abstract", "1) Summary"])
+def test_numbered_abstract_synchronized_tampering_is_invalid(title: str) -> None:
+    inputs = golden_inputs()
+    sections = tuple(
+        section.model_copy(update={"title": title})
+        if section.section_id == "section-abstract"
+        else section
+        for section in inputs.document.sections
+    )
+    candidates = tuple(
+        item.model_copy(
+            update={
+                "section_title": title,
+                "section_path": (title,),
+                "abstract_only": False,
+            }
+        )
+        if item.section_id == "section-abstract"
+        else item
+        for item in inputs.packet.candidates
+    )
+    packet = inputs.packet.model_copy(update={"candidates": candidates})
+    packet = packet.model_copy(
+        update={
+            "packet_fingerprint": evidence_packet_fingerprint(
+                paper_id=packet.paper_id,
+                document_fingerprint=packet.document_fingerprint,
+                builder_version=packet.builder_version,
+                candidates=candidates,
+            )
+        }
+    )
+    abstract_id = next(
+        item.evidence_id for item in candidates if item.section_id == "section-abstract"
+    )
+    analysis = inputs.analysis_result.analysis
+    insight = analysis.insights[0].model_copy(update={"evidence_ids": (abstract_id,)})
+    analysis = analysis.model_copy(
+        update={"insights": (insight,), "evidence_candidates": candidates}
+    )
+    changed = inputs._replace(
+        document=inputs.document.model_copy(update={"sections": sections}),
+        packet=packet,
+        analysis_result=inputs.analysis_result.model_copy(update={"analysis": analysis}),
+    )
+
+    result = validate_paper(*changed)
+
+    assert result.status == "invalid"
+    assert result.report.publication_eligibility == "blocked"
+    assert "text_provenance_mismatch" in issue_codes(result)
+
+
+@pytest.mark.parametrize(
+    ("section_id", "parent_id"),
+    [
+        ("section-introduction", "section-introduction"),
+        ("section-introduction", "section-missing"),
+        ("section-experiments", "section-experiments"),
+        ("section-experiments", "section-missing"),
+    ],
+)
+def test_invalid_text_or_visual_section_hierarchy_is_rejected(
+    section_id: str, parent_id: str
+) -> None:
+    inputs = golden_inputs()
+    sections = tuple(
+        section.model_copy(update={"parent_id": parent_id})
+        if section.section_id == section_id
+        else section
+        for section in inputs.document.sections
+    )
+
+    result = validate_paper(
+        inputs.candidate,
+        inputs.document.model_copy(update={"sections": sections}),
+        inputs.packet,
+        inputs.analysis_result,
+    )
+
+    assert result.status == "invalid"
+    assert "section_hierarchy_invalid" in issue_codes(result)

@@ -35,6 +35,20 @@ def test_unknown_evidence_id_is_invalid() -> None:
     )
 
 
+def test_paper_id_mismatch_plus_claim_error_is_structured_invalid() -> None:
+    inputs = _replace_insight(golden_inputs(), evidence_ids=("unknown-evidence",))
+    analysis = inputs.analysis_result.analysis.model_copy(
+        update={"paper_id": "arxiv:2401.99999"}
+    )
+
+    result = validate_paper(*replace_analysis(inputs, analysis))
+
+    assert result.status == "invalid"
+    assert result.report.publication_eligibility == "blocked"
+    assert {"paper_id_mismatch", "unknown_evidence"}.issubset(issue_codes(result))
+    assert all(issue.paper_id == inputs.candidate.paper_id for issue in result.issues)
+
+
 def test_abstract_only_insight_is_invalid() -> None:
     inputs = golden_inputs()
     abstract_id = next(

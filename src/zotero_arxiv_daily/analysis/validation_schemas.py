@@ -32,6 +32,7 @@ VALIDATION_MESSAGES = {
     "evidence_source_missing": "Evidence source cannot be resolved in the document graph",
     "text_provenance_mismatch": "Text evidence provenance differs from the document graph",
     "visual_provenance_mismatch": "Figure or Table provenance differs from the document graph",
+    "section_hierarchy_invalid": "Document section hierarchy cannot be resolved safely",
     "unknown_evidence": "Claim references evidence that does not exist",
     "abstract_only_insight": "Insight lacks non-Abstract evidence",
     "duplicate_claim_id": "Claim identifier is not unique within the paper",

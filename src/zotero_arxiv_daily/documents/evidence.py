@@ -22,7 +22,10 @@ from zotero_arxiv_daily.analysis.schemas import StrictModel
 
 
 EVIDENCE_BUILDER_VERSION = "1"
-_NUMBER_PREFIX_RE = re.compile(r"^\s*(?:[A-Z]?\d+(?:\.\d+)*[.):]?\s*)+", re.IGNORECASE)
+_NUMBER_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:[A-Z]\.\d+(?:\.\d+)*|\d+(?:\.\d+)*)(?:[.):])?|[A-Z][.):])\s+",
+    re.IGNORECASE,
+)
 _NON_WORD_RE = re.compile(r"[^a-z]+")
 
 
@@ -138,7 +141,7 @@ def _text_candidates(
             caption=None,
             regions=(region,),
             confidence=block.source_mapping.confidence,
-            abstract_only=_is_abstract_path(path),
+            abstract_only=is_abstract_section_path(path),
         )
         candidates.append(
             _OrderedCandidate(
@@ -182,7 +185,7 @@ def _visual_candidates(
             caption=visual.caption,
             regions=regions,
             confidence=visual.confidence,
-            abstract_only=_is_abstract_path(path),
+            abstract_only=is_abstract_section_path(path),
         )
         candidates.append(
             _OrderedCandidate(
@@ -240,13 +243,13 @@ def _section_path(
     return tuple(reversed(path))
 
 
-def _normalized_title(title: str) -> str:
+def normalized_section_title(title: str) -> str:
     without_number = _NUMBER_PREFIX_RE.sub("", title)
     return " ".join(_NON_WORD_RE.sub(" ", without_number.lower()).split())
 
 
 def _section_priority(path: tuple[str, ...]) -> int:
-    titles = {_normalized_title(title) for title in path}
+    titles = {normalized_section_title(title) for title in path}
     if any(
         any(keyword in title for keyword in ("introduction", "motivation", "observation", "analysis"))
         for title in titles
@@ -269,14 +272,14 @@ def _section_priority(path: tuple[str, ...]) -> int:
         for title in titles
     ):
         return 4
-    if _is_abstract_path(path):
+    if is_abstract_section_path(path):
         return 6
     return 5
 
 
-def _is_abstract_path(path: tuple[str, ...]) -> bool:
+def is_abstract_section_path(path: tuple[str, ...]) -> bool:
     return bool(path) and all(
-        _normalized_title(title) in {"abstract", "summary"} for title in path
+        normalized_section_title(title) in {"abstract", "summary"} for title in path
     )
 
 

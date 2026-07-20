@@ -31,6 +31,7 @@ from zotero_arxiv_daily.analysis.validation_schemas import (
 from zotero_arxiv_daily.documents.evidence import (
     evidence_candidate_id,
     evidence_packet_fingerprint,
+    is_abstract_section_path,
 )
 
 
@@ -72,7 +73,9 @@ def validate_paper(
             )
         )
 
-    claim_results = _validate_analysis_rules(analysis, packet, issues)
+    claim_results = _validate_analysis_rules(
+        candidate.paper_id, analysis, packet, issues
+    )
 
     report_status = (
         "invalid"
@@ -228,10 +231,19 @@ def _validate_packet_against_document(
     block_by_id = {block.block_id: block for block in document.blocks}
     section_by_id = {section.section_id: section for section in document.sections}
     visual_by_id = {visual.visual_id: visual for visual in document.visuals}
-    section_paths = {
-        section_id: _section_path(section, section_by_id)
-        for section_id, section in section_by_id.items()
-    }
+    section_paths: dict[str, tuple[str, ...]] = {}
+    for section_id, section in section_by_id.items():
+        path = _section_path(section, section_by_id)
+        if path is None:
+            issues.append(
+                _issue(
+                    "section_hierarchy_invalid",
+                    paper_id,
+                    field_path=f"sections.{section_id}",
+                )
+            )
+            path = ()
+        section_paths[section_id] = path
     for index, candidate in enumerate(packet.candidates):
         field_path = f"evidence_candidates.{index}"
         if candidate.evidence_id != evidence_candidate_id(
@@ -323,7 +335,7 @@ def _validate_text_candidate(
         and region.source_mapping == block.source_mapping
         and region.confidence == block.source_mapping.confidence
         and candidate.confidence == block.source_mapping.confidence
-        and candidate.abstract_only == _is_abstract_path(expected_path)
+        and candidate.abstract_only == is_abstract_section_path(expected_path)
     )
     if not matches:
         issues.append(
@@ -356,7 +368,7 @@ def _visual_matches(
         or candidate.section_path != path
         or candidate.block_ids != visual.caption_block_ids
         or candidate.confidence != visual.confidence
-        or candidate.abstract_only != _is_abstract_path(path)
+        or candidate.abstract_only != is_abstract_section_path(path)
         or len(candidate.regions) != len(visual.regions)
     ):
         return False
@@ -373,20 +385,26 @@ def _visual_matches(
 def _section_path(
     section: SectionNode,
     section_by_id: dict[str, SectionNode],
-) -> tuple[str, ...]:
+) -> tuple[str, ...] | None:
     path: list[str] = []
     current: SectionNode | None = section
     seen: set[str] = set()
     while current is not None:
         if current.section_id in seen:
-            return ()
+            return None
         seen.add(current.section_id)
         path.append(current.title)
-        current = section_by_id.get(current.parent_id or "")
+        if current.parent_id is None:
+            current = None
+        else:
+            current = section_by_id.get(current.parent_id)
+            if current is None:
+                return None
     return tuple(reversed(path))
 
 
 def _validate_analysis_rules(
+    paper_id: str,
     analysis: PaperAnalysis,
     packet: EvidencePacket,
     issues: list[ValidationIssue],
@@ -399,7 +417,7 @@ def _validate_analysis_rules(
         issues.append(
             _issue(
                 "duplicate_evidence_id",
-                analysis.paper_id,
+                paper_id,
                 field_path="evidence_candidates",
                 evidence_id=evidence_id,
             )
@@ -412,7 +430,7 @@ def _validate_analysis_rules(
         issues.append(
             _issue(
                 "duplicate_claim_id",
-                analysis.paper_id,
+                paper_id,
                 field_path="claims",
                 claim_id=claim_id,
             )
@@ -437,7 +455,7 @@ def _validate_analysis_rules(
             issues.append(
                 _issue(
                     "unknown_evidence",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=f"{field_path}.evidence_ids",
                     claim_id=claim.claim_id,
                     evidence_id=evidence_id,
@@ -458,7 +476,7 @@ def _validate_analysis_rules(
                 issues.append(
                     _issue(
                         code,
-                        analysis.paper_id,
+                        paper_id,
                         field_path=field_path,
                         claim_id=claim.claim_id,
                     )
@@ -478,13 +496,13 @@ def _validate_analysis_rules(
                 )
             )
 
-    _validate_supporting_visuals(analysis, candidates, issues)
-    _validate_parameters_and_ablations(analysis, candidates, issues)
+    _validate_supporting_visuals(paper_id, analysis, candidates, issues)
+    _validate_parameters_and_ablations(paper_id, analysis, candidates, issues)
     if not analysis.insights:
         issues.append(
             _issue(
                 "core_insight_missing",
-                analysis.paper_id,
+                paper_id,
                 field_path="insights",
                 severity="warning",
             )
@@ -540,6 +558,7 @@ def _claim_locations(
 
 
 def _validate_supporting_visuals(
+    paper_id: str,
     analysis: PaperAnalysis,
     candidates: dict[str, EvidenceCandidate],
     issues: list[ValidationIssue],
@@ -548,7 +567,7 @@ def _validate_supporting_visuals(
         issues.append(
             _issue(
                 "too_many_supporting_visuals",
-                analysis.paper_id,
+                paper_id,
                 field_path="supporting_visuals",
             )
         )
@@ -560,7 +579,7 @@ def _validate_supporting_visuals(
             issues.append(
                 _issue(
                     "supporting_visual_requires_figure_or_table",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=f"{path}.evidence_id",
                     evidence_id=visual.evidence_id,
                     visual_id=visual.visual_id,
@@ -570,7 +589,7 @@ def _validate_supporting_visuals(
             issues.append(
                 _issue(
                     "supporting_visual_unknown_insight",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=f"{path}.insight_ids",
                     visual_id=visual.visual_id,
                 )
@@ -584,7 +603,7 @@ def _validate_supporting_visuals(
             issues.append(
                 _issue(
                     "invalid_support_explanation",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=f"{path}.support_explanation",
                     claim_id=explanation.claim_id,
                     evidence_id=visual.evidence_id,
@@ -597,7 +616,7 @@ def _validate_supporting_visuals(
             issues.append(
                 _issue(
                     "supporting_visual_provenance_mismatch",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=path,
                     evidence_id=visual.evidence_id,
                     visual_id=visual.visual_id,
@@ -622,6 +641,7 @@ def _support_matches_candidate(visual, candidate: EvidenceCandidate) -> bool:
 
 
 def _validate_parameters_and_ablations(
+    paper_id: str,
     analysis: PaperAnalysis,
     candidates: dict[str, EvidenceCandidate],
     issues: list[ValidationIssue],
@@ -634,7 +654,7 @@ def _validate_parameters_and_ablations(
         issues.append(
             _issue(
                 "duplicate_parameter_name",
-                analysis.paper_id,
+                paper_id,
                 field_path="parameters",
             )
         )
@@ -646,7 +666,7 @@ def _validate_parameters_and_ablations(
         issues.append(
             _issue(
                 "duplicate_ablation_id",
-                analysis.paper_id,
+                paper_id,
                 field_path="ablations",
             )
         )
@@ -658,7 +678,7 @@ def _validate_parameters_and_ablations(
             issues.append(
                 _issue(
                     "parameter_source_inference_mismatch",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=path,
                     claim_id=parameter.role.claim_id,
                 )
@@ -668,7 +688,7 @@ def _validate_parameters_and_ablations(
                 issues.append(
                     _issue(
                         "parameter_unknown_evidence",
-                        analysis.paper_id,
+                        paper_id,
                         field_path=f"{path}.evidence_ids",
                         evidence_id=evidence_id,
                     )
@@ -678,7 +698,7 @@ def _validate_parameters_and_ablations(
                 issues.append(
                     _issue(
                         "parameter_unknown_ablation",
-                        analysis.paper_id,
+                        paper_id,
                         field_path=f"{path}.ablation_ids",
                     )
                 )
@@ -689,7 +709,7 @@ def _validate_parameters_and_ablations(
                 issues.append(
                     _issue(
                         "ablation_unknown_parameter",
-                        analysis.paper_id,
+                        paper_id,
                         field_path=f"{path}.parameter_names",
                     )
                 )
@@ -699,7 +719,7 @@ def _validate_parameters_and_ablations(
                 issues.append(
                     _issue(
                         "ablation_requires_visual",
-                        analysis.paper_id,
+                        paper_id,
                         field_path=f"{path}.visual_evidence_ids",
                         evidence_id=evidence_id,
                     )
@@ -710,16 +730,11 @@ def _validate_parameters_and_ablations(
             issues.append(
                 _issue(
                     "ablation_conclusion_missing_visual",
-                    analysis.paper_id,
+                    paper_id,
                     field_path=f"{path}.conclusion.evidence_ids",
                     claim_id=ablation.conclusion.claim_id,
                 )
             )
-
-
-def _is_abstract_path(path: tuple[str, ...]) -> bool:
-    normalized = tuple(" ".join(title.lower().split()) for title in path)
-    return bool(normalized) and all(title in {"abstract", "summary"} for title in normalized)
 
 
 def _issue(
