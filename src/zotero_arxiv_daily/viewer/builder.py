@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
+from zotero_arxiv_daily.analysis.paper_schemas import PaperAnalysis
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationPaperResult
+from zotero_arxiv_daily.viewer.assets import EvidenceImagePublisher, PublishedAsset
 from zotero_arxiv_daily.viewer.filesystem import AtomicOutputRoot
 from zotero_arxiv_daily.viewer.publication import PublicationPolicy
 from zotero_arxiv_daily.viewer.renderer import TemplateRenderer
@@ -40,7 +42,15 @@ class StaticViewerBuilder:
                 chinese_title=analysis.chinese_title.text_zh if analysis.chinese_title else None,
                 publication_kind=decision.kind,
             )
-            output.write_text(relative, self._renderer.render_paper(analysis, result.report, publication_kind=decision.kind))
+            output.write_text(
+                relative,
+                self._renderer.render_paper(
+                    analysis,
+                    result.report,
+                    publication_kind=decision.kind,
+                    evidence_image_urls=self._publish_evidence_images(analysis, dry_run=dry_run),
+                ),
+            )
             pages.append(page)
             written.append(relative.as_posix())
             partial_count += decision.kind == "partial"
@@ -71,3 +81,33 @@ class StaticViewerBuilder:
     @staticmethod
     def _favicon_source() -> str:
         return (Path(__file__).parent / "static" / "favicon.svg").read_text(encoding="utf-8")
+
+    def _publish_evidence_images(self, analysis: PaperAnalysis, *, dry_run: bool) -> dict[str, str]:
+        """Publish at most one approved local image per evidence visual."""
+        publisher = EvidenceImagePublisher(
+            self._settings.output_root,
+            max_image_bytes=self._settings.max_image_bytes,
+            dry_run=dry_run,
+        )
+        urls: dict[str, str] = {}
+        published_count = 0
+        for visual in analysis.supporting_visuals:
+            if published_count >= self._settings.max_assets_per_paper:
+                break
+            for source in visual.image_paths:
+                asset = self._publish_if_approved(publisher, source)
+                if asset is not None:
+                    urls[visual.evidence_id] = "../" + asset.relative_path.as_posix()
+                    published_count += 1
+                    break
+        return urls
+
+    def _publish_if_approved(
+        self, publisher: EvidenceImagePublisher, source: Path
+    ) -> PublishedAsset | None:
+        for evidence_root in self._settings.evidence_roots:
+            try:
+                return publisher.publish(source, evidence_root=evidence_root)
+            except (FileNotFoundError, ValueError):
+                continue
+        return None

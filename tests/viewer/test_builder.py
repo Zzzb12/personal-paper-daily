@@ -52,3 +52,29 @@ def test_rebuild_removes_previous_page_when_paper_becomes_invalid(tmp_path: Path
     builder.build((invalid,), batch_label="2026-07-21")
 
     assert not detail.exists()
+
+
+def test_builder_publishes_local_evidence_image_and_renders_it(tmp_path: Path) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    assert result.validated is not None
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    image = evidence_root / "figure.png"
+    image.write_bytes(b"synthetic-image")
+    visual = result.validated.analysis.supporting_visuals[0]
+    region = visual.regions[0].model_copy(update={"image_path": image})
+    analysis = result.validated.analysis.model_copy(
+        update={"supporting_visuals": (visual.model_copy(update={"regions": (region,)}),)}
+    )
+    with_image = result.model_copy(update={"validated": result.validated.model_copy(update={"analysis": analysis})})
+
+    StaticViewerBuilder(
+        ViewerSettings(output_root=tmp_path / "site", evidence_roots=(evidence_root,))
+    ).build((with_image,), batch_label="2026-07-21")
+
+    detail_html = (tmp_path / "site" / "papers" / "arxiv-2401.00001.html").read_text(encoding="utf-8")
+    assert '<img src="../assets/evidence/' in detail_html
+    assert list((tmp_path / "site" / "assets" / "evidence").glob("*.png"))

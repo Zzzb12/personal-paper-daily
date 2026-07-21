@@ -93,6 +93,7 @@ validation_pipeline:
 
 viewer_pipeline:
   output_root: outputs/viewer
+  evidence_roots: [cache/documents]
   site_title: Personal Paper Daily
   allow_partial: false
   max_papers: 30

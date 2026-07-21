@@ -17,6 +17,7 @@ class PublicationDecision(StrictModel):
 
 class ViewerSettings(StrictModel):
     output_root: Path
+    evidence_roots: tuple[Path, ...] = ()
     site_title: str = "Personal Paper Daily"
     allow_partial: bool = False
     max_papers: int = Field(default=30, ge=1, le=30)

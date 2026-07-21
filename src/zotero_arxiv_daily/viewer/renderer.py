@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from html import escape
+from typing import Mapping
 from urllib.parse import urlparse
 
-from zotero_arxiv_daily.analysis.paper_schemas import ClaimRecord, PaperAnalysis
+from zotero_arxiv_daily.analysis.paper_schemas import ClaimRecord, PaperAnalysis, SupportingVisual
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationReport
 from zotero_arxiv_daily.viewer.schemas import IndexPageModel, PaperPageModel
 
@@ -44,11 +45,13 @@ class TemplateRenderer:
         report: ValidationReport,
         *,
         publication_kind: str,
+        evidence_image_urls: Mapping[str, str] | None = None,
     ) -> str:
         title = escape(analysis.english_title, quote=True)
         warning = "" if publication_kind == "full" else '<p class="status">部分内容未通过或无法完成验证</p>'
+        image_urls = evidence_image_urls or {}
         visuals = "".join(
-            f"<figure><div class=\"evidence-placeholder\">{escape(visual.kind)} {escape(visual.label or '论文未明确提供')}</div>"
+            f"<figure>{self._visual_content(visual, image_urls.get(visual.evidence_id))}"
             f"<figcaption>{escape(visual.caption or '论文未明确提供')}<br>PDF page {visual.pdf_page} · "
             f"{escape(visual.section_title or '论文未明确提供')} · confidence {visual.confidence:.2f}<br>"
             f"{self._claim(visual.support_explanation)}</figcaption></figure>"
@@ -94,6 +97,14 @@ class TemplateRenderer:
                 continue
             safe.append(f'<a href="{escape(url, quote=True)}" rel="noopener noreferrer">{label}</a>')
         return " · ".join(safe) or "论文未明确提供"
+
+    @staticmethod
+    def _visual_content(visual: SupportingVisual, image_url: str | None) -> str:
+        if image_url and image_url.startswith("../assets/evidence/") and ".." not in image_url[3:].split("/"):
+            description = "：".join(item for item in (visual.label, visual.caption) if item)
+            alt = description or "论文证据图表"
+            return f'<img src="{escape(image_url, quote=True)}" alt="{escape(alt, quote=True)}" loading="lazy">'
+        return f'<div class="evidence-placeholder" role="status">证据图像不可用：{escape(visual.kind)} {escape(visual.label or "论文未明确提供")}</div>'
 
     @staticmethod
     def _render_card(paper: PaperPageModel) -> str:
