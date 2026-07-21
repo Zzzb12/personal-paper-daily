@@ -16,8 +16,8 @@
 ```text
 ValidationBatchResult + HTTPS site URL
   -> DigestPolicy（仅 valid + eligible，最多 5 篇）
-  -> FeishuRenderer（纯函数、中文 interactive card）
-  -> DeliveryRequest（稳定 digest_id / idempotency key）
+  -> DeliveryRequest（含 FeishuPayload、稳定 digest_id / idempotency key）
+  -> FeishuRenderer（纯函数、中文 interactive card JSON）
   -> FeishuClient（token -> send；仅 --send）
   -> DeliveryReceipt（无密钥、无正文）
 ```

@@ -42,8 +42,8 @@
 - Test: `tests/delivery/test_feishu_renderer.py`
 
 **Interfaces:**
-- `DigestPolicy.build(batch: ValidationBatchResult, *, site_url: str) -> DeliveryRequest`
-- `FeishuRenderer.render(request: DeliveryRequest) -> FeishuPayload`
+- `DigestPolicy.build(batch: ValidationBatchResult, *, chat_id: str, site_url: str) -> DeliveryRequest`
+- `FeishuRenderer.render(payload: FeishuPayload) -> str`
 
 - [ ] **Step 1: Write failing renderer tests** using `tests.analysis.stage4_factories.golden_inputs()` plus `validate_paper`: valid eligible content appears in required Chinese order, invalid/partial content is excluded, six valid inputs cap at five, missing values show “论文未明确提供”, and credential-bearing/non-HTTPS links are omitted.
 - [ ] **Step 2: Run RED** with `uv run pytest tests/delivery/test_feishu_renderer.py -q`.
@@ -60,7 +60,7 @@
 - Test: `tests/pipeline/test_feishu.py`
 
 **Interfaces:**
-- `FeishuClient(settings, transport).send(request, payload) -> DeliveryReceipt`
+- `FeishuClient(settings, transport).send(request, rendered_content: str) -> DeliveryReceipt`
 - `main(argv)` writes preview unless `--send` was supplied; preview never constructs a network transport.
 
 - [ ] **Step 1: Write failing client tests** for token/send success, no duplicate send for one idempotency key, 401 no-retry, 429/5xx bounded retry, timeout redaction, and no secret in exception text.
