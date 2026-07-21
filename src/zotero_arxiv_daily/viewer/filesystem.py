@@ -11,14 +11,7 @@ class AtomicOutputRoot:
         self._dry_run = dry_run
 
     def write_text(self, relative: PurePosixPath, content: str) -> Path:
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError("output path must be relative and contained")
-        target = self._root / Path(*relative.parts)
-        current = self._root
-        for part in relative.parts[:-1]:
-            current = current / part
-            if current.is_symlink():
-                raise ValueError("output path must not traverse a symbolic link")
+        target = self._target(relative)
         if self._dry_run:
             return target
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -36,4 +29,39 @@ class AtomicOutputRoot:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
+        return target
+
+    def remove_stale_files(
+        self,
+        directory: PurePosixPath,
+        *,
+        suffix: str,
+        keep_names: set[str],
+    ) -> tuple[PurePosixPath, ...]:
+        """Remove only stale generated files from one controlled output directory."""
+        target_directory = self._target(directory)
+        if self._dry_run or not target_directory.exists():
+            return ()
+        if not target_directory.is_dir():
+            raise ValueError("stale-file directory must be a directory")
+        removed: list[PurePosixPath] = []
+        for candidate in target_directory.iterdir():
+            if candidate.is_symlink():
+                raise ValueError("stale-file directory must not contain symbolic links")
+            if candidate.is_file() and candidate.suffix == suffix and candidate.name not in keep_names:
+                candidate.unlink()
+                removed.append(directory / candidate.name)
+        return tuple(removed)
+
+    def _target(self, relative: PurePosixPath) -> Path:
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("output path must be relative and contained")
+        if self._root.is_symlink():
+            raise ValueError("output root must not be a symbolic link")
+        target = self._root / Path(*relative.parts)
+        current = self._root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("output path must not traverse a symbolic link")
         return target

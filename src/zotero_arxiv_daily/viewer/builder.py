@@ -57,6 +57,11 @@ class StaticViewerBuilder:
             written_paths=tuple(sorted(written + ["build-manifest.json"])),
         )
         output.write_text(PurePosixPath("build-manifest.json"), manifest.model_dump_json(indent=2) + "\n")
+        output.remove_stale_files(
+            PurePosixPath("papers"),
+            suffix=".html",
+            keep_names={Path(page.relative_path).name for page in pages},
+        )
         return manifest
 
     @staticmethod

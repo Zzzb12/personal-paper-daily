@@ -36,3 +36,19 @@ def test_builder_excludes_invalid_result_and_generates_empty_state(tmp_path: Pat
 
     assert manifest.published_count == 0
     assert "今日没有可发布的论文" in (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+
+
+def test_rebuild_removes_previous_page_when_paper_becomes_invalid(tmp_path: Path) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    valid = validate_paper(*golden_inputs())
+    builder = StaticViewerBuilder(ViewerSettings(output_root=tmp_path / "site"))
+    builder.build((valid,), batch_label="2026-07-21")
+    detail = tmp_path / "site" / "papers" / "arxiv-2401.00001.html"
+    assert detail.exists()
+
+    invalid = valid.model_copy(update={"status": "invalid", "validated": None})
+    builder.build((invalid,), batch_label="2026-07-21")
+
+    assert not detail.exists()
