@@ -31,6 +31,14 @@ a:focus-visible { outline: .2rem solid #df7d26; outline-offset: .22rem; }
 .paper-card { padding: clamp(1.25rem, 3vw, 2rem); margin-block: 1rem; background: rgb(255 253 248 / .76); border: 1px solid var(--line); border-left: .4rem solid var(--accent); box-shadow: .4rem .4rem 0 rgb(23 33 43 / .06); }
 .paper-card h2 { margin: .5rem 0; font-size: clamp(1.25rem, 3vw, 2rem); }
 .empty-state { padding: 2rem; border: 1px dashed var(--line); color: var(--muted); }
+article > section { margin-block: 2.5rem; }
+figure { margin: 1.5rem 0; padding: 1rem; background: rgb(255 253 248 / .62); border: 1px solid var(--line); }
+figure img { display: block; max-width: 100%; height: auto; margin-inline: auto; }
+figcaption { margin-top: .8rem; color: var(--muted); }
+.evidence-placeholder { padding: 1.25rem; border: 1px dashed var(--line); color: var(--muted); }
+table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; }
+th, td { padding: .65rem; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+th { background: rgb(23 74 115 / .1); }
 
 @media (max-width: 640px) {
   header { padding-top: 2rem; }

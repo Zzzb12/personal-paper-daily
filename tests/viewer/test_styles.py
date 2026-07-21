@@ -11,3 +11,5 @@ def test_styles_provide_visible_focus_and_reduced_motion() -> None:
     assert ":focus-visible" in css
     assert "prefers-reduced-motion: reduce" in css
     assert "@media (max-width: 640px)" in css
+    assert "max-width: 100%" in css
+    assert "overflow-x: auto" in css
