@@ -48,9 +48,9 @@ class EvidenceImagePublisher:
         digest = hashlib.sha256(payload).hexdigest()
         suffix = resolved.suffix.lower()
         relative = PurePosixPath("assets", "evidence", f"{digest}{suffix}")
+        target = self._checked_output_target(relative)
         if self._dry_run:
             return PublishedAsset(relative_path=relative, sha256=digest, byte_size=len(payload))
-        target = self._output_root / Path(*relative.parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
             temporary: Path | None = None
@@ -66,3 +66,13 @@ class EvidenceImagePublisher:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
         return PublishedAsset(relative_path=relative, sha256=digest, byte_size=len(payload))
+
+    def _checked_output_target(self, relative: PurePosixPath) -> Path:
+        if self._output_root.is_symlink():
+            raise ValueError("evidence output root must not be a symbolic link")
+        current = self._output_root
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("evidence output path must not traverse a symbolic link")
+        return current

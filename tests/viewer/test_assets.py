@@ -41,3 +41,20 @@ def test_equal_content_does_not_create_colliding_duplicate_assets(tmp_path: Path
     assert publisher.publish(first, evidence_root=evidence_root) == publisher.publish(
         second, evidence_root=evidence_root
     )
+
+
+def test_rejects_symlinked_output_asset_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    image = evidence_root / "figure.png"
+    image.write_bytes(b"synthetic-image")
+    output_directory = tmp_path / "site" / "assets" / "evidence"
+    original_is_symlink = Path.is_symlink
+
+    def simulated_is_symlink(path: Path) -> bool:
+        return path == output_directory or original_is_symlink(path)
+
+    monkeypatch.setattr(Path, "is_symlink", simulated_is_symlink)
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        EvidenceImagePublisher(tmp_path / "site").publish(image, evidence_root=evidence_root)
