@@ -114,3 +114,17 @@ Observed result: `42 passed`. The follow-up remains offline and does not read
 During final self-review, Markdown escaping was applied before HTML escaping
 so quote entities remain intact; the malicious-input regression was rerun and
 the same focused suite still reported `42 passed`.
+
+## JSON hydration follow-up
+
+Re-review found that the prior report-object identity check rejected a normal
+`ValidationBatchResult` after `model_dump_json()` / `model_validate_json()`.
+The policy now rejects only semantically unequal reports while retaining the
+outer result, validated analysis, and outer report paper-ID invariants.
+
+RED: the new JSON round-trip regression produced an empty hydrated payload
+while the source batch retained one paper. GREEN: the source and hydrated
+batches each retain one paper; the hydrated reports are non-identical but
+equal. Final focused command (delivery contracts, renderer, Stage 4 rules)
+reported `43 passed`; delivery compilation also exited successfully. No
+environment read or network behavior was added.

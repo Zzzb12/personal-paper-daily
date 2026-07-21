@@ -164,25 +164,35 @@ def test_renderer_normalizes_and_escapes_schema_bypassed_multiline_markdown_text
     assert r"\# heading \&gt; quote \- list \| table \|" in content
 
 
-def test_policy_rejects_schema_bypassed_stage4_identity_or_report_disagreement() -> None:
+def test_policy_rejects_schema_bypassed_stage4_paper_or_report_disagreement() -> None:
     valid = _valid_result()
     analysis_mismatch = valid.validated.analysis.model_copy(update={"paper_id": "arxiv:2401.99991"})
     report_mismatch = valid.report.model_copy(update={"paper_id": "arxiv:2401.99992"})
-    detached_report = valid.report.model_copy()
     invalid_results = (
         valid.model_copy(update={"paper_id": "arxiv:2401.99990"}),
         valid.model_copy(
             update={"validated": valid.validated.model_copy(update={"analysis": analysis_mismatch})}
         ),
         valid.model_copy(update={"report": report_mismatch}),
-        valid.model_copy(
-            update={"validated": valid.validated.model_copy(update={"report": detached_report})}
-        ),
     )
 
     request = DigestPolicy.build(_batch(*invalid_results), chat_id=CHAT_ID, site_url=SITE_URL)
 
     assert request.payload.papers == ()
+
+
+def test_policy_accepts_equal_stage4_reports_after_json_round_trip() -> None:
+    source_batch = _batch(_valid_result())
+    hydrated_batch = ValidationBatchResult.model_validate_json(source_batch.model_dump_json())
+
+    source_request = DigestPolicy.build(source_batch, chat_id=CHAT_ID, site_url=SITE_URL)
+    hydrated_request = DigestPolicy.build(hydrated_batch, chat_id=CHAT_ID, site_url=SITE_URL)
+
+    hydrated_result = hydrated_batch.results[0]
+    assert hydrated_result.validated.report is not hydrated_result.report
+    assert hydrated_result.validated.report == hydrated_result.report
+    assert len(source_request.payload.papers) == 1
+    assert len(hydrated_request.payload.papers) == 1
 
 
 def test_renderer_omits_unsafe_or_credential_bearing_links_from_schema_bypassed_payload() -> None:

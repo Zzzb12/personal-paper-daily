@@ -88,7 +88,7 @@ class DigestPolicy:
                     continue
                 analysis = validated.analysis
                 if (
-                    validated.report is not report
+                    validated.report != report
                     or result.paper_id != analysis.paper_id
                     or result.paper_id != report.paper_id
                 ):
