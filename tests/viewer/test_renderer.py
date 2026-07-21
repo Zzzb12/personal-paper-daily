@@ -36,3 +36,23 @@ def test_empty_index_has_a_readable_empty_state() -> None:
     )
 
     assert "今日没有可发布的论文" in html
+
+
+def test_detail_page_uses_validated_analysis_in_fixed_reading_order() -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    assert result.validated is not None
+    html = TemplateRenderer(site_title="Paper Daily").render_paper(
+        result.validated.analysis,
+        result.validated.report,
+        publication_kind="full",
+    )
+
+    assert "返回论文索引" in html
+    assert "推荐理由" in html and "研究问题" in html
+    assert "核心 Insight" in html and "Insight 形成逻辑" in html
+    assert html.index("核心 Insight") < html.index("Method") < html.index("关键参数")
+    assert "PDF page" in html and "confidence" in html
+    assert "论文未明确提供" in html
