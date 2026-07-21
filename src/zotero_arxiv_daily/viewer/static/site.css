@@ -1,0 +1,42 @@
+:root {
+  --paper: #f7f3ea;
+  --ink: #17212b;
+  --muted: #5f6972;
+  --line: #d5c9b5;
+  --accent: #174a73;
+  --partial: #875513;
+  --space: clamp(1rem, 3vw, 2.75rem);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: linear-gradient(105deg, #ede4d3 0%, var(--paper) 42%, #f9f5ed 100%);
+  font-family: Georgia, "Noto Serif CJK TC", "Songti TC", serif;
+  line-height: 1.65;
+}
+
+header, nav, main { max-width: 76rem; margin-inline: auto; padding-inline: var(--space); }
+header { padding-top: clamp(2rem, 8vw, 6rem); }
+h1, h2 { line-height: 1.15; text-wrap: balance; }
+h1 { max-width: 18ch; font-size: clamp(2.1rem, 6vw, 5.2rem); margin-block: .15rem 2rem; }
+nav { padding-block: .75rem; border-block: 1px solid var(--line); }
+main { padding-block: 2rem 5rem; }
+a { color: var(--accent); text-underline-offset: .18em; }
+a:focus-visible { outline: .2rem solid #df7d26; outline-offset: .22rem; }
+.eyebrow, .status { font: 700 .8rem/1.3 ui-monospace, Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.summary { color: var(--muted); }
+.paper-card { padding: clamp(1.25rem, 3vw, 2rem); margin-block: 1rem; background: rgb(255 253 248 / .76); border: 1px solid var(--line); border-left: .4rem solid var(--accent); box-shadow: .4rem .4rem 0 rgb(23 33 43 / .06); }
+.paper-card h2 { margin: .5rem 0; font-size: clamp(1.25rem, 3vw, 2rem); }
+.empty-state { padding: 2rem; border: 1px dashed var(--line); color: var(--muted); }
+
+@media (max-width: 640px) {
+  header { padding-top: 2rem; }
+  .paper-card { box-shadow: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
