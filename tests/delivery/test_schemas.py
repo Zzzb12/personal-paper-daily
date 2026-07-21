@@ -20,6 +20,11 @@ def _paper(index: int = 1, **changes: object) -> DigestPaper:
         "paper_id": f"arxiv:2401.{index:05d}",
         "english_title": "Strict delivery contracts",
         "chinese_title": "严格投递契约",
+        "recommendation_reason": "与研究兴趣直接相关",
+        "core_insight": "以验证证据支持核心结论",
+        "evidence_label": "Table 1",
+        "evidence_page": 3,
+        "experimental_conclusion": "实验结论经过验证",
         "site_url": "https://papers.example.test/daily/run-1.html",
         "validation_status": "valid",
         "publication_eligibility": "eligible",
@@ -32,6 +37,11 @@ def test_digest_paper_is_strict_https_and_stage4_eligible() -> None:
     paper = _paper()
 
     assert paper.site_url == "https://papers.example.test/daily/run-1.html"
+    assert paper.recommendation_reason == "与研究兴趣直接相关"
+    assert paper.core_insight == "以验证证据支持核心结论"
+    assert paper.evidence_label == "Table 1"
+    assert paper.evidence_page == 3
+    assert paper.experimental_conclusion == "实验结论经过验证"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         DigestPaper(**paper.model_dump(), unexpected="value")
     with pytest.raises(ValidationError, match="HTTPS"):

@@ -13,6 +13,7 @@ from zotero_arxiv_daily.delivery.schemas import DeliveryRequest, DigestPaper, Fe
 
 _MISSING_FACT = "论文未明确提供"
 _CARD_TITLE = "个人论文日报"
+_MARKDOWN_SPECIAL_CHARACTERS = frozenset(r"\\`*_{}[]()#+-.!|>~")
 
 
 def _safe_https_url(value: object) -> str | None:
@@ -39,8 +40,29 @@ def _escaped_text(value: object) -> str:
 
     if not isinstance(value, str) or not value.strip():
         return _MISSING_FACT
-    escaped = html.escape(value.strip(), quote=True)
-    return "".join(f"\\{character}" if character in r"\\[]()*_`" else character for character in escaped)
+    single_line = " ".join(value.split())
+    markdown_escaped = "".join(
+        f"\\{character}" if character in _MARKDOWN_SPECIAL_CHARACTERS else character
+        for character in single_line
+    )
+    return html.escape(markdown_escaped, quote=True)
+
+
+def _evidence_pointer(paper: DigestPaper) -> str:
+    """Render the one strongest validated visual pointer, without fabricating it."""
+
+    label = _escaped_text(paper.evidence_label)
+    page = paper.evidence_page
+    safe_page = (
+        page
+        if isinstance(page, int) and not isinstance(page, bool) and page >= 1
+        else None
+    )
+    if safe_page is None:
+        return label
+    if label == _MISSING_FACT:
+        return f"第 {safe_page} 页"
+    return f"{label}（第 {safe_page} 页）"
 
 
 class DigestPolicy:
@@ -65,6 +87,17 @@ class DigestPolicy:
                 ):
                     continue
                 analysis = validated.analysis
+                if (
+                    validated.report is not report
+                    or result.paper_id != analysis.paper_id
+                    or result.paper_id != report.paper_id
+                ):
+                    continue
+                strongest_visual = max(
+                    analysis.supporting_visuals,
+                    key=lambda visual: visual.confidence,
+                    default=None,
+                )
                 papers.append(
                     DigestPaper(
                         paper_id=analysis.paper_id,
@@ -72,6 +105,25 @@ class DigestPolicy:
                         chinese_title=(
                             analysis.chinese_title.text_zh
                             if analysis.chinese_title is not None
+                            else None
+                        ),
+                        recommendation_reason=(
+                            analysis.recommendation_reason.text_zh
+                            if analysis.recommendation_reason is not None
+                            else None
+                        ),
+                        core_insight=(
+                            analysis.insights[0].text_zh if analysis.insights else None
+                        ),
+                        evidence_label=(
+                            strongest_visual.label if strongest_visual is not None else None
+                        ),
+                        evidence_page=(
+                            strongest_visual.pdf_page if strongest_visual is not None else None
+                        ),
+                        experimental_conclusion=(
+                            analysis.experimental_conclusions[0].text_zh
+                            if analysis.experimental_conclusions
                             else None
                         ),
                         site_url=safe_site_url,
@@ -115,6 +167,14 @@ class FeishuRenderer:
                     _escaped_text(paper.chinese_title),
                     "**英文标题**",
                     _escaped_text(paper.english_title),
+                    "**推荐理由**",
+                    _escaped_text(paper.recommendation_reason),
+                    "**核心 Insight**",
+                    _escaped_text(paper.core_insight),
+                    "**关键证据**",
+                    _evidence_pointer(paper),
+                    "**实验结论**",
+                    _escaped_text(paper.experimental_conclusion),
                     "**阅读链接**",
                     f"[打开完整解读]({safe_link})" if safe_link is not None else _MISSING_FACT,
                 )

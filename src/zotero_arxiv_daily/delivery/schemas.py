@@ -73,6 +73,11 @@ class DigestPaper(DeliveryStrictModel):
     paper_id: str
     english_title: str
     chinese_title: str | None = None
+    recommendation_reason: str | None = None
+    core_insight: str | None = None
+    evidence_label: str | None = None
+    evidence_page: int | None = Field(default=None, ge=1)
+    experimental_conclusion: str | None = None
     site_url: str
     validation_status: Literal["valid"]
     publication_eligibility: Literal["eligible"]
@@ -82,7 +87,13 @@ class DigestPaper(DeliveryStrictModel):
     def normalize_text(cls, value: str) -> str:
         return _non_empty(value)
 
-    @field_validator("chinese_title")
+    @field_validator(
+        "chinese_title",
+        "recommendation_reason",
+        "core_insight",
+        "evidence_label",
+        "experimental_conclusion",
+    )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         return _non_empty(value) if value is not None else None

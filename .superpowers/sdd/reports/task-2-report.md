@@ -73,3 +73,44 @@ Observed result: `40 passed`; compilation exited `0`.
 - The full repository test suite was intentionally not run for this bounded
   task; the specified renderer, delivery-contract, and Stage 4 regression
   suites were run. No known functional concern remains within Task 2 scope.
+
+## Review follow-up
+
+Independent review identified three Task 2 gaps. They were addressed with a
+new RED/GREEN cycle before this follow-up commit:
+
+- **Markdown injection:** dynamic fields now collapse all whitespace to one
+  line, HTML-escape text, and escape Markdown structural characters. A
+  schema-bypassed title containing heading, quote, list, and table markers is
+  asserted not to emit raw block structure.
+- **Design-required facts:** `DigestPaper` now carries only validated
+  recommendation reason, first core Insight, strongest supporting visual label
+  and page, and first experimental conclusion. The policy reads these solely
+  from `result.validated.analysis`; missing facts use `论文未明确提供` in the
+  renderer.
+- **Schema-bypass identity:** policy rejects a result unless its outer paper
+  ID, validated analysis ID, and report ID agree and the validated report is
+  the exact report object attached to the outer result.
+
+RED command:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/delivery/test_schemas.py tests/delivery/test_feishu_renderer.py -q
+```
+
+Observed result: `7 failed, 9 passed`, for the expected missing strict fields,
+missing card sections, raw Markdown block injection, and invalid identity
+inclusion.
+
+GREEN command:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/delivery/test_schemas.py tests/delivery/test_feishu_renderer.py tests/analysis/test_validator_rules.py -q
+```
+
+Observed result: `42 passed`. The follow-up remains offline and does not read
+`.env` or add network behavior.
+
+During final self-review, Markdown escaping was applied before HTML escaping
+so quote entities remain intact; the malicious-input regression was rerun and
+the same focused suite still reported `42 passed`.
