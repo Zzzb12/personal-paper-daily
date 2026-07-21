@@ -90,3 +90,13 @@ validation_pipeline:
   cache_root: cache/validation
   max_papers: 5
   max_cache_bytes: 10485760
+
+viewer_pipeline:
+  output_root: outputs/viewer
+  site_title: Personal Paper Daily
+  allow_partial: false
+  max_papers: 30
+  max_assets_per_paper: 3
+  max_image_bytes: 10485760
+  build_version: stage5-v1
+  template_version: stage5-v1
