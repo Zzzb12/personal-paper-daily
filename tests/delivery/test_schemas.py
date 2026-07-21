@@ -139,6 +139,23 @@ def test_feishu_settings_reports_missing_environment_names_without_values() -> N
             lambda: _paper(site_url="https://user:REAL_SECRET@[::1"),
             "REAL_SECRET",
         ),
+        (
+            lambda: _paper(
+                site_url="  https://user:REAL_SECRET@papers.example.test/daily/run-1.html"
+            ),
+            "REAL_SECRET",
+        ),
+        (
+            lambda: FeishuSettings.from_environment(
+                {
+                    "FEISHU_APP_ID": "app-id",
+                    "FEISHU_APP_SECRET": "app-secret",
+                    "FEISHU_CHAT_ID": "oc_0123456789abcdef0123456789abcdef",
+                    "PAPER_DAILY_SITE_URL": "  https://user:REAL_SECRET@papers.example.test/",
+                }
+            ),
+            "REAL_SECRET",
+        ),
     ),
 )
 def test_credential_bearing_site_url_never_echoes_credentials_in_validation_errors(

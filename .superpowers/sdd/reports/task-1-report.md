@@ -135,3 +135,28 @@ Re-ran:
 ```
 
 Result: `8 passed in 0.41s`.
+
+## Whitespace-prefixed credential URL follow-up
+
+### RED
+
+Added whitespace-prefixed ordinary credential URL regressions for both
+`DigestPaper` and `FeishuSettings.from_environment`, retaining the ordinary and
+malformed IPv6 cases. The focused command produced 2 failures (`8 passed, 2
+failed`): the leading whitespace bypassed the anchored userinfo detector and
+the sentinel leaked through Pydantic error input.
+
+### GREEN
+
+Changed pre-validation to search any string for an HTTP(S) authority containing
+userinfo, rather than matching only at the string start. This sanitizes
+whitespace-prefixed and malformed URL forms before downstream validators can
+construct an error, without accepting them.
+
+Re-ran:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/delivery/test_schemas.py -q
+```
+
+Result: `10 passed in 0.38s`.

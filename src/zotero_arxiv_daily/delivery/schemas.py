@@ -14,7 +14,7 @@ from zotero_arxiv_daily.analysis.schemas import StrictModel
 _CHAT_ID_RE = re.compile(r"^oc_[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MESSAGE_ID_RE = re.compile(r"^om_[A-Za-z0-9_-]+$")
-_URL_USERINFO_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*@")
+_URL_USERINFO_RE = re.compile(r"https?://[^/?#\s]*@", re.IGNORECASE)
 _REDACTED_CREDENTIAL_URL = "https://redacted.invalid/credential-url-rejected"
 
 
@@ -31,7 +31,7 @@ class DeliveryStrictModel(StrictModel):
         site_url = value.get("site_url")
         if not isinstance(site_url, str):
             return value
-        if not _URL_USERINFO_RE.match(site_url):
+        if not _URL_USERINFO_RE.search(site_url):
             return value
         sanitized = dict(value)
         sanitized["site_url"] = _REDACTED_CREDENTIAL_URL
