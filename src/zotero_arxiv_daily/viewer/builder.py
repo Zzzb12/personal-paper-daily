@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+from pathlib import Path, PurePosixPath
+
+from zotero_arxiv_daily.analysis.validation_schemas import ValidationPaperResult
+from zotero_arxiv_daily.viewer.filesystem import AtomicOutputRoot
+from zotero_arxiv_daily.viewer.publication import PublicationPolicy
+from zotero_arxiv_daily.viewer.renderer import TemplateRenderer
+from zotero_arxiv_daily.viewer.schemas import BuildManifest, IndexPageModel, PaperPageModel, ViewerSettings
+
+
+class StaticViewerBuilder:
+    def __init__(self, settings: ViewerSettings) -> None:
+        self._settings = settings
+        self._renderer = TemplateRenderer(site_title=settings.site_title)
+
+    def build(
+        self,
+        results: tuple[ValidationPaperResult, ...],
+        *,
+        batch_label: str,
+        dry_run: bool = False,
+    ) -> BuildManifest:
+        output = AtomicOutputRoot(self._settings.output_root, dry_run=dry_run)
+        policy = PublicationPolicy(allow_partial=self._settings.allow_partial)
+        pages: list[PaperPageModel] = []
+        written: list[str] = []
+        partial_count = 0
+        for result in results:
+            decision = policy.decide(result)
+            if decision.kind == "excluded" or result.validated is None or result.report is None:
+                continue
+            analysis = result.validated.analysis
+            filename = f"{analysis.paper_id.replace(':', '-')}.html"
+            relative = PurePosixPath("papers", filename)
+            page = PaperPageModel(
+                paper_id=analysis.paper_id,
+                relative_path=relative.as_posix(),
+                english_title=analysis.english_title,
+                chinese_title=analysis.chinese_title.text_zh if analysis.chinese_title else None,
+                publication_kind=decision.kind,
+            )
+            output.write_text(relative, self._renderer.render_paper(analysis, result.report, publication_kind=decision.kind))
+            pages.append(page)
+            written.append(relative.as_posix())
+            partial_count += decision.kind == "partial"
+        index = IndexPageModel(batch_label=batch_label, papers=tuple(pages), valid_count=len(pages) - partial_count, partial_count=partial_count)
+        output.write_text(PurePosixPath("index.html"), self._renderer.render_index(index))
+        output.write_text(PurePosixPath("assets", "site.css"), self._css_source())
+        written.extend(("index.html", "assets/site.css"))
+        manifest = BuildManifest(
+            build_version=self._settings.build_version,
+            template_version=self._settings.template_version,
+            published_count=len(pages),
+            partial_count=partial_count,
+            written_paths=tuple(sorted(written + ["build-manifest.json"])),
+        )
+        output.write_text(PurePosixPath("build-manifest.json"), manifest.model_dump_json(indent=2) + "\n")
+        return manifest
+
+    @staticmethod
+    def _css_source() -> str:
+        return (Path(__file__).parent / "static" / "site.css").read_text(encoding="utf-8")

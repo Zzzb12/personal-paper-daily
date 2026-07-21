@@ -47,3 +47,11 @@ class IndexPageModel(StrictModel):
     papers: tuple[PaperPageModel, ...]
     valid_count: int = Field(ge=0)
     partial_count: int = Field(ge=0)
+
+
+class BuildManifest(StrictModel):
+    build_version: str
+    template_version: str
+    published_count: int = Field(ge=0)
+    partial_count: int = Field(ge=0)
+    written_paths: tuple[str, ...]
