@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
+import uuid
 from datetime import UTC, datetime
+from email.utils import format_datetime
 from typing import Any
 
 import httpx
@@ -120,8 +123,30 @@ def test_client_fetches_token_and_sends_rendered_card() -> None:
             separators=(",", ":"),
             sort_keys=True,
         ),
+        "uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, "a" * 64)),
     }
     assert send_call["timeout"] == 7
+
+
+def test_message_retry_reuses_stable_legal_uuid_derived_from_idempotency_key() -> None:
+    transport = FakeTransport(
+        FakeResponse(200, {"code": 0, "tenant_access_token": "tenant-token"}),
+        FakeResponse(503, {"code": 503}),
+        FakeResponse(
+            200,
+            {"code": 0, "data": {"message_id": "om_message-1"}},
+            headers={"x-request-id": "request-1"},
+        ),
+    )
+    request = _request(max_retries=1)
+
+    _client(transport).send(request, _rendered())
+
+    message_uuids = [call[1]["json"]["uuid"] for call in transport.calls[1:]]
+    expected_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, request.idempotency_key))
+    assert message_uuids == [expected_uuid, expected_uuid]
+    assert len(expected_uuid) <= 50
+    assert uuid.UUID(expected_uuid).version == 5
 
 
 def test_client_returns_cached_receipt_without_duplicate_send() -> None:
@@ -154,6 +179,19 @@ def test_client_does_not_retry_401_or_echo_secret_response_text() -> None:
     assert len(transport.calls) == 2
     assert "401" in str(exc_info.value)
     assert APP_SECRET not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("status_code", (400, 403, 404, 422))
+def test_client_does_not_retry_permanent_http_4xx(status_code: int) -> None:
+    transport = FakeTransport(
+        FakeResponse(200, {"code": 0, "tenant_access_token": "tenant-token"}),
+        FakeResponse(status_code, {"code": status_code}),
+    )
+
+    with pytest.raises(FeishuDeliveryError, match=str(status_code)):
+        _client(transport).send(_request(max_retries=3), _rendered())
+
+    assert len(transport.calls) == 2
 
 
 def test_client_does_not_retry_non_http_5xx_status() -> None:
@@ -194,3 +232,44 @@ def test_client_redacts_timeout_details() -> None:
 
     assert APP_SECRET not in str(exc_info.value)
     assert len(transport.calls) == 1
+
+
+def test_client_respects_retry_after_http_date() -> None:
+    sleeps: list[float] = []
+    retry_at = datetime(2026, 7, 21, 8, 0, 17, tzinfo=UTC)
+    transport = FakeTransport(
+        FakeResponse(
+            429,
+            {"code": 429},
+            headers={"retry-after": format_datetime(retry_at, usegmt=True)},
+        ),
+        FakeResponse(200, {"code": 0, "tenant_access_token": "tenant-token"}),
+        FakeResponse(
+            200,
+            {"code": 0, "data": {"message_id": "om_message-1"}},
+            headers={"x-request-id": "request-1"},
+        ),
+    )
+
+    _client(transport, sleeps=sleeps).send(_request(max_retries=1), _rendered())
+
+    assert sleeps == [17.0]
+
+
+@pytest.mark.parametrize("retry_after", ("nan", "inf", "+inf", "-inf"))
+def test_client_rejects_non_finite_retry_after_seconds(retry_after: str) -> None:
+    sleeps: list[float] = []
+    transport = FakeTransport(
+        FakeResponse(429, {"code": 429}, headers={"retry-after": retry_after}),
+        FakeResponse(200, {"code": 0, "tenant_access_token": "tenant-token"}),
+        FakeResponse(
+            200,
+            {"code": 0, "data": {"message_id": "om_message-1"}},
+            headers={"x-request-id": "request-1"},
+        ),
+    )
+
+    _client(transport, sleeps=sleeps).send(_request(max_retries=1), _rendered())
+
+    assert sleeps == [1.0]
+    assert all(math.isfinite(delay) for delay in sleeps)

@@ -5,10 +5,13 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import os
 import time
+import uuid
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any, Protocol
 from urllib.parse import quote, urlparse
 
@@ -284,6 +287,9 @@ class FeishuClient:
                 "receive_id": request.payload.chat_id,
                 "msg_type": "interactive",
                 "content": card_content,
+                "uuid": str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, request.idempotency_key)
+                ),
             },
         )
         message_payload = self._response_payload(message_response)
@@ -374,12 +380,29 @@ class FeishuClient:
             raise FeishuDeliveryError("feishu response was not a JSON object")
         return payload
 
-    @staticmethod
-    def _retry_delay(response: Any, retry_index: int) -> float:
+    def _retry_delay(self, response: Any, retry_index: int) -> float:
         retry_after = response.headers.get("retry-after")
         if isinstance(retry_after, str):
             try:
-                return min(max(float(retry_after), 0.0), 60.0)
+                seconds = float(retry_after)
             except ValueError:
+                seconds = math.nan
+            if math.isfinite(seconds):
+                return min(max(seconds, 0.0), 60.0)
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                now = self._clock()
+                if (
+                    retry_at.tzinfo is not None
+                    and retry_at.utcoffset() is not None
+                    and now.tzinfo is not None
+                    and now.utcoffset() is not None
+                ):
+                    date_delay = (
+                        retry_at.astimezone(UTC) - now.astimezone(UTC)
+                    ).total_seconds()
+                    if math.isfinite(date_delay):
+                        return min(max(date_delay, 0.0), 60.0)
+            except (TypeError, ValueError, OverflowError):
                 pass
         return float(min(2**retry_index, 8))
