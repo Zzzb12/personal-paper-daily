@@ -108,10 +108,12 @@ reduced motion 与无 JavaScript 内容。Playwright 将对人工 fixture 站点
 
 ## Hermes 许可证与归属
 
-实现前读取 `F:\Yan_0\Video_generaton\PaperDaily\hermes-reference\hermes-arxiv-agent-main\LICENSE`
-并核对 `docs/BASELINE.md` 已记录的项目所有者授权结论。若直接复制或实质改编 Hermes 文件，须在
-本设计与实现文档列出源文件、保留全部适用版权/许可证文本；不合并历史、不用 submodule，也不复制
-其数据或状态。若只采纳布局思路而不复制代码，则记录为“理念参考，无代码复制”。
+已核对 `docs/BASELINE.md` 的项目所有者授权结论，并检查实际 Hermes 目录
+`F:\Yan_0\Video_generaton\PaperDaily\hermes-reference\hermes-arxiv-agent-main`：该目录当前没有
+`LICENSE`、`COPYING` 或等效许可证文件。因此 Stage 5 采用“理念参考，无代码复制”策略：可参考
+其信息架构与公开说明，但不会复制、实质改编或分发 Hermes 的 HTML、CSS、JavaScript、Python、
+图片、JSON、缓存、论文数据或状态；不合并历史，也不使用 submodule。未来如要直接复用，必须先由
+项目所有者提供适用许可证文本，并在变更中记录确切来源、版权和归属。
 
 ## 验收、回滚与后续边界
 
