@@ -18,11 +18,18 @@ class PublishedAsset:
 
 
 class EvidenceImagePublisher:
-    def __init__(self, output_root: Path, *, max_image_bytes: int = 10 * 1024 * 1024) -> None:
+    def __init__(
+        self,
+        output_root: Path,
+        *,
+        max_image_bytes: int = 10 * 1024 * 1024,
+        dry_run: bool = False,
+    ) -> None:
         if max_image_bytes < 1:
             raise ValueError("max_image_bytes must be positive")
         self._output_root = output_root
         self._max_image_bytes = max_image_bytes
+        self._dry_run = dry_run
 
     def publish(self, source: Path, *, evidence_root: Path) -> PublishedAsset:
         if source.is_symlink():
@@ -41,6 +48,8 @@ class EvidenceImagePublisher:
         digest = hashlib.sha256(payload).hexdigest()
         suffix = resolved.suffix.lower()
         relative = PurePosixPath("assets", "evidence", f"{digest}{suffix}")
+        if self._dry_run:
+            return PublishedAsset(relative_path=relative, sha256=digest, byte_size=len(payload))
         target = self._output_root / Path(*relative.parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists():
