@@ -47,6 +47,7 @@ viewer/**/feedback.json
 
 # Python and test caches
 .pytest_cache/
+.playwright-cli/
 .coverage
 htmlcov/
 .mypy_cache/
