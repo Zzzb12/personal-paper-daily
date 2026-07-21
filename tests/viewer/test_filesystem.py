@@ -27,3 +27,13 @@ def test_dry_run_creates_no_output(tmp_path: Path) -> None:
 
     assert path == tmp_path / "site" / "index.html"
     assert not (tmp_path / "site").exists()
+
+
+def test_rejects_existing_symlink_inside_output_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "site"
+    link = root / "papers"
+    original = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda value: value == link or original(value))
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        AtomicOutputRoot(root).write_text(PurePosixPath("papers", "paper.html"), "blocked")
