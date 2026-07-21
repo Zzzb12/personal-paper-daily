@@ -37,3 +37,13 @@ def test_rejects_existing_symlink_inside_output_root(tmp_path: Path, monkeypatch
 
     with pytest.raises(ValueError, match="symbolic link"):
         AtomicOutputRoot(root).write_text(PurePosixPath("papers", "paper.html"), "blocked")
+
+
+@pytest.mark.parametrize("unsafe_name", (r"\\Windows\\Temp\\escape.html", r"C:\\escape.html", r"C:escape.html"))
+def test_rejects_windows_absolute_or_drive_qualified_output_component(
+    tmp_path: Path, unsafe_name: str
+) -> None:
+    output = AtomicOutputRoot(tmp_path / "site", dry_run=True)
+
+    with pytest.raises(ValueError, match="Windows path"):
+        output.write_text(PurePosixPath("papers", unsafe_name), "unsafe")

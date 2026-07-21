@@ -295,7 +295,7 @@ Disable analysis invocation and retain mapped documents. Delete ignored LLM cach
 
 ## Stage 4: Evidence validation and hallucination prevention
 
-**Status: completed on 2026-07-20. Stage 5 has not started.**
+**Status: completed on 2026-07-20. Stage 5 is implemented on the isolated `feat/stage-5-static-viewer` branch; final verification and review evidence are recorded in `docs/BASELINE.md`.**
 
 The approved implementation is documented in
 `docs/superpowers/specs/2026-07-20-stage-4-evidence-validation-design.md` and
@@ -371,9 +371,11 @@ Disable publication of newly generated analyses rather than bypassing validation
 
 ## Stage 5: Static web reader
 
+**Status: implemented on 2026-07-21.**
+
 ### Goal
 
-Build an accessible, responsive static reader for all retained papers. All retained papers expose searchable metadata, ranking context, and analysis status; only the at-most-five full-analysis selections expose complete validated Chinese analysis and evidence visuals. Include search/filtering and private local state hooks.
+Build an accessible, responsive, offline static reader from Stage 4 validation results. Only a `valid` and eligible paper is published in full; a blocked partial paper is published only when explicitly allowed, and invalid/failed/skipped papers never obtain a public page.
 
 ### Non-goals
 
@@ -385,46 +387,40 @@ Build an accessible, responsive static reader for all retained papers. All retai
 ### Files
 
 - Create `src/zotero_arxiv_daily/viewer/builder.py`.
-- Create site templates/assets under `viewer/`, adapting licensed Hermes `index.html`, `styles.css`, and `app.js`.
-- Replace Excel-coupled data build with schema-driven site JSON generation.
-- Create `tests/viewer/test_builder.py`, DOM/semantic tests, and responsive screenshot tests.
-- Add safe static-asset/evidence copy logic.
+- Create schema-driven `viewer/` builder, renderer, publication policy, filesystem, asset publisher, CSS and local favicon.
+- Add a fixture-only offline CLI and focused `tests/viewer/` coverage.
+- Add a safe local evidence-image copy path and structured missing-image fallback.
 
 ### Data structures
 
-- `SitePaper`: candidate metadata, ranking reason, optional validated `PaperAnalysis`, links, evidence assets, and public-safe status fields.
-- `SiteIndex`: schema/build version, date range, paper count, categories, generated timestamp, papers.
-- Content-hash manifest for atomic/incremental builds.
+- `ViewerSettings`, `PublicationDecision`, `IndexPageModel`, `PaperPageModel`, and `BuildManifest` are frozen, strict Pydantic contracts.
+- `EvidenceImagePublisher` copies only configured local evidence roots into content-addressed `assets/evidence/` paths.
 
 ### Test-first implementation steps
 
-1. Write site JSON contract tests for analyzed, low-priority, partial, and missing-evidence papers.
-2. Write pure builder tests for atomic output and unchanged content hashes.
-3. Adapt licensed Hermes card/filter/favorite UI to the new schemas.
-4. Write DOM tests for titles, analysis order, evidence captions/pages/confidence, missing values, and safe links.
-5. Add keyboard, semantic heading, label, focus, and reduced-motion accessibility tests.
-6. Add desktop/mobile screenshot checks and representative long-title/evidence cases.
-7. Add local static-server smoke tests without private state publication.
+1. Write RED tests for publication policy, escaping, path containment, stale-page deletion, and image asset handling.
+2. Render semantic index/detail HTML in the required reading order with CSP and local-only assets.
+3. Publish controlled evidence images with SHA-256 names; show a text fallback when no approved image exists.
+4. Verify offline CLI, a local-server Playwright smoke test, desktop/mobile layout, and full regression boundaries.
 
 ### Acceptance criteria
 
 - Desktop and mobile layouts remain readable without horizontal overflow.
-- All retained papers appear; low-priority papers omit detailed Feishu status but remain searchable.
+- Invalid, failed, skipped, and blocked papers never retain a stale public detail page.
 - Full analyses use the required narrative order and show evidence provenance/support explanations.
-- Search and date/category/relevance filtering work deterministically.
 - Missing or partial analysis is explicit.
-- Generated public artifacts contain no secret/private Zotero data or local feedback.
+- Generated artifacts contain no secret/private Zotero data, local feedback, third-party code, CDN, runtime API, or browser storage.
 
 ### Risks
 
 - Large evidence images/site JSON can make mobile loading slow.
-- Licensed Hermes code assumes flat summary records and needs careful schema adaptation.
+- The inspected Hermes source has no license file; no Hermes code, data, images, cache, or history is reused.
 - Static-site URLs can break when deployed under a repository subpath.
 - Snapshot tests can be brittle across browsers/fonts.
 
 ### Rollback
 
-Retain validated analysis JSON and revert viewer-specific commits. Restore the prior static build directory from the last good content-hash manifest; do not delete private feedback files.
+Stop invoking the viewer CLI and remove the ignored configured output directory. Revert viewer-specific commits; Stage 4 validation artifacts remain untouched.
 
 ### Suggested commits
 

@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from PIL import Image, UnidentifiedImageError
 
 _ALLOWED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
+_EXPECTED_IMAGE_FORMATS = {
+    ".png": "PNG",
+    ".jpg": "JPEG",
+    ".jpeg": "JPEG",
+    ".webp": "WEBP",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +53,7 @@ class EvidenceImagePublisher:
         payload = resolved.read_bytes()
         if not payload or len(payload) > self._max_image_bytes:
             raise ValueError("evidence image exceeds the configured size limit")
+        self._validate_image_payload(payload, suffix=resolved.suffix.lower())
         digest = hashlib.sha256(payload).hexdigest()
         suffix = resolved.suffix.lower()
         relative = PurePosixPath("assets", "evidence", f"{digest}{suffix}")
@@ -76,3 +85,13 @@ class EvidenceImagePublisher:
             if current.is_symlink():
                 raise ValueError("evidence output path must not traverse a symbolic link")
         return current
+
+    @staticmethod
+    def _validate_image_payload(payload: bytes, *, suffix: str) -> None:
+        try:
+            with Image.open(BytesIO(payload)) as image:
+                if image.format != _EXPECTED_IMAGE_FORMATS[suffix]:
+                    raise ValueError("evidence image format does not match its extension")
+                image.verify()
+        except (OSError, SyntaxError, UnidentifiedImageError) as error:
+            raise ValueError("evidence image must be a valid image") from error

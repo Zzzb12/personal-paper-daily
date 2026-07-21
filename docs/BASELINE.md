@@ -682,4 +682,50 @@ Known limits and rollback:
   Stage 4 commits together with validation cache/schema version changes. Retain Stage
   2 graphs and Stage 3 analyses for later revalidation; never bypass the validator.
 
-Stage 5 static web reader work has not started.
+## Stage 5 completion notes (2026-07-21)
+
+Stage 5 was implemented in the isolated `feat/stage-5-static-viewer` worktree from
+Stage 4 commit `2fb1d09b18d6f66ed808c1e41567bae4c14e1407`. It adds only an offline
+static reader; it does not add Stage 6 delivery, Stage 7 automation, Stage 8
+feedback/localStorage, a server, a paid API, a real-paper run, a push, or a pull
+request.
+
+Implemented boundary:
+
+- `PublicationPolicy` permits full pages only for Stage 4 `valid` and eligible
+  results; partial pages require an explicit setting. Invalid, failed, skipped, and
+  blocked pages are excluded, and a rebuild removes stale generated detail pages.
+- The page builder writes escaped semantic index/detail HTML, strict local CSP,
+  responsive CSS, local favicon, manifest, and a fixture-only CLI. No CDN, script,
+  browser storage, external API, or dynamic server is used.
+- Evidence images are accepted only from configured local roots, decoded/size/type checked,
+  content-addressed under `assets/evidence/`, and rendered with local `img`/`alt`.
+  Missing or rejected images become a structured local fallback with no network
+  retry. Output and asset paths reject traversal and symbolic-link routing.
+- The checked Hermes directory had no license file; its source code, data, images,
+  cache, and Git history were not copied or adapted.
+
+Fresh verification evidence:
+
+- Frozen dependency sync checked `172 packages` successfully.
+- Stage 5 plus Stage 4 focused tests: `131 passed`.
+- Stage 5 viewer suite: `33 passed`.
+- `compileall`, `git diff --check`, and the offline fixture build passed.
+- Default suite: `421 passed`, `2 failed`, `1 deselected` in `16.34 seconds`; both
+  failures are the existing Windows one-second multiprocessing spawn-timeout tests
+  under `tests/retriever/test_arxiv_retriever.py`, unchanged from the Stage 4
+  baseline.
+- Complete configured suite: `421 passed`, `3 failed` in `509.02 seconds`. The
+  additional failure is the known `tests/reranker/test_local_reranker.py` attempt
+  to obtain the absent `jinaai/jina-embeddings-v5-text-nano-retrieval` model from
+  Hugging Face, which timed out on this host. No Stage 5 code was changed to hide
+  these environment-dependent baseline failures.
+- Playwright local-server smoke testing found zero console errors on index and
+  detail pages; at 390px the detail page had `scrollWidth == clientWidth == 390`.
+- Hygiene scan found `0` common secret-shaped values, `0` tracked private/cache/
+  output paths, `0` tracked PDF/archive/database files, and `0` tracked files over
+  5 MiB. The generated viewer output and Playwright artifacts are ignored.
+
+Rollback: stop the viewer CLI, remove the ignored configured output directory, and
+revert the Stage 5 commits. This leaves Stage 4 validation data and private evidence
+roots intact.

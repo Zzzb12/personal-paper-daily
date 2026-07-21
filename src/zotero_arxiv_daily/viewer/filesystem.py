@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
 class AtomicOutputRoot:
@@ -56,9 +56,14 @@ class AtomicOutputRoot:
     def _target(self, relative: PurePosixPath) -> Path:
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("output path must be relative and contained")
+        if any(
+            "\\" in part or PureWindowsPath(part).is_absolute() or PureWindowsPath(part).drive
+            for part in relative.parts
+        ):
+            raise ValueError("output path must not contain a Windows path component")
         if self._root.is_symlink():
             raise ValueError("output root must not be a symbolic link")
-        target = self._root / Path(*relative.parts)
+        target = self._root.joinpath(*relative.parts)
         current = self._root
         for part in relative.parts:
             current = current / part

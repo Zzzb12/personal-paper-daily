@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PIL import Image
 from zotero_arxiv_daily.viewer.builder import StaticViewerBuilder
 from zotero_arxiv_daily.viewer.schemas import ViewerSettings
 
@@ -63,7 +64,7 @@ def test_builder_publishes_local_evidence_image_and_renders_it(tmp_path: Path) -
     evidence_root = tmp_path / "evidence"
     evidence_root.mkdir()
     image = evidence_root / "figure.png"
-    image.write_bytes(b"synthetic-image")
+    Image.new("RGB", (1, 1), color="white").save(image, format="PNG")
     visual = result.validated.analysis.supporting_visuals[0]
     region = visual.regions[0].model_copy(update={"image_path": image})
     analysis = result.validated.analysis.model_copy(

@@ -3,20 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from zotero_arxiv_daily.viewer.assets import EvidenceImagePublisher
+
+
+def _write_png(path: Path) -> None:
+    Image.new("RGB", (1, 1), color="white").save(path, format="PNG")
 
 
 def test_publishes_evidence_using_a_content_addressed_path(tmp_path: Path) -> None:
     evidence_root = tmp_path / "evidence"
     evidence_root.mkdir()
     image = evidence_root / "figure.png"
-    image.write_bytes(b"synthetic-image")
+    _write_png(image)
 
     asset = EvidenceImagePublisher(tmp_path / "site").publish(image, evidence_root=evidence_root)
 
     assert asset.relative_path.as_posix().startswith("assets/evidence/")
-    assert (tmp_path / "site" / asset.relative_path).read_bytes() == b"synthetic-image"
+    assert (tmp_path / "site" / asset.relative_path).read_bytes() == image.read_bytes()
 
 
 def test_rejects_evidence_outside_approved_root(tmp_path: Path) -> None:
@@ -34,8 +39,8 @@ def test_equal_content_does_not_create_colliding_duplicate_assets(tmp_path: Path
     evidence_root.mkdir()
     first = evidence_root / "first.png"
     second = evidence_root / "second.png"
-    first.write_bytes(b"same-content")
-    second.write_bytes(b"same-content")
+    _write_png(first)
+    _write_png(second)
 
     publisher = EvidenceImagePublisher(tmp_path / "site")
     assert publisher.publish(first, evidence_root=evidence_root) == publisher.publish(
@@ -47,7 +52,7 @@ def test_rejects_symlinked_output_asset_directory(tmp_path: Path, monkeypatch: p
     evidence_root = tmp_path / "evidence"
     evidence_root.mkdir()
     image = evidence_root / "figure.png"
-    image.write_bytes(b"synthetic-image")
+    _write_png(image)
     output_directory = tmp_path / "site" / "assets" / "evidence"
     original_is_symlink = Path.is_symlink
 
@@ -58,3 +63,13 @@ def test_rejects_symlinked_output_asset_directory(tmp_path: Path, monkeypatch: p
 
     with pytest.raises(ValueError, match="symbolic link"):
         EvidenceImagePublisher(tmp_path / "site").publish(image, evidence_root=evidence_root)
+
+
+def test_rejects_corrupt_evidence_image(tmp_path: Path) -> None:
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    corrupt = evidence_root / "corrupt.png"
+    corrupt.write_bytes(b"not-a-png")
+
+    with pytest.raises(ValueError, match="valid image"):
+        EvidenceImagePublisher(tmp_path / "site").publish(corrupt, evidence_root=evidence_root)

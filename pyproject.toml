@@ -29,6 +29,7 @@ dependencies = [
     "pydantic>=2.12,<3",
     "httpx>=0.28,<1",
     "docling>=2.113.0",
+    "pillow>=12.3,<13",
 ]
 
 [tool.uv.sources]
