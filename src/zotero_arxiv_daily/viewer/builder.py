@@ -32,6 +32,8 @@ class StaticViewerBuilder:
             decision = policy.decide(result)
             if decision.kind == "excluded" or result.validated is None or result.report is None:
                 continue
+            if len(pages) >= self._settings.max_papers:
+                break
             analysis = result.validated.analysis
             filename = f"{analysis.paper_id.replace(':', '-')}.html"
             relative = PurePosixPath("papers", filename)

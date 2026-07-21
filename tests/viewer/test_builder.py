@@ -78,3 +78,25 @@ def test_builder_publishes_local_evidence_image_and_renders_it(tmp_path: Path) -
     detail_html = (tmp_path / "site" / "papers" / "arxiv-2401.00001.html").read_text(encoding="utf-8")
     assert '<img src="../assets/evidence/' in detail_html
     assert list((tmp_path / "site" / "assets" / "evidence").glob("*.png"))
+
+
+def test_builder_enforces_configured_page_limit(tmp_path: Path) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    second = result.model_copy(
+        update={
+            "paper_id": "arxiv:2401.00002",
+            "validated": result.validated.model_copy(
+                update={"analysis": result.validated.analysis.model_copy(update={"paper_id": "arxiv:2401.00002"})}
+            ),
+        }
+    )
+
+    manifest = StaticViewerBuilder(ViewerSettings(output_root=tmp_path / "site", max_papers=1)).build(
+        (result, second), batch_label="2026-07-21"
+    )
+
+    assert manifest.published_count == 1
+    assert not (tmp_path / "site" / "papers" / "arxiv-2401.00002.html").exists()
