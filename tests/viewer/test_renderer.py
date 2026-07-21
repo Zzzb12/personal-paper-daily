@@ -39,6 +39,21 @@ def test_empty_index_has_a_readable_empty_state() -> None:
     assert "今日没有可发布的论文" in html
 
 
+def test_detail_page_does_not_render_https_link_with_embedded_credentials() -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    assert result.validated is not None
+    analysis = result.validated.analysis.model_copy(
+        update={"links": result.validated.analysis.links.model_copy(update={"code_url": "https://user:secret@example.test/code"})}
+    )
+
+    html = TemplateRenderer(site_title="Paper Daily").render_paper(analysis, result.validated.report, publication_kind="full")
+
+    assert "user:secret" not in html
+
+
 def test_detail_page_uses_validated_analysis_in_fixed_reading_order() -> None:
     from tests.analysis.stage4_factories import golden_inputs
     from zotero_arxiv_daily.analysis.validator import validate_paper

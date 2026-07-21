@@ -87,7 +87,12 @@ class TemplateRenderer:
     @staticmethod
     def _links(analysis: PaperAnalysis) -> str:
         links = (("PDF", analysis.links.pdf_url), ("arXiv", analysis.links.arxiv_url), ("代码", analysis.links.code_url))
-        safe = [f'<a href="{escape(url, quote=True)}" rel="noopener noreferrer">{label}</a>' for label, url in links if url and urlparse(url).scheme == "https"]
+        safe = []
+        for label, url in links:
+            parsed = urlparse(url) if url else None
+            if parsed is None or parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+                continue
+            safe.append(f'<a href="{escape(url, quote=True)}" rel="noopener noreferrer">{label}</a>')
         return " · ".join(safe) or "论文未明确提供"
 
     @staticmethod
