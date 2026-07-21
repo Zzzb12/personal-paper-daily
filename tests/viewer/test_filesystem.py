@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from pathlib import Path, PurePosixPath
+
+import pytest
+
+from zotero_arxiv_daily.viewer.filesystem import AtomicOutputRoot
+
+
+def test_writes_a_relative_text_file_beneath_output_root(tmp_path: Path) -> None:
+    output = AtomicOutputRoot(tmp_path / "site")
+
+    path = output.write_text(PurePosixPath("papers", "paper.html"), "<main>阅读</main>")
+
+    assert path == tmp_path / "site" / "papers" / "paper.html"
+    assert path.read_text(encoding="utf-8") == "<main>阅读</main>"
+
+
+@pytest.mark.parametrize("relative", [PurePosixPath("..", "escape.html"), PurePosixPath("/absolute.html")])
+def test_rejects_output_path_escape(tmp_path: Path, relative: PurePosixPath) -> None:
+    with pytest.raises(ValueError, match="relative"):
+        AtomicOutputRoot(tmp_path / "site").write_text(relative, "blocked")
+
+
+def test_dry_run_creates_no_output(tmp_path: Path) -> None:
+    path = AtomicOutputRoot(tmp_path / "site", dry_run=True).write_text(PurePosixPath("index.html"), "x")
+
+    assert path == tmp_path / "site" / "index.html"
+    assert not (tmp_path / "site").exists()
