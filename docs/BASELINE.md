@@ -708,14 +708,14 @@ Implemented boundary:
 Fresh verification evidence:
 
 - Frozen dependency sync checked `172 packages` successfully.
-- Stage 5 plus Stage 4 focused tests: `131 passed`.
+- Stage 5 plus Stage 4 focused tests: `136 passed`.
 - Stage 5 viewer suite: `33 passed`.
 - `compileall`, `git diff --check`, and the offline fixture build passed.
-- Default suite: `421 passed`, `2 failed`, `1 deselected` in `16.34 seconds`; both
+- Default suite: `426 passed`, `2 failed`, `1 deselected` in `15.98 seconds`; both
   failures are the existing Windows one-second multiprocessing spawn-timeout tests
   under `tests/retriever/test_arxiv_retriever.py`, unchanged from the Stage 4
   baseline.
-- Complete configured suite: `421 passed`, `3 failed` in `509.02 seconds`. The
+- Complete configured suite: `426 passed`, `3 failed` in `508.62 seconds`. The
   additional failure is the known `tests/reranker/test_local_reranker.py` attempt
   to obtain the absent `jinaai/jina-embeddings-v5-text-nano-retrieval` model from
   Hugging Face, which timed out on this host. No Stage 5 code was changed to hide
@@ -725,6 +725,10 @@ Fresh verification evidence:
 - Hygiene scan found `0` common secret-shaped values, `0` tracked private/cache/
   output paths, `0` tracked PDF/archive/database files, and `0` tracked files over
   5 MiB. The generated viewer output and Playwright artifacts are ignored.
+- A second independent re-review reproduced and verified fixes for Windows
+  drive/UNC/backslash output escapes, CLI evidence-root wiring, and corrupt-image
+  rejection. It returned `Ready`; it also reconfirmed stale-page removal,
+  output/asset symlink defenses, and credential-bearing HTTPS URL rejection.
 
 Rollback: stop the viewer CLI, remove the ignored configured output directory, and
 revert the Stage 5 commits. This leaves Stage 4 validation data and private evidence
