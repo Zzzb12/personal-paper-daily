@@ -110,3 +110,28 @@ The rejection remains strict while both `str(exc)` and `exc.errors()` omit the
 sentinel credential value. Re-ran the same focused command:
 
 Result: `7 passed in 0.44s`.
+
+## Malformed IPv6 credential URL follow-up
+
+### RED
+
+Added the exact malformed URL `https://user:REAL_SECRET@[::1` to the
+credential-redaction parameterized regression test and ran the focused command.
+
+Result: 1 failure (`7 passed, 1 failed`): the sentinel appeared in
+`str(exc.errors())` because `urlparse` raised before the prior sanitization.
+
+### GREEN
+
+Replaced pre-validation credential detection with an authority/userinfo regular
+expression that does not call `urlparse`; malformed credential URLs are now
+redacted before Pydantic constructs a validation error. `_https_url` also
+converts `urlparse` `ValueError` into the controlled invalid-HTTPS rejection.
+
+Re-ran:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/delivery/test_schemas.py -q
+```
+
+Result: `8 passed in 0.41s`.

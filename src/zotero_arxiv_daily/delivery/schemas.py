@@ -14,6 +14,7 @@ from zotero_arxiv_daily.analysis.schemas import StrictModel
 _CHAT_ID_RE = re.compile(r"^oc_[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MESSAGE_ID_RE = re.compile(r"^om_[A-Za-z0-9_-]+$")
+_URL_USERINFO_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[^/?#]*@")
 _REDACTED_CREDENTIAL_URL = "https://redacted.invalid/credential-url-rejected"
 
 
@@ -30,8 +31,7 @@ class DeliveryStrictModel(StrictModel):
         site_url = value.get("site_url")
         if not isinstance(site_url, str):
             return value
-        parsed = urlparse(site_url)
-        if parsed.username is None and parsed.password is None:
+        if not _URL_USERINFO_RE.match(site_url):
             return value
         sanitized = dict(value)
         sanitized["site_url"] = _REDACTED_CREDENTIAL_URL
@@ -49,7 +49,10 @@ def _https_url(value: str) -> str:
     normalized = _non_empty(value)
     if normalized == _REDACTED_CREDENTIAL_URL:
         raise ValueError("site_url must not include credentials")
-    parsed = urlparse(normalized)
+    try:
+        parsed = urlparse(normalized)
+    except ValueError as exc:
+        raise ValueError("site_url must be an absolute HTTPS URL") from exc
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("site_url must be an absolute HTTPS URL")
     if parsed.username is not None or parsed.password is not None:
