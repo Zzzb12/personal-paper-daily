@@ -5,15 +5,54 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import os
+import time
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
+from typing import Any, Protocol
 from urllib.parse import quote, urlparse
 
+import httpx
+
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationBatchResult
-from zotero_arxiv_daily.delivery.schemas import DeliveryRequest, DigestPaper, FeishuPayload
+from zotero_arxiv_daily.delivery.schemas import (
+    DeliveryReceipt,
+    DeliveryRequest,
+    DigestPaper,
+    FeishuPayload,
+    FeishuSettings,
+)
 
 
 _MISSING_FACT = "论文未明确提供"
 _CARD_TITLE = "个人论文日报"
 _MARKDOWN_SPECIAL_CHARACTERS = frozenset(r"\\`*_{}[]()#+-.!|>~")
+_FEISHU_API_ROOT = "https://open.feishu.cn"
+_TOKEN_PATH = "/open-apis/auth/v3/tenant_access_token/internal"
+_MESSAGE_PATH = "/open-apis/im/v1/messages"
+
+
+class FeishuDeliveryError(RuntimeError):
+    """Controlled delivery failure that never includes remote response content."""
+
+
+class FeishuTransport(Protocol):
+    """Small injected HTTP boundary used by the Feishu client."""
+
+    def post(self, url: str, **kwargs: Any) -> Any: ...
+
+
+class HttpxTransport:
+    """Production HTTP transport, constructed only behind the CLI send gate."""
+
+    def __init__(self) -> None:
+        self._client = httpx.Client()
+
+    def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        return self._client.post(url, **kwargs)
+
+    def close(self) -> None:
+        self._client.close()
 
 
 def _safe_https_url(value: object) -> str | None:
@@ -195,3 +234,152 @@ class FeishuRenderer:
             },
         }
         return json.dumps(card, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+class FeishuClient:
+    """Send one rendered card through an injected transport with bounded retries."""
+
+    def __init__(
+        self,
+        settings: FeishuSettings,
+        transport: FeishuTransport,
+        *,
+        environment: Mapping[str, str] | None = None,
+        clock: Callable[[], datetime] | None = None,
+        sleep: Callable[[float], None] | None = None,
+    ) -> None:
+        self._settings = settings
+        self._transport = transport
+        self._environment = os.environ if environment is None else environment
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._sleep = sleep or time.sleep
+        self._receipts: dict[str, DeliveryReceipt] = {}
+
+    def send(self, request: DeliveryRequest, rendered_content: str) -> DeliveryReceipt:
+        cached = self._receipts.get(request.idempotency_key)
+        if cached is not None:
+            return cached
+
+        card_content = self._rendered_card_content(rendered_content)
+        app_id = self._required_credential(self._settings.app_id_environment_name)
+        app_secret = self._required_credential(
+            self._settings.app_secret_environment_name
+        )
+        token_response = self._post_with_retry(
+            f"{_FEISHU_API_ROOT}{_TOKEN_PATH}",
+            request,
+            json={"app_id": app_id, "app_secret": app_secret},
+        )
+        token_payload = self._response_payload(token_response)
+        token = token_payload.get("tenant_access_token")
+        if token_payload.get("code") != 0 or not isinstance(token, str) or not token:
+            raise FeishuDeliveryError("feishu token response was invalid")
+
+        message_response = self._post_with_retry(
+            f"{_FEISHU_API_ROOT}{_MESSAGE_PATH}",
+            request,
+            params={"receive_id_type": "chat_id"},
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "receive_id": request.payload.chat_id,
+                "msg_type": "interactive",
+                "content": card_content,
+            },
+        )
+        message_payload = self._response_payload(message_response)
+        data = message_payload.get("data")
+        message_id = data.get("message_id") if isinstance(data, dict) else None
+        if (
+            message_payload.get("code") != 0
+            or not isinstance(message_id, str)
+            or not message_id.startswith("om_")
+        ):
+            raise FeishuDeliveryError("feishu message response was invalid")
+        request_id = message_response.headers.get("x-request-id", "unavailable")
+        if not isinstance(request_id, str) or not request_id.strip():
+            request_id = "unavailable"
+        try:
+            receipt = DeliveryReceipt(
+                request_id=request_id,
+                message_id=message_id,
+                idempotency_key=request.idempotency_key,
+                delivered_at=self._clock(),
+            )
+        except Exception:
+            raise FeishuDeliveryError("feishu message response was invalid") from None
+        self._receipts[request.idempotency_key] = receipt
+        return receipt
+
+    def _required_credential(self, name: str) -> str:
+        value = self._environment.get(name, "")
+        if not value.strip():
+            raise FeishuDeliveryError(f"missing required environment variable: {name}")
+        return value
+
+    def _post_with_retry(
+        self,
+        url: str,
+        request: DeliveryRequest,
+        **kwargs: Any,
+    ) -> Any:
+        for retry_index in range(request.max_retries + 1):
+            try:
+                response = self._transport.post(
+                    url, timeout=request.timeout_seconds, **kwargs
+                )
+            except httpx.TimeoutException:
+                raise FeishuDeliveryError("feishu request timed out") from None
+            except Exception:
+                raise FeishuDeliveryError("feishu transport failed") from None
+
+            status_code = response.status_code
+            if 200 <= status_code < 300:
+                return response
+            retryable = status_code == 429 or 500 <= status_code < 600
+            if not retryable:
+                raise FeishuDeliveryError(
+                    f"feishu request rejected with HTTP {status_code}"
+                )
+            if retry_index == request.max_retries:
+                raise FeishuDeliveryError("feishu transient retry limit reached")
+            self._sleep(self._retry_delay(response, retry_index))
+        raise FeishuDeliveryError("feishu transient retry limit reached")
+
+    @staticmethod
+    def _rendered_card_content(rendered_content: str) -> str:
+        try:
+            envelope = json.loads(rendered_content)
+        except Exception:
+            raise FeishuDeliveryError("rendered feishu card was invalid") from None
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("msg_type") != "interactive"
+            or not isinstance(envelope.get("card"), dict)
+        ):
+            raise FeishuDeliveryError("rendered feishu card was invalid")
+        return json.dumps(
+            envelope["card"],
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    @staticmethod
+    def _response_payload(response: Any) -> dict[str, Any]:
+        try:
+            payload = response.json()
+        except Exception:
+            raise FeishuDeliveryError("feishu response was not valid JSON") from None
+        if not isinstance(payload, dict):
+            raise FeishuDeliveryError("feishu response was not a JSON object")
+        return payload
+
+    @staticmethod
+    def _retry_delay(response: Any, retry_index: int) -> float:
+        retry_after = response.headers.get("retry-after")
+        if isinstance(retry_after, str):
+            try:
+                return min(max(float(retry_after), 0.0), 60.0)
+            except ValueError:
+                pass
+        return float(min(2**retry_index, 8))
