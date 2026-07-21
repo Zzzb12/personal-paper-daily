@@ -28,6 +28,7 @@ def test_index_page_is_semantic_escaped_and_has_meaningful_status() -> None:
     assert "<script>unsafe</script>" not in html
     assert "已验证完整阅读" in html
     assert 'href="papers/2401.00001.html"' in html
+    assert 'rel="icon" href="assets/favicon.svg"' in html
 
 
 def test_empty_index_has_a_readable_empty_state() -> None:
