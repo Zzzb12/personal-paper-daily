@@ -65,7 +65,7 @@ class TemplateRenderer:
         issues = "".join(f"<li>{escape(issue.code)}：{escape(issue.message)}</li>" for issue in report.issues)
         return f"""<!doctype html>
 <html lang="zh-Hans"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'none'"><title>{title}</title><link rel="stylesheet" href="../assets/site.css"></head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self'; style-src 'self'; script-src 'none'"><title>{title}</title><link rel="icon" href="../assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="../assets/site.css"></head>
 <body><header><a href="../index.html">返回论文索引</a><h1>{title}</h1><p>{self._claim(analysis.chinese_title)}</p>{warning}</header>
 <main><article><section><h2>推荐理由</h2><p>{self._claim(analysis.recommendation_reason)}</p><h2>研究问题</h2><p>{self._claim(analysis.research_problem)}</p></section>
 <section><h2>核心 Insight</h2>{self._claims(analysis.insights)}<h2>Insight 形成逻辑</h2><p>{self._claim(analysis.insight_formation_logic)}</p><h2>证据图表</h2>{visuals}</section>

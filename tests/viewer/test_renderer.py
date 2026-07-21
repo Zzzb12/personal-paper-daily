@@ -57,3 +57,4 @@ def test_detail_page_uses_validated_analysis_in_fixed_reading_order() -> None:
     assert html.index("核心 Insight") < html.index("Method") < html.index("关键参数")
     assert "PDF page" in html and "confidence" in html
     assert "论文未明确提供" in html
+    assert 'rel="icon" href="../assets/favicon.svg"' in html
