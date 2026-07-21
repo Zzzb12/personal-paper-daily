@@ -84,7 +84,29 @@ The direct focused test execution was repeated successfully after the fixes.
 
 ## Concerns
 
-- Full pytest verification remains unavailable in this shell until the project
-  `uv` environment (including `hydra`) is provisioned. The focused assertions
-  passed through direct execution, but that fallback does not exercise pytest's
-  normal collection path.
+- The shell `PATH` still lacks `uv`, but the supplied shared Stage 0 `uv`
+  executable runs the focused pytest file successfully. The full repository
+  suite was not run for this narrowly scoped follow-up.
+
+## Credential-error redaction follow-up
+
+### RED
+
+Added regression cases for `DigestPaper` and `FeishuSettings.from_environment`
+using the sentinel `REAL_SECRET` in the URL userinfo. Ran:
+
+```powershell
+& 'F:\Yan_0\Video_generaton\PaperDaily\.stage0-tools\Scripts\uv.exe' run pytest tests/delivery/test_schemas.py -q
+```
+
+Result: 2 failures, both proving `REAL_SECRET` appeared in `str(exc)` for
+Pydantic `ValidationError` instances.
+
+### GREEN
+
+Added model-level pre-validation that replaces credential-bearing `site_url`
+input with a fixed non-secret marker before the controlled field rejection.
+The rejection remains strict while both `str(exc)` and `exc.errors()` omit the
+sentinel credential value. Re-ran the same focused command:
+
+Result: `7 passed in 0.44s`.

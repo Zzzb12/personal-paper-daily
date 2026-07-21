@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -112,3 +113,35 @@ def test_feishu_settings_reports_missing_environment_names_without_values() -> N
     assert settings.app_id_environment_name == "FEISHU_APP_ID"
     assert settings.app_secret_environment_name == "FEISHU_APP_SECRET"
     assert "secret-is-not-retained" not in settings.model_dump_json()
+
+
+@pytest.mark.parametrize(
+    ("factory", "sentinel"),
+    (
+        (
+            lambda: _paper(
+                site_url="https://user:REAL_SECRET@papers.example.test/daily/run-1.html"
+            ),
+            "REAL_SECRET",
+        ),
+        (
+            lambda: FeishuSettings.from_environment(
+                {
+                    "FEISHU_APP_ID": "app-id",
+                    "FEISHU_APP_SECRET": "app-secret",
+                    "FEISHU_CHAT_ID": "oc_0123456789abcdef0123456789abcdef",
+                    "PAPER_DAILY_SITE_URL": "https://user:REAL_SECRET@papers.example.test/",
+                }
+            ),
+            "REAL_SECRET",
+        ),
+    ),
+)
+def test_credential_bearing_site_url_never_echoes_credentials_in_validation_errors(
+    factory: Callable[[], object], sentinel: str
+) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        factory()
+
+    assert sentinel not in str(exc_info.value)
+    assert sentinel not in str(exc_info.value.errors())

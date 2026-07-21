@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from zotero_arxiv_daily.analysis.schemas import StrictModel
 
@@ -14,12 +14,28 @@ from zotero_arxiv_daily.analysis.schemas import StrictModel
 _CHAT_ID_RE = re.compile(r"^oc_[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MESSAGE_ID_RE = re.compile(r"^om_[A-Za-z0-9_-]+$")
+_REDACTED_CREDENTIAL_URL = "https://redacted.invalid/credential-url-rejected"
 
 
 class DeliveryStrictModel(StrictModel):
     """Frozen delivery boundary that rejects input coercion as well as extras."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def redact_credential_bearing_site_url(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            return value
+        site_url = value.get("site_url")
+        if not isinstance(site_url, str):
+            return value
+        parsed = urlparse(site_url)
+        if parsed.username is None and parsed.password is None:
+            return value
+        sanitized = dict(value)
+        sanitized["site_url"] = _REDACTED_CREDENTIAL_URL
+        return sanitized
 
 
 def _non_empty(value: str) -> str:
@@ -31,6 +47,8 @@ def _non_empty(value: str) -> str:
 
 def _https_url(value: str) -> str:
     normalized = _non_empty(value)
+    if normalized == _REDACTED_CREDENTIAL_URL:
+        raise ValueError("site_url must not include credentials")
     parsed = urlparse(normalized)
     if parsed.scheme != "https" or not parsed.netloc:
         raise ValueError("site_url must be an absolute HTTPS URL")
