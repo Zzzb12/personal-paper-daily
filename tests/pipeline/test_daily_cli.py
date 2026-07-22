@@ -197,3 +197,23 @@ def test_live_mode_uses_injected_production_factory_without_printing_environment
     output = capsys.readouterr().out
     assert "status=success" in output
     assert all(value not in output for value in environment.values())
+
+
+def test_docling_preflight_rejects_missing_empty_or_linked_model_roots(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing"
+    with pytest.raises(ValueError, match="Docling model artifacts"):
+        daily._require_docling_artifacts(missing)
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    with pytest.raises(ValueError, match="Docling model artifacts"):
+        daily._require_docling_artifacts(empty)
+
+    prepared = tmp_path / "prepared"
+    for name in daily._REQUIRED_DOCLING_MODEL_DIRECTORIES:
+        directory = prepared / name
+        directory.mkdir(parents=True)
+        (directory / "model.bin").write_bytes(b"fixture")
+    assert daily._require_docling_artifacts(prepared) == prepared.resolve()

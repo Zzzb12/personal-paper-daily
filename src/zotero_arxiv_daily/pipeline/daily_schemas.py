@@ -64,6 +64,36 @@ class StageRunResult(StrictModel):
     def validate_error_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _safe_error_codes(value)
 
+    @model_validator(mode="after")
+    def validate_status_contract(self) -> Self:
+        if self.status == "success" and (
+            self.partial_failure_count or self.error_codes
+        ):
+            raise ValueError("successful stage cannot contain failures or error codes")
+        if self.status == "partial" and not (
+            self.partial_failure_count or self.error_codes
+        ):
+            raise ValueError("partial stage requires a controlled failure")
+        if self.status == "failed" and (
+            self.output_count or not self.error_codes
+        ):
+            raise ValueError("failed stage requires zero output and a controlled error code")
+        if self.status == "empty" and (
+            self.output_count or self.partial_failure_count or self.error_codes
+        ):
+            raise ValueError("empty stage cannot contain output or failures")
+        if self.status == "skipped" and (
+            self.output_count
+            or self.cache_hit_count
+            or self.retry_count
+            or self.partial_failure_count
+            or (self.input_count and not self.error_codes)
+        ):
+            raise ValueError(
+                "skipped stage cannot contain work counts without a controlled reason"
+            )
+        return self
+
 
 class RunCounts(StrictModel):
     input_count: int = Field(default=0, ge=0)
@@ -251,4 +281,24 @@ class RunManifest(StrictModel):
             raise ValueError("artifact hash must match the static site result")
         if self.feishu.status == "sent" and (self.dry_run or not self.send_requested):
             raise ValueError("sent Feishu result requires an explicit live send request")
+        candidate_stage = self.stages[0]
+        core_failed = any(
+            stage.status == "failed" and stage.name != "feishu"
+            for stage in self.stages
+        )
+        degraded = any(
+            stage.status == "partial" or stage.partial_failure_count
+            for stage in self.stages
+        ) or self.stages[-1].status == "failed"
+        expected_status: RunStatus
+        if candidate_stage.status == "empty":
+            expected_status = "empty"
+        elif core_failed:
+            expected_status = "failed"
+        elif degraded:
+            expected_status = "partial"
+        else:
+            expected_status = "success"
+        if self.status != expected_status:
+            raise ValueError(f"run status must be {expected_status}")
         return self

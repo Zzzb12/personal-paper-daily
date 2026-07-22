@@ -58,7 +58,10 @@ def _is_link_or_junction(path: Path) -> bool:
 
 
 def resolve_within(run_root: Path, candidate: Path) -> Path:
-    root = Path(run_root).resolve()
+    supplied_root = Path(run_root)
+    if _is_link_or_junction(supplied_root):
+        raise ValueError("run root must not be a symbolic link or junction")
+    root = supplied_root.resolve()
     path = Path(candidate)
     kind, drive = _windows_path_kind(path)
     if kind == "unc":
@@ -126,8 +129,8 @@ class ManifestStore:
         *,
         replace: Callable[[Path, Path], Any] = os.replace,
     ) -> None:
+        self._output = resolve_within(Path(run_root), Path(output))
         self._run_root = Path(run_root).resolve()
-        self._output = resolve_within(self._run_root, Path(output))
         if self._output.suffix.lower() != ".json":
             raise ValueError("manifest output must use a JSON file")
         self._replace = replace
@@ -151,7 +154,10 @@ class ArtifactAuditor:
     ) -> None:
         if max_files < 1 or max_bytes < 1:
             raise ValueError("artifact limits must be positive")
-        self._run_root = Path(run_root).resolve()
+        supplied_root = Path(run_root)
+        if _is_link_or_junction(supplied_root):
+            raise ValueError("run root must not be a symbolic link or junction")
+        self._run_root = supplied_root.resolve()
         self._max_files = max_files
         self._max_bytes = max_bytes
 

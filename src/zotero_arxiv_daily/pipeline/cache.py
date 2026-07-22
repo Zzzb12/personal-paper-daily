@@ -15,19 +15,15 @@ from zotero_arxiv_daily.pipeline.artifacts import atomic_write_bytes
 from zotero_arxiv_daily.pipeline.daily_schemas import CACHE_VERSION, CacheIdentity
 
 
-_FORBIDDEN_PAYLOAD_KEYS = frozenset(
+_ALLOWED_PAYLOAD_KEYS = frozenset(
     {
-        ".env",
-        "api_key",
-        "credentials",
-        "secret",
-        "prompt",
-        "full_text",
-        "abstract",
-        "zotero",
-        "feedback",
-        "analysis",
-        "validation",
+        "artifact_hash",
+        "byte_count",
+        "cache_hit_count",
+        "file_count",
+        "pipeline_version",
+        "schema_version",
+        "status",
     }
 )
 
@@ -55,7 +51,7 @@ def _validate_safe_payload(value: object) -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
             normalized = str(key).strip().lower().replace("-", "_")
-            if normalized in _FORBIDDEN_PAYLOAD_KEYS or normalized.startswith(".env"):
+            if normalized not in _ALLOWED_PAYLOAD_KEYS:
                 raise ValueError("workflow cache payload is not allowed")
             _validate_safe_payload(child)
     elif isinstance(value, (list, tuple)):

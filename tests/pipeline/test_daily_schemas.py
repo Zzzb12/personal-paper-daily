@@ -151,6 +151,50 @@ def test_stage_result_uses_controlled_counts_and_errors() -> None:
         StageRunResult(name="documents", status="failed", input_count=-1, output_count=0)
 
 
+def test_stage_result_status_must_match_counts_and_controlled_errors() -> None:
+    with pytest.raises(ValidationError, match="successful stage"):
+        StageRunResult(
+            name="documents",
+            status="success",
+            input_count=2,
+            output_count=1,
+            partial_failure_count=1,
+            error_codes=("document_paper_failed",),
+        )
+    with pytest.raises(ValidationError, match="failed stage"):
+        StageRunResult(
+            name="documents",
+            status="failed",
+            input_count=2,
+            output_count=1,
+            error_codes=("document_stage_failed",),
+        )
+    with pytest.raises(ValidationError, match="skipped stage"):
+        StageRunResult(name="documents", status="skipped", input_count=1)
+
+
+def test_manifest_run_status_must_match_stage_outcomes() -> None:
+    stages = list(_stages())
+    stages[1] = StageRunResult(
+        name="documents",
+        status="failed",
+        input_count=1,
+        error_codes=("document_stage_failed",),
+    )
+    with pytest.raises(ValidationError, match="run status"):
+        _manifest(status="success", stages=tuple(stages))
+
+    stages = list(_stages())
+    stages[-1] = StageRunResult(
+        name="feishu",
+        status="failed",
+        input_count=1,
+        error_codes=("feishu_delivery_failed",),
+    )
+    with pytest.raises(ValidationError, match="run status"):
+        _manifest(status="success", stages=tuple(stages))
+
+
 def test_cache_identity_covers_every_stage_implementation_identity() -> None:
     identity = CacheIdentity(
         config_hash=HASH,

@@ -6,6 +6,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PureWindowsPath
@@ -99,9 +100,7 @@ class Auditor(Protocol):
 
 
 class Ledger(Protocol):
-    def contains(self, idempotency_key: str) -> bool: ...
-
-    def record(self, idempotency_key: str) -> None: ...
+    def claim(self, idempotency_key: str) -> AbstractContextManager[bool]: ...
 
 
 @dataclass
@@ -191,7 +190,7 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     stages.append(
         StageRunResult(
             name="candidates",
-            status="success",
+            status="partial" if candidates.counts.invalid else "success",
             input_count=candidates.counts.retrieved,
             output_count=candidate_count,
             partial_failure_count=candidates.counts.invalid,
@@ -279,9 +278,12 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         eligible_count=eligible_count,
     )
     stages.append(validation_stage)
+    publishable_validation = _eligible_validation_batch(validation)
 
     try:
-        build = dependencies.viewer_runner(validation)
+        build = dependencies.viewer_runner(publishable_validation)
+        if build.published_count != eligible_count:
+            raise ValueError("viewer publication count differs from Stage 4 eligibility")
         audit = dependencies.artifact_auditor.audit(settings.viewer_output)
         if audit.build_manifest != build:
             raise ValueError("viewer build and audited manifest differ")
@@ -331,7 +333,7 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         )
 
     try:
-        delivery = dependencies.prepare_delivery(validation)
+        delivery = dependencies.prepare_delivery(publishable_validation)
         if not settings.send_feishu:
             feishu = FeishuRunResult(status="preview")
             stages.append(
@@ -342,34 +344,46 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
                     output_count=delivery.paper_count,
                 )
             )
-        elif dependencies.delivery_ledger.contains(delivery.idempotency_key):
-            feishu = FeishuRunResult(
-                status="duplicate", idempotency_key=delivery.idempotency_key
-            )
+        elif delivery.paper_count == 0:
+            feishu = FeishuRunResult(status="skipped")
             stages.append(
                 StageRunResult(
                     name="feishu",
-                    status="success",
+                    status="empty",
                     input_count=eligible_count,
                 )
             )
         else:
-            dependencies.send_delivery(delivery)
-            dependencies.delivery_ledger.record(delivery.idempotency_key)
-            feishu = FeishuRunResult(
-                status="sent",
-                delivered_count=delivery.paper_count,
-                idempotency_key=delivery.idempotency_key,
-            )
-            counts = counts.model_copy(update={"delivered_count": delivery.paper_count})
-            stages.append(
-                StageRunResult(
-                    name="feishu",
-                    status="success",
-                    input_count=eligible_count,
-                    output_count=delivery.paper_count,
-                )
-            )
+            with dependencies.delivery_ledger.claim(delivery.idempotency_key) as duplicate:
+                if duplicate:
+                    feishu = FeishuRunResult(
+                        status="duplicate", idempotency_key=delivery.idempotency_key
+                    )
+                    stages.append(
+                        StageRunResult(
+                            name="feishu",
+                            status="success",
+                            input_count=eligible_count,
+                        )
+                    )
+                else:
+                    dependencies.send_delivery(delivery)
+                    feishu = FeishuRunResult(
+                        status="sent",
+                        delivered_count=delivery.paper_count,
+                        idempotency_key=delivery.idempotency_key,
+                    )
+                    counts = counts.model_copy(
+                        update={"delivered_count": delivery.paper_count}
+                    )
+                    stages.append(
+                        StageRunResult(
+                            name="feishu",
+                            status="success",
+                            input_count=eligible_count,
+                            output_count=delivery.paper_count,
+                        )
+                    )
     except Exception:
         feishu = FeishuRunResult(
             status="failed", error_codes=("feishu_delivery_failed",)
@@ -378,12 +392,7 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
             _failed_stage("feishu", "feishu_delivery_failed", eligible_count)
         )
 
-    status = (
-        "partial"
-        if feishu.status == "failed"
-        or any(stage.status == "partial" for stage in stages)
-        else "success"
-    )
+    status = _derive_run_status(stages)
     return _finish(
         settings,
         dependencies,
@@ -405,7 +414,9 @@ def _paper_stage(
     error_code: str,
 ) -> StageRunResult:
     output_count = sum(status in {"success", "partial"} for status in statuses)
-    failures = sum(status != "success" for status in statuses)
+    failures = sum(status != "success" for status in statuses) + max(
+        input_count - len(statuses), 0
+    )
     if not statuses or output_count == 0:
         status = "failed"
     elif failures:
@@ -429,7 +440,9 @@ def _validation_stage(
     validation: ValidationBatchResult,
     eligible_count: int,
 ) -> StageRunResult:
-    non_valid = sum(result.status != "validated" for result in validation.results)
+    non_valid = sum(
+        result.status != "validated" for result in validation.results
+    ) + max(input_count - len(validation.results), 0)
     if not validation.results:
         status = "failed"
     elif non_valid:
@@ -444,6 +457,18 @@ def _validation_stage(
         cache_hit_count=validation.cache_hit_count,
         partial_failure_count=non_valid,
         error_codes=("validation_paper_blocked",) if non_valid else (),
+    )
+
+
+def _eligible_validation_batch(
+    validation: ValidationBatchResult,
+) -> ValidationBatchResult:
+    eligible = tuple(result for result in validation.results if _is_eligible(result))
+    return validation.model_copy(
+        update={
+            "results": eligible,
+            "cache_hit_count": sum(result.cache_hit for result in eligible),
+        }
     )
 
 
@@ -471,6 +496,19 @@ def _skipped_stages(*, start_at: int) -> list[StageRunResult]:
         StageRunResult(name=name, status="skipped")
         for name in STAGE_ORDER[start_at:]
     ]
+
+
+def _derive_run_status(stages: Sequence[StageRunResult]) -> str:
+    if stages and stages[0].status == "empty":
+        return "empty"
+    if any(stage.status == "failed" and stage.name != "feishu" for stage in stages):
+        return "failed"
+    if any(
+        stage.status == "partial" or stage.partial_failure_count
+        for stage in stages
+    ) or any(stage.name == "feishu" and stage.status == "failed" for stage in stages):
+        return "partial"
+    return "success"
 
 
 def _finish(
@@ -527,6 +565,10 @@ _SEND_REQUIRED_ENVIRONMENT = (
 )
 _OFFLINE_CHAT_ID = "oc_00000000000000000000000000000000"
 _OFFLINE_SITE_URL = "https://papers.example.test/stage7-offline/"
+_REQUIRED_DOCLING_MODEL_DIRECTORIES = (
+    "docling-project--docling-layout-heron",
+    "docling-project--docling-models",
+)
 
 
 def _configuration_hash(
@@ -569,6 +611,11 @@ def _missing_environment(
 
 
 def _safe_run_root(path: Path) -> Path:
+    supplied = Path(path)
+    if supplied.is_symlink() or (
+        hasattr(supplied, "is_junction") and supplied.is_junction()
+    ):
+        raise ValueError("run root must not be a symbolic link or junction")
     windows = PureWindowsPath(str(path))
     if windows.drive.startswith("\\\\"):
         raise ValueError("UNC run roots are not allowed")
@@ -580,6 +627,24 @@ def _safe_run_root(path: Path) -> Path:
         raise ValueError("run root must not be a symbolic link or junction")
     resolved.mkdir(parents=True, exist_ok=True)
     return resolved
+
+
+def _require_docling_artifacts(path: Path) -> Path:
+    supplied = Path(path)
+    if supplied.is_symlink() or (
+        hasattr(supplied, "is_junction") and supplied.is_junction()
+    ):
+        raise ValueError("Docling model artifacts must be a regular local directory")
+    root = supplied.resolve()
+    if not root.is_dir():
+        raise ValueError("Docling model artifacts are unavailable")
+    for name in _REQUIRED_DOCLING_MODEL_DIRECTORIES:
+        model_root = root / name
+        if not model_root.is_dir() or not any(
+            candidate.is_file() for candidate in model_root.rglob("*")
+        ):
+            raise ValueError("Docling model artifacts are incomplete")
+    return root
 
 
 class _NoWriteValidationCache:
@@ -732,6 +797,15 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
 
     callbacks: list[Callable[[], None]] = []
     try:
+        config = OmegaConf.load(context.config_dir / "base.yaml")
+        custom_path = context.config_dir / "custom.yaml"
+        if custom_path.exists():
+            config = OmegaConf.merge(config, OmegaConf.load(custom_path))
+        document_config = config.document_pipeline
+        docling_artifacts_path = _require_docling_artifacts(
+            Path(str(document_config.docling_artifacts_path))
+        )
+
         candidate_settings, candidate_dependencies = build_production_pipeline(
             context.config_dir,
             environ=dict(context.environment),
@@ -739,11 +813,6 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
         )
         callbacks.append(candidate_dependencies.close)
 
-        config = OmegaConf.load(context.config_dir / "base.yaml")
-        custom_path = context.config_dir / "custom.yaml"
-        if custom_path.exists():
-            config = OmegaConf.merge(config, OmegaConf.load(custom_path))
-        document_config = config.document_pipeline
         document_timeout = OmegaConf.to_container(
             document_config.request_timeout, resolve=True
         )
@@ -752,7 +821,7 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
             raise ValueError("document timeout and retry configuration must be mappings")
         document_settings = DocumentPipelineSettings(
             cache_root=Path(str(document_config.cache_root)),
-            docling_artifacts_path=Path(str(document_config.docling_artifacts_path)),
+            docling_artifacts_path=docling_artifacts_path,
             max_download_bytes=int(document_config.max_download_bytes),
             max_pages=int(document_config.max_pages),
             document_timeout_seconds=float(document_config.document_timeout_seconds),
@@ -794,7 +863,7 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
             output_root=context.settings.viewer_output,
             evidence_roots=tuple(Path(str(value)) for value in viewer_config.evidence_roots),
             site_title=str(viewer_config.site_title),
-            allow_partial=bool(viewer_config.allow_partial),
+            allow_partial=False,
             max_papers=int(viewer_config.max_papers),
             max_assets_per_paper=int(viewer_config.max_assets_per_paper),
             max_image_bytes=int(viewer_config.max_image_bytes),

@@ -85,6 +85,9 @@ def test_cache_rejects_identity_and_payload_hash_mismatch(tmp_path: Path) -> Non
     "payload",
     [
         {"api_key": "sensitive"},
+        {"apiKey": "sensitive"},
+        {"tenant_access_token": "sensitive"},
+        {"metadata": {"value": "credential-sentinel"}},
         {"prompt": "private source"},
         {"zotero": {"items": []}},
         {"full_text": "paper body"},

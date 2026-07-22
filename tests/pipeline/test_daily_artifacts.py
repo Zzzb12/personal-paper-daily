@@ -158,6 +158,20 @@ def test_output_boundaries_reject_traversal_unc_foreign_drive_and_symlinks(tmp_p
     with pytest.raises(ValueError, match="symbolic link|junction"):
         ManifestStore(run_root, link / "manifest.json")
 
+    linked_root = tmp_path / "linked-run-root"
+    if os.name == "nt":
+        created = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(linked_root), str(run_root)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert created.returncode == 0, created.stderr
+    else:
+        linked_root.symlink_to(run_root, target_is_directory=True)
+    with pytest.raises(ValueError, match="symbolic link|junction"):
+        ManifestStore(linked_root, linked_root / "manifest.json")
+
 
 def test_manifest_write_is_atomic_fsynced_and_failure_cleans_temporary_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

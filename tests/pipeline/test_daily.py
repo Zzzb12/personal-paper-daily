@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Thread
+from time import sleep
 
 from zotero_arxiv_daily.analysis.document_schemas import (
     DocumentBatchResult,
@@ -10,6 +12,7 @@ from zotero_arxiv_daily.analysis.document_schemas import (
     PaperDocumentResult,
 )
 from zotero_arxiv_daily.analysis.paper_schemas import AnalysisBatchResult
+from zotero_arxiv_daily.analysis.validation_schemas import ValidationBatchResult
 from zotero_arxiv_daily.delivery.feishu import DigestPolicy
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
 from zotero_arxiv_daily.pipeline.artifacts import ArtifactAuditor, ManifestStore
@@ -71,6 +74,8 @@ def _dependencies(
     send_calls: list[str] | None = None,
     ledger: DeliveryLedger | None = None,
     order: list[str] | None = None,
+    validation_batch: ValidationBatchResult | None = None,
+    allow_partial_viewer: bool = False,
 ) -> DailyDependencies:
     run_root = tmp_path / "run"
     run_root.mkdir(parents=True, exist_ok=True)
@@ -97,6 +102,8 @@ def _dependencies(
 
     def validation_runner(received_candidates, received_documents, received_analysis):
         calls.append("validation")
+        if validation_batch is not None:
+            return validation_batch
         return build_validation_batch(
             received_candidates,
             received_documents,
@@ -110,7 +117,9 @@ def _dependencies(
         calls.append("viewer")
         if fail_viewer:
             raise RuntimeError("dynamic path and secret must not reach manifest")
-        return StaticViewerBuilder(ViewerSettings(output_root=run_root / "viewer")).build(
+        return StaticViewerBuilder(ViewerSettings(
+            output_root=run_root / "viewer", allow_partial=allow_partial_viewer
+        )).build(
             batch.results,
             batch_label="stage7-test",
         )
@@ -257,6 +266,34 @@ def test_stage4_invalid_paper_is_not_published_or_delivered(tmp_path: Path) -> N
     assert manifest.feishu.status == "preview"
 
 
+def test_stage4_partial_cannot_reach_viewer_even_when_stage5_partial_is_enabled(
+    tmp_path: Path,
+) -> None:
+    from tests.viewer.test_publication import _result
+
+    item = _inputs(1)[0]
+    partial = _result("partial", eligible=False)
+    validation = ValidationBatchResult(
+        run_id=_candidate_batch((item,)).run_id,
+        created_at=NOW,
+        results=(partial,),
+    )
+
+    manifest = run_daily(
+        _settings(tmp_path),
+        _dependencies(
+            tmp_path,
+            (item,),
+            validation_batch=validation,
+            allow_partial_viewer=True,
+        ),
+    )
+
+    assert manifest.counts.validated_count == 0
+    assert manifest.counts.published_count == 0
+    assert not tuple((_settings(tmp_path).viewer_output / "papers").glob("*.html"))
+
+
 def test_static_site_survives_feishu_failure_and_records_targets_separately(tmp_path: Path) -> None:
     manifest = run_daily(
         _settings(tmp_path, send=True),
@@ -303,3 +340,27 @@ def test_persistent_idempotency_key_prevents_duplicate_send_across_runs(tmp_path
     assert len(send_calls) == 1
     assert first.feishu.idempotency_key == second.feishu.idempotency_key
     assert second.counts.delivered_count == 0
+
+
+def test_delivery_ledger_serializes_same_key_across_concurrent_workers(
+    tmp_path: Path,
+) -> None:
+    ledger = DeliveryLedger(tmp_path / "delivery-ledger.json")
+    key = "d" * 64
+    sends: list[str] = []
+
+    def worker() -> None:
+        with ledger.claim(key) as duplicate:
+            if duplicate:
+                return
+            sends.append(key)
+            sleep(0.05)
+
+    workers = [Thread(target=worker) for _ in range(4)]
+    for worker_thread in workers:
+        worker_thread.start()
+    for worker_thread in workers:
+        worker_thread.join(timeout=5)
+
+    assert not any(worker_thread.is_alive() for worker_thread in workers)
+    assert sends == [key]
