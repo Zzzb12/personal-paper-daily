@@ -45,6 +45,11 @@ viewer/**/reader-state.json
 viewer/**/favorites.json
 viewer/**/feedback.json
 
+# Authoritative private feedback imports, browser exports, and migration backups
+data/private-feedback/
+feedback-v1*.json
+*.feedback-migration-*.bak
+
 # Python and test caches
 .pytest_cache/
 .playwright-cli/

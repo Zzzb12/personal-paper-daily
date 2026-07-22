@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
+import tempfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Iterable, Literal, Self
+from pathlib import Path
+from typing import BinaryIO, Callable, Iterable, Literal, Self
 from uuid import UUID
 
 from pydantic import Field, StrictBool, StrictInt, field_validator, model_validator
@@ -19,12 +24,18 @@ MAX_FEEDBACK_COMMANDS = 500
 MAX_FEEDBACK_RECORDS = 500
 MAX_APPLIED_COMMAND_IDS = 1_000
 MAX_APPLIED_BUNDLE_IDS = 100
+MAX_FEEDBACK_STORE_BYTES = 1_000_000
+MAX_FEEDBACK_BUNDLE_BYTES = 1_000_000
 
 _ARXIV_ID_RE = re.compile(
     r"^(?:[a-z-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5})(?:v[1-9]\d*)?$", re.IGNORECASE
 )
 _DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _make_feedback_temp(directory: str, prefix: str, suffix: str) -> tuple[int, str]:
+    return tempfile.mkstemp(dir=directory, prefix=prefix, suffix=suffix)
 
 
 def _utc_datetime(value: datetime) -> datetime:
@@ -294,6 +305,267 @@ class FeedbackMergeResult(StrictModel):
     duplicate_count: int = Field(ge=0)
     stale_count: int = Field(ge=0)
     conflict_count: int = Field(ge=0)
+
+
+class FeedbackStoreSafetyError(ValueError):
+    """Fixed, non-sensitive failure returned by private feedback boundaries."""
+
+    def __init__(self) -> None:
+        super().__init__("feedback store rejected")
+
+
+@dataclass(frozen=True)
+class FeedbackStoreFileOps:
+    """Replaceable filesystem seams for offline atomic-write tests."""
+
+    open_file: Callable[..., BinaryIO]
+    open_fd: Callable[..., BinaryIO]
+    make_temp: Callable[[str, str, str], tuple[int, str]]
+    fsync: Callable[[int], None]
+    replace: Callable[[str, str], None]
+    unlink: Callable[[str], None]
+    lstat: Callable[[str], os.stat_result]
+
+    @classmethod
+    def default(cls) -> Self:
+        return cls(
+            open_file=open,
+            open_fd=os.fdopen,
+            make_temp=_make_feedback_temp,
+            fsync=os.fsync,
+            replace=os.replace,
+            unlink=os.unlink,
+            lstat=os.lstat,
+        )
+
+
+class FeedbackImportResult(StrictModel):
+    state: FeedbackStoreState
+    applied_count: int = Field(ge=0)
+    changed_count: int = Field(ge=0)
+    duplicate_count: int = Field(ge=0)
+    stale_count: int = Field(ge=0)
+    conflict_count: int = Field(ge=0)
+    bundle_duplicate_count: int = Field(ge=0)
+
+
+def canonical_feedback_store_digest(state: FeedbackStoreState) -> str:
+    """Hash the complete canonical state payload stored in the private envelope."""
+    return hashlib.sha256(
+        _canonical_json(state.model_dump(mode="json")).encode("utf-8")
+    ).hexdigest()
+
+
+def _has_windows_unsafe_prefix(path: Path, root: Path) -> bool:
+    text = str(path)
+    if text.startswith(("\\\\", "//")):
+        return True
+    path_drive = path.drive.lower()
+    root_drive = root.drive.lower()
+    return bool(path_drive and path_drive != root_drive)
+
+
+class FeedbackStore:
+    """Private, bounded feedback state with fail-closed local file handling."""
+
+    def __init__(
+        self,
+        path: Path | str,
+        *,
+        root: Path | str,
+        max_bytes: int = MAX_FEEDBACK_STORE_BYTES,
+        file_ops: FeedbackStoreFileOps | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.path = Path(path)
+        self.root = Path(root)
+        self.max_bytes = max_bytes
+        self.file_ops = file_ops or FeedbackStoreFileOps.default()
+        self.clock = clock or (lambda: datetime.now(UTC))
+
+    def _checked_path(self, path: Path) -> Path:
+        if self.max_bytes < 1 or _has_windows_unsafe_prefix(path, self.root):
+            raise FeedbackStoreSafetyError()
+        if any(part == ".." for part in path.parts):
+            raise FeedbackStoreSafetyError()
+        root = self.root.absolute()
+        candidate = path if path.is_absolute() else root / path
+        candidate = candidate.absolute()
+        if _has_windows_unsafe_prefix(candidate, root):
+            raise FeedbackStoreSafetyError()
+        try:
+            relative = candidate.relative_to(root)
+        except ValueError as error:
+            raise FeedbackStoreSafetyError() from error
+        if any(part == ".." for part in relative.parts):
+            raise FeedbackStoreSafetyError()
+        self._reject_symlinks_and_non_directories(root, relative, candidate)
+        return candidate
+
+    def _reject_symlinks_and_non_directories(
+        self, root: Path, relative: Path, candidate: Path
+    ) -> None:
+        current = root
+        for part in relative.parts[:-1]:
+            self._check_existing_path(current, directory=True)
+            current = current / part
+        self._check_existing_path(current, directory=True)
+        self._check_existing_path(candidate, directory=False)
+
+    def _check_existing_path(self, path: Path, *, directory: bool) -> None:
+        try:
+            information = self.file_ops.lstat(str(path))
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            raise FeedbackStoreSafetyError() from error
+        if stat.S_ISLNK(information.st_mode):
+            raise FeedbackStoreSafetyError()
+        if directory and not stat.S_ISDIR(information.st_mode):
+            raise FeedbackStoreSafetyError()
+        if not directory and not stat.S_ISREG(information.st_mode):
+            raise FeedbackStoreSafetyError()
+
+    def _read_bytes(self, path: Path, *, max_bytes: int) -> bytes | None:
+        checked = self._checked_path(path)
+        try:
+            with self.file_ops.open_file(checked, "rb") as handle:
+                contents = handle.read(max_bytes + 1)
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as error:
+            raise FeedbackStoreSafetyError() from error
+        if len(contents) > max_bytes:
+            raise FeedbackStoreSafetyError()
+        return contents
+
+    def _state_from_payload(self, payload: object) -> tuple[FeedbackStoreState, bool]:
+        if not isinstance(payload, dict):
+            raise FeedbackStoreSafetyError()
+        version = payload.get("schema_version")
+        if version == "0.0":
+            try:
+                state = FeedbackStoreState(
+                    records=tuple(payload["records"]),
+                    applied_command_ids=tuple(payload.get("applied_command_ids", ())),
+                    applied_bundle_ids=tuple(payload.get("applied_bundle_ids", ())),
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise FeedbackStoreSafetyError() from error
+            return state, True
+        if version != FEEDBACK_SCHEMA_VERSION:
+            raise FeedbackStoreSafetyError()
+        try:
+            state_payload = payload["state"]
+            digest = payload["digest"]
+            state = FeedbackStoreState.model_validate(state_payload)
+        except (KeyError, TypeError, ValueError) as error:
+            raise FeedbackStoreSafetyError() from error
+        if not isinstance(digest, str) or digest != canonical_feedback_store_digest(state):
+            raise FeedbackStoreSafetyError()
+        return state, False
+
+    def read(self) -> FeedbackStoreState:
+        contents = self._read_bytes(self.path, max_bytes=self.max_bytes)
+        if contents is None:
+            return FeedbackStoreState()
+        try:
+            payload = json.loads(contents.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise FeedbackStoreSafetyError() from error
+        state, requires_migration = self._state_from_payload(payload)
+        if requires_migration:
+            self._atomic_write(state)
+        return state
+
+    def _validated_bundle(self, bundle: FeedbackBundle) -> FeedbackBundle:
+        try:
+            return FeedbackBundle.model_validate(bundle.model_dump(mode="json"))
+        except (TypeError, ValueError) as error:
+            raise FeedbackStoreSafetyError() from error
+
+    def import_bundle(self, bundle: FeedbackBundle, *, dry_run: bool) -> FeedbackImportResult:
+        checked_bundle = self._validated_bundle(bundle)
+        previous = self.read()
+        if checked_bundle.bundle_id in previous.applied_bundle_ids:
+            return FeedbackImportResult(
+                state=previous,
+                applied_count=0,
+                changed_count=0,
+                duplicate_count=0,
+                stale_count=0,
+                conflict_count=0,
+                bundle_duplicate_count=1,
+            )
+        merged = apply_feedback_commands(previous, checked_bundle.commands)
+        bundle_ids = tuple(
+            sorted({*merged.state.applied_bundle_ids, checked_bundle.bundle_id}, key=str)[
+                -MAX_APPLIED_BUNDLE_IDS:
+            ]
+        )
+        next_state = merged.state.model_copy(update={"applied_bundle_ids": bundle_ids})
+        result = FeedbackImportResult(
+            state=next_state,
+            applied_count=merged.applied_count,
+            changed_count=merged.changed_count,
+            duplicate_count=merged.duplicate_count,
+            stale_count=merged.stale_count,
+            conflict_count=merged.conflict_count,
+            bundle_duplicate_count=0,
+        )
+        if not dry_run:
+            self._atomic_write(next_state)
+        return result
+
+    def _atomic_write(self, state: FeedbackStoreState) -> None:
+        path = self._checked_path(self.path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise FeedbackStoreSafetyError() from error
+        self._checked_path(path)
+        payload = _canonical_json(
+            {
+                "schema_version": FEEDBACK_SCHEMA_VERSION,
+                "state": state.model_dump(mode="json"),
+                "digest": canonical_feedback_store_digest(state),
+            }
+        ).encode("utf-8")
+        temp_name: str | None = None
+        try:
+            descriptor, temp_name = self.file_ops.make_temp(str(path.parent), ".feedback-", ".tmp")
+            with self.file_ops.open_fd(descriptor, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                self.file_ops.fsync(handle.fileno())
+            self.file_ops.replace(temp_name, str(path))
+            temp_name = None
+        except (OSError, ValueError) as error:
+            raise FeedbackStoreSafetyError() from error
+        finally:
+            if temp_name is not None:
+                try:
+                    self.file_ops.unlink(temp_name)
+                except OSError:
+                    pass
+
+
+def load_feedback_bundle(
+    path: Path | str,
+    *,
+    root: Path | str,
+    max_bytes: int = MAX_FEEDBACK_BUNDLE_BYTES,
+    file_ops: FeedbackStoreFileOps | None = None,
+) -> FeedbackBundle:
+    """Load a user-selected bundle through the same local boundary checks as the store."""
+    boundary = FeedbackStore(path, root=root, max_bytes=max_bytes, file_ops=file_ops)
+    contents = boundary._read_bytes(boundary.path, max_bytes=max_bytes)
+    if contents is None:
+        raise FeedbackStoreSafetyError()
+    try:
+        return FeedbackBundle.model_validate_json(contents)
+    except (TypeError, ValueError) as error:
+        raise FeedbackStoreSafetyError() from error
 
 
 def _replace_record_for_command(record: FeedbackRecord, command: FeedbackCommand) -> tuple[FeedbackRecord, bool, bool]:
