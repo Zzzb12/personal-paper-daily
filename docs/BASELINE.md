@@ -806,3 +806,77 @@ Rollback: disable the Stage 6 CLI/send composition and retain the offline previe
 and Stage 5 static reader. Revert the Stage 6 renderer/client/schema commits as one
 unit. If a destination or credential was exposed, revoke/rotate it outside Git;
 never add it to history while attempting recovery.
+
+## Stage 7 completion notes (2026-07-22)
+
+Stage 7 was implemented in the isolated
+`feat/stage-7-github-actions-automation` worktree from exact Stage 6 commit
+`16beba28d84f8e5c19de2246b1f9b346dbe1dd3c`. Stage 6's branch/worktree was not
+modified, merged, or removed. No push, pull request, upstream write, repository
+visibility change, real GitHub dispatch, Zotero/private-library read, paper/model
+download, paid LLM call, Feishu send, or Pages deployment was performed.
+
+Implemented boundary:
+
+- `pipeline.daily` composes injected Stage 1–6 runners under `stage7-v1`, supports
+  scheduled/manual/local triggers, isolates paper and target failures, and defaults
+  to fixture dry-run/no-send. `--mode live` and the non-abbreviable
+  `--send-feishu` are separate exact gates.
+- The strict `RunManifest` records controlled stage status/count/cache/retry/partial
+  fields, independent static-site and Feishu results, artifact hash, and safe error
+  codes. It has no prompt, full-text, Zotero, secret, response-body, traceback, or
+  dynamic exception field and is written with same-directory flush/fsync/replace.
+- Workflow cache identity binds config, embedding, parser, mapper, prompt, schema,
+  validator, viewer, and delivery versions. Corrupt, oversized, stale, content-
+  tampered, or identity-mismatched JSON entries are misses. Actions only caches
+  `cache/embeddings`, `cache/documents`, and `cache/workflow`; analysis/validation,
+  `.env`, raw Zotero, outputs, and feedback are excluded. Publication always reruns
+  Stage 4.
+- Viewer audit rejects traversal, UNC/foreign Windows drives, symlink/junction
+  routing, undeclared HTML, private/cache/feedback paths, PDFs, archives, databases,
+  scripts, excessive size, and invalid build manifests before hashing/upload.
+- A non-sensitive atomic delivery ledger suppresses repeated idempotency keys across
+  runs. Viewer success survives Feishu failure; viewer failure skips Feishu and can
+  never mark it successful.
+- `personal-paper-daily.yml` uses one CLI for schedule/dispatch, minimal permissions,
+  concurrency, timeouts, full-SHA action pins, `persist-credentials: false`, safe
+  cache/artifact paths, and exact live/send/Pages acknowledgement Variables. Legacy
+  workflows that printed generated config or committed/pushed keep-alive changes
+  were removed. `docs/ACTIONS_SETUP.md` distinguishes Secrets from Variables.
+
+Verification completed before the final full-suite pass:
+
+- `uv sync --frozen`: installed/checked 172 locked packages in the Stage 7 worktree.
+- Stage 6/4 pre-change baseline: `151 passed`.
+- Default pre-change baseline: `474 passed`, `2 failed`, `1 deselected`; both failures
+  are the unchanged Windows one-second multiprocessing spawn-timeout tests.
+- Stage 7 pipeline/workflow focused checks: `55 passed`.
+- Stage 7 plus validator/viewer/delivery focused regression: `145 passed`.
+- Offline daily fixture returned `status=success`, `published=1`, `delivered=0`,
+  wrote an atomic manifest, and produced an audited five-file viewer artifact with
+  a SHA-256. No live dependency factory or send callback was constructed/called.
+
+The final default, complete slow/non-slow, compileall, workflow YAML, diff, hygiene,
+artifact, and independent-review results are recorded in the final Stage 7 review
+commit after those commands finish. Known baseline expectations remain the two
+Windows spawn failures and the optional slow Hugging Face model/cache failure; no
+test is removed, skipped, or weakened to hide them.
+
+Known limits:
+
+- A live Stage 2 production run requires pre-provisioned local Docling artifacts.
+- The workflow cache intentionally excludes unvalidated LLM/validation payloads,
+  trading additional live recomputation for a narrower privacy/recovery boundary.
+- Cross-branch concurrency is not suppressed; cache and delivery identities prevent
+  unsafe reuse, while the workflow concurrency group suppresses duplicate runs of
+  the same ref.
+- GitHub dispatch, private repository Secrets/Variables, Pages configuration, real
+  Zotero/LLM execution, and Feishu delivery require external authorization and were
+  intentionally not acceptance-tested locally.
+
+Rollback: remove/disable the Stage 7 schedule and exact acknowledgement Variables,
+retain manual fixture dry-run and the last audited viewer, and revert Stage 7
+workflow/pipeline commits without changing Stage 1–6. Ignored `outputs/daily` and
+`cache/workflow` can be removed after retaining any desired non-sensitive manifest.
+Revoke/rotate any credential exposed outside Git; credentials previously pasted in
+chat should be rotated even though Stage 7 never prints or commits them.

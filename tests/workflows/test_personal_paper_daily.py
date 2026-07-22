@@ -147,3 +147,46 @@ def test_unsafe_legacy_scheduled_or_write_workflows_are_removed() -> None:
     assert not (WORKFLOWS / "main.yml").exists()
     assert not (WORKFLOWS / "test.yml").exists()
     assert not (WORKFLOWS / "keep-alive.yml").exists()
+
+
+def test_environment_template_and_actions_documentation_contain_names_not_values() -> None:
+    expected = {
+        "ZOTERO_ID",
+        "ZOTERO_KEY",
+        "LLM_API_KEY",
+        "LLM_BASE_URL",
+        "LLM_MODEL",
+        "FEISHU_APP_ID",
+        "FEISHU_APP_SECRET",
+        "FEISHU_CHAT_ID",
+        "PAPER_DAILY_SITE_URL",
+    }
+    assignments: dict[str, str] = {}
+    for line in (ROOT / ".env.example").read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        name, separator, value = stripped.partition("=")
+        assert separator == "="
+        assignments[name] = value
+
+    assert expected <= assignments.keys()
+    assert all(value == "" for value in assignments.values())
+
+    setup = (ROOT / "docs" / "ACTIONS_SETUP.md").read_text(encoding="utf-8")
+    assert "GitHub Secrets" in setup
+    assert "GitHub Variables" in setup
+    assert expected <= {name for name in expected if f"`{name}`" in setup}
+    assert "I_UNDERSTAND_LIVE_NETWORK" in setup
+    assert "I_UNDERSTAND_FEISHU_SEND" in setup
+    assert "I_UNDERSTAND_PUBLIC_ARTIFACT" in setup
+
+
+def test_roadmap_and_baseline_have_stage7_completion_and_rollback_sections() -> None:
+    roadmap = (ROOT / "docs" / "IMPLEMENTATION_PLAN.md").read_text(encoding="utf-8")
+    baseline = (ROOT / "docs" / "BASELINE.md").read_text(encoding="utf-8")
+
+    assert "## Stage 7: GitHub Actions daily automation" in roadmap
+    assert "**Status: implemented on 2026-07-22.**" in roadmap
+    assert "## Stage 7 completion notes (2026-07-22)" in baseline
+    assert "Rollback" in baseline.split("## Stage 7 completion notes (2026-07-22)", 1)[1]

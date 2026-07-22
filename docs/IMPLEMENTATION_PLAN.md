@@ -503,6 +503,17 @@ Disable the Feishu delivery stage while retaining rendered previews and the stat
 
 ## Stage 7: GitHub Actions daily automation
 
+**Status: implemented on 2026-07-22.**
+
+The delivered boundary is documented in
+`docs/superpowers/specs/2026-07-22-stage-7-github-actions-automation-design.md`
+and `docs/superpowers/plans/2026-07-22-stage-7-github-actions-automation.md`.
+It provides a versioned injectable daily CLI, strict atomic run manifest,
+complete-identity safe cache envelope, audited viewer artifact, persistent Feishu
+idempotency ledger, pinned least-privilege workflow, and explicit live/send/Pages
+gates. Default scheduled/manual/local acceptance remains fixture-only dry-run and
+no-send.
+
 ### Goal
 
 Run the validated pipeline daily and on manual dispatch using least-privilege GitHub Actions, safe secrets, versioned caches, static Pages deployment, and partial-failure reporting.
