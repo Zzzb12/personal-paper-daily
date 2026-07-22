@@ -431,6 +431,15 @@ Stop invoking the viewer CLI and remove the ignored configured output directory.
 
 ## Stage 6: Feishu delivery
 
+**Status: implemented on 2026-07-22.**
+
+The delivered boundary is documented in
+`docs/superpowers/specs/2026-07-21-stage-6-feishu-delivery-design.md` and
+`docs/superpowers/plans/2026-07-21-stage-6-feishu-delivery.md`. It provides a
+validated digest renderer, an injectable bounded-retry client, an in-process
+idempotency ledger, and a preview-first fixture CLI. Real delivery remains
+opt-in through the exact `--send` flag and was not exercised during acceptance.
+
 ### Goal
 
 Render and send a concise, attractive daily Feishu digest containing at most five detailed papers and a link to the complete static reader.

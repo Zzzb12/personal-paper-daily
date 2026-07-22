@@ -564,7 +564,8 @@ Known limits and next boundary:
 - Prompt JSON Schema is embedded for broad OpenAI-compatible JSON-object support. Provider-specific native structured-output optimization is deferred until it can preserve the approved injectable-client contract.
 - Acceptance is deterministic and zero-cost. A real model run remains intentionally unexecuted and is not required for Stage 3 completion.
 
-Stage 4 evidence validation and hallucination prevention is complete. Stage 5 has not begun.
+Stage 4 evidence validation and hallucination prevention is complete. Stage 5
+and Stage 6 completion notes follow.
 
 ## Stage 4 completion notes (2026-07-20)
 
@@ -733,3 +734,59 @@ Fresh verification evidence:
 Rollback: stop the viewer CLI, remove the ignored configured output directory, and
 revert the Stage 5 commits. This leaves Stage 4 validation data and private evidence
 roots intact.
+
+## Stage 6 completion notes (2026-07-22)
+
+Stage 6 was implemented in the isolated `feat/stage-6-feishu-delivery` worktree
+from Stage 5 commit `aa6c143`. It adds preview-first Feishu digest rendering and
+an injectable delivery client. It does not add Stage 7 scheduling, perform a
+real Feishu send, call Zotero or an LLM, download a paper/model successfully,
+push a branch, or create a pull request.
+
+Implemented boundary:
+
+- Strict frozen delivery schemas reject unknown fields and redact credential-like
+  URLs from validation errors, including malformed and whitespace-prefixed input.
+- The renderer accepts only Stage 4 `valid` and publication-eligible analyses,
+  preserves validated batch order, and includes at most five papers. It emits
+  escaped single-line Chinese/English titles, recommendation, one Insight,
+  strongest evidence location, experimental conclusion, safe links, and explicit
+  missing-data fallbacks.
+- Semantic validation-report equality survives JSON hydration; object identity is
+  not used as a publication decision.
+- Preview mode is the default and constructs no transport. Only the literal
+  non-abbreviated `--send` flag can enter delivery, and complete environment-only
+  Feishu settings are validated before a transport is constructed.
+- The client has explicit timeouts, stable request UUIDs, bounded retries only for
+  HTTP 429/5xx, capped numeric or HTTP-date `Retry-After` handling, permanent-4xx
+  failure, controlled redacted errors, and an in-process receipt ledger that
+  prevents duplicate sends for the same idempotency key.
+- Preview writes use a same-directory temporary file, flush/fsync, atomic replace,
+  and cleanup. Output/fixture path collisions are rejected. A send run never writes
+  a preview artifact.
+
+Fresh verification evidence:
+
+- Frozen dependency sync checked `172 packages` successfully.
+- Stage 6 plus Stage 4 focused suite: `146 passed` in `4.17 seconds`.
+- Default suite: `469 passed`, `2 failed`, `1 deselected` in `15.85 seconds`.
+  Both failures are the unchanged Windows one-second multiprocessing spawn-timeout
+  tests in `tests/retriever/test_arxiv_retriever.py`.
+- Complete configured suite: `469 passed`, `3 failed` in `421.20 seconds`. The
+  additional failure is the known slow local-reranker dependency: the configured
+  Jina model was absent locally and Hugging Face metadata access failed on this
+  host. Stage 6 does not modify these three tests or their production code.
+- The artificial Stage 4 golden fixture produced one valid Feishu preview with
+  `sent=false`. The preview parsed as JSON and matched none of the configured local
+  credential values. No Feishu transport or external paid API was invoked.
+- Source compilation and the Stage 5-to-Stage 6 diff check passed. The repository
+  has no authoritative lint or static type-check command, so none was invented.
+- Hygiene checks found no secret-shaped value in tracked product/config/docs files,
+  no tracked private/cache/output path, no tracked PDF/archive/database, and no
+  tracked file over 5 MiB. Deliberately credential-shaped test sentinels remain only
+  in tests that prove redaction. The local `.env` and generated preview are ignored.
+
+Rollback: disable the Stage 6 CLI/send composition and retain the offline preview
+and Stage 5 static reader. Revert the Stage 6 renderer/client/schema commits as one
+unit. If a destination or credential was exposed, revoke/rotate it outside Git;
+never add it to history while attempting recovery.
