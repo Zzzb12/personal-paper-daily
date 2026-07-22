@@ -345,6 +345,7 @@ def apply_feedback_commands(
             record.read_watermark if command.action == "set_read" else record.preference_watermark
         )
         if watermark is not None and command.sort_key <= watermark.sort_key:
+            applied_ids.add(command.command_id)
             stale_count += 1
             continue
         replacement, changed, conflict = _replace_record_for_command(record, command)

@@ -109,6 +109,23 @@ def test_command_order_and_bundle_import_order_produce_the_same_state() -> None:
     assert first.conflict_count == second.conflict_count == 1
 
 
+def test_sequential_bundle_imports_converge_stale_command_dedupe_ledger() -> None:
+    earlier = _command(index=1, action="set_irrelevant", value=True, seconds=1)
+    later = _command(index=2, action="set_favorite", value=True, seconds=2)
+
+    earlier_then_later = apply_feedback_commands(
+        apply_feedback_commands(FeedbackStoreState(), (earlier,)).state, (later,)
+    ).state
+    later_then_earlier = apply_feedback_commands(
+        apply_feedback_commands(FeedbackStoreState(), (later,)).state, (earlier,)
+    ).state
+
+    assert earlier_then_later == later_then_earlier
+    replay = apply_feedback_commands(later_then_earlier, (earlier, later))
+    assert replay.duplicate_count == 2
+    assert replay.stale_count == 0
+
+
 def test_same_value_advances_watermark_without_changing_boolean_state() -> None:
     initial = apply_feedback_commands(
         FeedbackStoreState(), (_command(index=1, action="set_read", value=True, seconds=1),)
