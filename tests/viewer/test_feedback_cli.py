@@ -16,6 +16,7 @@ from zotero_arxiv_daily.viewer.feedback import (
     FeedbackStoreState,
     canonical_feedback_bundle_digest,
 )
+from zotero_arxiv_daily.viewer import feedback_cli
 from zotero_arxiv_daily.viewer.feedback_cli import main
 
 
@@ -216,3 +217,51 @@ def test_cli_maps_boundary_failure_to_the_fixed_output(tmp_path: Path) -> None:
     assert code == 1
     assert stdout == "status=error\n"
     assert stderr == ""
+
+
+def test_cli_keeps_lexical_private_root_for_the_store_reparse_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lexical_root = tmp_path / "data" / "private-feedback"
+    lexical_root.mkdir(parents=True)
+    external_target = tmp_path / "external-target"
+    external_target.mkdir()
+    loader_called = False
+    original_resolve = feedback_cli.Path.resolve
+
+    def resolve_following_reparse(path: Path, *, strict: bool = False) -> Path:
+        if path == lexical_root:
+            return external_target
+        return original_resolve(path, strict=strict)
+
+    class ReparseBoundaryStore:
+        def __init__(self, path: str | Path, *, root: Path) -> None:
+            if root == lexical_root.absolute():
+                raise ValueError("root is a reparse point")
+
+        def checked_path(self) -> Path:
+            return external_target / "store.json"
+
+    def loader(path: Path, *, root: Path) -> object:
+        nonlocal loader_called
+        loader_called = True
+        return object()
+
+    monkeypatch.setattr(feedback_cli.Path, "resolve", resolve_following_reparse)
+    monkeypatch.setattr(feedback_cli, "FeedbackStore", ReparseBoundaryStore)
+    stdout = StringIO()
+    stderr = StringIO()
+
+    code = main(
+        ["import", "--bundle", "feedback-v1-export.json", "--store", "store.json", "--dry-run"],
+        private_root=lexical_root,
+        bundle_loader=loader,  # type: ignore[arg-type]
+        store_factory=lambda path, *, root: _Store(),  # type: ignore[arg-type]
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert code == 1
+    assert stdout.getvalue() == "status=error\n"
+    assert stderr.getvalue() == ""
+    assert loader_called is False

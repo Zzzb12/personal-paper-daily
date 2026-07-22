@@ -93,7 +93,7 @@ def main(
     output = stdout or sys.stdout
     _ = stderr or sys.stderr
     try:
-        resolved_private_root = Path(private_root).resolve(strict=False)
+        resolved_private_root = Path(private_root).absolute()
         return run_import(
             arguments,
             private_root=resolved_private_root,
