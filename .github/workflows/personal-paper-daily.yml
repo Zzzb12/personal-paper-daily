@@ -20,8 +20,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: personal-paper-daily-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: personal-paper-daily-${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   daily:
@@ -29,6 +29,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    outputs:
+      pages_ready: ${{ steps.review.outputs.pages_ready }}
     steps:
       - name: Checkout without persisted credentials
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -51,8 +53,13 @@ jobs:
           path: |
             cache/embeddings
             cache/documents
-            cache/workflow
+            models/docling
           key: personal-paper-daily-stage7-v1-${{ runner.os }}-${{ hashFiles('uv.lock', 'config/base.yaml', 'src/zotero_arxiv_daily/**/*.py') }}-${{ vars.LLM_MODEL }}
+
+      - name: Prepare version-declared Docling models for live mode
+        if: ${{ (github.event_name == 'schedule' && vars.PAPER_DAILY_SCHEDULE_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') || (github.event_name == 'workflow_dispatch' && inputs.live_run && vars.PAPER_DAILY_MANUAL_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') }}
+        timeout-minutes: 30
+        run: uv run docling-tools models download layout tableformer --output-dir models/docling --quiet
 
       - name: Run daily pipeline
         timeout-minutes: 70
@@ -109,21 +116,39 @@ jobs:
             "${send_args[@]}"
 
       - name: Verify reviewed viewer artifact
+        id: review
         timeout-minutes: 5
         shell: bash
         run: |
           uv run python - <<'PY'
-          import json
+          import os
           from pathlib import Path
 
-          manifest = json.loads(Path("outputs/daily/run-manifest.json").read_text(encoding="utf-8"))
-          viewer = Path("outputs/daily/viewer")
-          if manifest["static_site"]["status"] != "success":
-              raise SystemExit("static site did not pass its audited build")
-          if not manifest.get("artifact_hash") or manifest["artifact_hash"] != manifest["static_site"]["artifact_hash"]:
-              raise SystemExit("artifact hash is missing or inconsistent")
-          if not viewer.is_dir() or not (viewer / "build-manifest.json").is_file():
-              raise SystemExit("reviewed viewer directory is incomplete")
+          from zotero_arxiv_daily.pipeline.artifacts import ArtifactAuditor
+          from zotero_arxiv_daily.pipeline.daily_schemas import RunManifest
+
+          run_root = Path("outputs/daily")
+          manifest = RunManifest.model_validate_json(
+              (run_root / "run-manifest.json").read_text(encoding="utf-8")
+          )
+          core_failed = any(
+              stage.status == "failed" and stage.name != "feishu"
+              for stage in manifest.stages
+          )
+          pages_ready = (
+              manifest.status in {"success", "partial"}
+              and not core_failed
+              and manifest.static_site.status == "success"
+              and manifest.counts.published_count > 0
+          )
+          if pages_ready:
+              audit = ArtifactAuditor(run_root).audit(Path("viewer"))
+              if audit.artifact_hash != manifest.artifact_hash:
+                  raise SystemExit("reviewed artifact hash differs from the run manifest")
+              if audit.build_manifest.published_count != manifest.counts.published_count:
+                  raise SystemExit("reviewed publication count differs from the run manifest")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"pages_ready={'true' if pages_ready else 'false'}\n")
           PY
 
       - name: Upload safe run manifest
@@ -136,13 +161,14 @@ jobs:
           retention-days: 14
 
       - name: Upload reviewed Pages artifact
+        if: ${{ steps.review.outputs.pages_ready == 'true' }}
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
         with:
           path: outputs/daily/viewer
           retention-days: 1
 
   deploy:
-    if: ${{ vars.PAPER_DAILY_ENABLE_PAGES_DEPLOY == 'I_UNDERSTAND_PUBLIC_ARTIFACT' }}
+    if: ${{ vars.PAPER_DAILY_ENABLE_PAGES_DEPLOY == 'I_UNDERSTAND_PUBLIC_ARTIFACT' && needs.daily.outputs.pages_ready == 'true' }}
     needs: daily
     runs-on: ubuntu-latest
     timeout-minutes: 10

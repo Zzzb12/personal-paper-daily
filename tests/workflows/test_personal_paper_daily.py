@@ -42,8 +42,12 @@ def test_workflows_use_least_permissions_concurrency_and_timeouts() -> None:
         assert workflow["permissions"] == {"contents": "read"}
         concurrency = workflow["concurrency"]
         assert isinstance(concurrency, dict)
-        assert "github.ref" in str(concurrency["group"])
-        assert concurrency["cancel-in-progress"] == "true"
+        if path == DAILY:
+            assert "github.ref" not in str(concurrency["group"])
+            assert concurrency["cancel-in-progress"] == "false"
+        else:
+            assert "github.ref" in str(concurrency["group"])
+            assert concurrency["cancel-in-progress"] == "true"
         jobs = workflow["jobs"]
         assert isinstance(jobs, dict)
         for job in jobs.values():
@@ -79,7 +83,7 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     steps = workflow["jobs"]["daily"]["steps"]
     cache_step = next(step for step in steps if str(step.get("uses", "")).startswith("actions/cache@"))
     cache_paths = tuple(line.strip() for line in cache_step["with"]["path"].splitlines() if line.strip())
-    assert cache_paths == ("cache/embeddings", "cache/documents", "cache/workflow")
+    assert cache_paths == ("cache/embeddings", "cache/documents", "models/docling")
     assert "stage7-v1" in cache_step["with"]["key"]
     assert "hashFiles" in cache_step["with"]["key"]
     assert "LLM_MODEL" in cache_step["with"]["key"]
@@ -93,6 +97,16 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     assert pages["with"]["path"] == "outputs/daily/viewer"
     assert manifest["with"]["path"] == "outputs/daily/run-manifest.json"
     assert "Verify reviewed viewer artifact" in tuple(step["name"] for step in steps)
+    assert "cache/workflow" not in cache_paths
+
+    review = next(step for step in steps if step["name"] == "Verify reviewed viewer artifact")
+    assert review["id"] == "review"
+    assert "RunManifest" in review["run"]
+    assert "ArtifactAuditor" in review["run"]
+    assert "published_count" in review["run"]
+    assert pages["if"] == "${{ steps.review.outputs.pages_ready == 'true' }}"
+    assert workflow["jobs"]["daily"]["outputs"]["pages_ready"] == "${{ steps.review.outputs.pages_ready }}"
+    assert "needs.daily.outputs.pages_ready == 'true'" in workflow["jobs"]["deploy"]["if"]
 
     raw = DAILY.read_text(encoding="utf-8").lower()
     for forbidden in (
@@ -114,6 +128,14 @@ def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
     assert "PAPER_DAILY_SCHEDULE_LIVE" in raw
     assert "PAPER_DAILY_SCHEDULE_SEND" in raw
     assert "PAPER_DAILY_ENABLE_PAGES_DEPLOY" in raw
+    assert "docling-tools models download layout tableformer" in raw
+    model_step = next(
+        step
+        for step in _load(DAILY)["jobs"]["daily"]["steps"]
+        if step["name"] == "Prepare version-declared Docling models for live mode"
+    )
+    assert "I_UNDERSTAND_LIVE_NETWORK" in model_step["if"]
+    assert int(model_step["timeout-minutes"]) > 0
     deploy = _load(DAILY)["jobs"]["deploy"]
     assert "I_UNDERSTAND_PUBLIC_ARTIFACT" in deploy["if"]
 
