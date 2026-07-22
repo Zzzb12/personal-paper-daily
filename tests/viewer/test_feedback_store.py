@@ -109,6 +109,58 @@ def test_read_migrates_the_only_supported_v0_fixture_atomically(tmp_path: Path) 
     assert json.loads(store.path.read_text(encoding="utf-8"))["schema_version"] == "1.0"
 
 
+def test_v0_store_dry_run_validates_without_migrating_or_writing(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.path.parent.mkdir()
+    store.path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.0",
+                "records": [],
+                "applied_command_ids": [],
+                "applied_bundle_ids": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = store.path.read_bytes()
+
+    result = store.import_bundle(_bundle(), dry_run=True)
+
+    assert result.applied_count == 1
+    assert store.path.read_bytes() == before
+
+
+def test_v0_import_performs_only_the_final_atomic_replacement(tmp_path: Path) -> None:
+    replacements: list[tuple[str, str]] = []
+    store = _store(tmp_path)
+    store.path.parent.mkdir()
+    store.path.write_text(
+        json.dumps(
+            {
+                "schema_version": "0.0",
+                "records": [],
+                "applied_command_ids": [],
+                "applied_bundle_ids": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = FeedbackStoreFileOps.default()
+
+    def replace_file(source: str, target: str) -> None:
+        replacements.append((source, target))
+        original.replace(source, target)
+
+    store = FeedbackStore(
+        store.path, root=store.root, file_ops=replace(original, replace=replace_file)
+    )
+
+    store.import_bundle(_bundle(), dry_run=False)
+
+    assert len(replacements) == 1
+
+
 def test_duplicate_bundle_is_idempotent_and_dry_run_never_writes(tmp_path: Path) -> None:
     store = _store(tmp_path)
     first = store.import_bundle(_bundle(), dry_run=False)
@@ -170,6 +222,29 @@ def test_atomic_writer_uses_target_directory_flushes_fsyncs_and_cleans_failed_re
     assert not list(store.path.parent.glob("*.tmp"))
 
 
+def test_atomic_writer_syncs_the_parent_directory_after_replace(tmp_path: Path) -> None:
+    events: list[object] = []
+    store = _store(tmp_path)
+    original = FeedbackStoreFileOps.default()
+
+    def replace_file(source: str, target: str) -> None:
+        events.append("replace")
+        original.replace(source, target)
+
+    def sync_directory(directory: str) -> None:
+        events.append(("directory-fsync", Path(directory)))
+
+    store = FeedbackStore(
+        store.path,
+        root=store.root,
+        file_ops=replace(original, replace=replace_file, sync_directory=sync_directory),
+    )
+
+    store.import_bundle(_bundle(), dry_run=False)
+
+    assert events == ["replace", ("directory-fsync", store.path.parent)]
+
+
 def test_store_rejects_symlink_parent_and_paths_outside_explicit_root(tmp_path: Path) -> None:
     store = _store(tmp_path)
     link = store.root / "linked"
@@ -192,6 +267,12 @@ def test_store_rejects_symlink_parent_and_paths_outside_explicit_root(tmp_path: 
         FeedbackStore(store.root / ".." / "escape.json", root=store.root).read()
     with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
         FeedbackStore(Path("..") / "escape.json", root=store.root).read()
+
+
+def test_store_translates_malformed_nul_path_to_the_fixed_safety_error(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
+        FeedbackStore("\0store.json", root=store.root).read()
 
 
 @pytest.mark.parametrize("unsafe", [r"\\server\share\store.json", r"Z:\foreign\store.json"])

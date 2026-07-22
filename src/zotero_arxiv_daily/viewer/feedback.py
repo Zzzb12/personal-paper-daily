@@ -38,6 +38,20 @@ def _make_feedback_temp(directory: str, prefix: str, suffix: str) -> tuple[int, 
     return tempfile.mkstemp(dir=directory, prefix=prefix, suffix=suffix)
 
 
+def _sync_feedback_directory(directory: str) -> None:
+    """Best-effort metadata durability for platforms that permit opening directories."""
+    try:
+        descriptor = os.open(directory, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        return
+    finally:
+        os.close(descriptor)
+
+
 def _utc_datetime(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("datetime must be timezone-aware")
@@ -325,6 +339,7 @@ class FeedbackStoreFileOps:
     replace: Callable[[str, str], None]
     unlink: Callable[[str], None]
     lstat: Callable[[str], os.stat_result]
+    sync_directory: Callable[[str], None]
 
     @classmethod
     def default(cls) -> Self:
@@ -336,6 +351,7 @@ class FeedbackStoreFileOps:
             replace=os.replace,
             unlink=os.unlink,
             lstat=os.lstat,
+            sync_directory=_sync_feedback_directory,
         )
 
 
@@ -417,7 +433,7 @@ class FeedbackStore:
             information = self.file_ops.lstat(str(path))
         except FileNotFoundError:
             return
-        except OSError as error:
+        except (OSError, ValueError) as error:
             raise FeedbackStoreSafetyError() from error
         if stat.S_ISLNK(information.st_mode):
             raise FeedbackStoreSafetyError()
@@ -465,7 +481,7 @@ class FeedbackStore:
             raise FeedbackStoreSafetyError()
         return state, False
 
-    def read(self) -> FeedbackStoreState:
+    def _read_state(self, *, migrate: bool) -> FeedbackStoreState:
         contents = self._read_bytes(self.path, max_bytes=self.max_bytes)
         if contents is None:
             return FeedbackStoreState()
@@ -474,9 +490,12 @@ class FeedbackStore:
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise FeedbackStoreSafetyError() from error
         state, requires_migration = self._state_from_payload(payload)
-        if requires_migration:
+        if requires_migration and migrate:
             self._atomic_write(state)
         return state
+
+    def read(self) -> FeedbackStoreState:
+        return self._read_state(migrate=True)
 
     def _validated_bundle(self, bundle: FeedbackBundle) -> FeedbackBundle:
         try:
@@ -486,7 +505,7 @@ class FeedbackStore:
 
     def import_bundle(self, bundle: FeedbackBundle, *, dry_run: bool) -> FeedbackImportResult:
         checked_bundle = self._validated_bundle(bundle)
-        previous = self.read()
+        previous = self._read_state(migrate=False)
         if checked_bundle.bundle_id in previous.applied_bundle_ids:
             return FeedbackImportResult(
                 state=previous,
@@ -538,8 +557,10 @@ class FeedbackStore:
                 handle.write(payload)
                 handle.flush()
                 self.file_ops.fsync(handle.fileno())
+            self._checked_path(path)
             self.file_ops.replace(temp_name, str(path))
             temp_name = None
+            self.file_ops.sync_directory(str(path.parent))
         except (OSError, ValueError) as error:
             raise FeedbackStoreSafetyError() from error
         finally:
