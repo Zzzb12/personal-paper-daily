@@ -31,7 +31,8 @@ class DeliveryStrictModel(StrictModel):
         site_url = value.get("site_url")
         if not isinstance(site_url, str):
             return value
-        if not _URL_USERINFO_RE.search(site_url):
+        detection_url = "".join(site_url.split())
+        if not _URL_USERINFO_RE.search(detection_url):
             return value
         sanitized = dict(value)
         sanitized["site_url"] = _REDACTED_CREDENTIAL_URL
