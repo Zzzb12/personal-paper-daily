@@ -789,6 +789,19 @@ Fresh verification evidence:
   tracked file over 5 MiB. Deliberately credential-shaped test sentinels remain only
   in tests that prove redaction. The local `.env` and generated preview are ignored.
 
+Independent review history:
+
+- Component reviews closed renderer hydration/escaping and client retry,
+  idempotency, preview-write, CLI flag, and configuration-safety findings.
+- Final whole-branch review reproduced credential error leakage when whitespace
+  appeared inside userinfo or between a scheme and authority, then when a URL used
+  a non-HTTPS or protocol-relative authority. Each finding was fixed through a
+  failing regression test before the minimal implementation change.
+- The final re-review of commit `0f2f17c` exercised HTTPS, arbitrary valid schemes,
+  protocol-relative URLs, mixed case, custom schemes, and whitespace in the scheme,
+  authority, and userinfo. It returned `Ready` with no unresolved Critical or
+  Important finding.
+
 Rollback: disable the Stage 6 CLI/send composition and retain the offline preview
 and Stage 5 static reader. Revert the Stage 6 renderer/client/schema commits as one
 unit. If a destination or credential was exposed, revoke/rotate it outside Git;
