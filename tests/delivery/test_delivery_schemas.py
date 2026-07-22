@@ -184,6 +184,18 @@ def test_feishu_settings_reports_missing_environment_names_without_values() -> N
             ),
             "REAL_SECRET",
         ),
+        (
+            lambda: _paper(
+                site_url="//user:REAL_SECRET@papers.example.test/daily/run-1.html"
+            ),
+            "REAL_SECRET",
+        ),
+        (
+            lambda: _paper(
+                site_url="ftp://user:REAL_SECRET@papers.example.test/daily/run-1.html"
+            ),
+            "REAL_SECRET",
+        ),
     ),
 )
 def test_credential_bearing_site_url_never_echoes_credentials_in_validation_errors(

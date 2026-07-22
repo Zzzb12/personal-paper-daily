@@ -768,15 +768,15 @@ Implemented boundary:
 Fresh verification evidence:
 
 - Frozen dependency sync checked `172 packages` successfully.
-- Stage 6 plus Stage 4 focused suite: `149 passed` in `4.07 seconds`.
-- Default suite: `472 passed`, `2 failed`, `1 deselected` in `14.61 seconds`.
+- Stage 6 plus Stage 4 focused suite: `151 passed` in `4.07 seconds`.
+- Default suite: `474 passed`, `2 failed`, `1 deselected` in `13.68 seconds`.
   Both failures are the unchanged Windows one-second multiprocessing spawn-timeout
   tests in `tests/retriever/test_arxiv_retriever.py`.
-- The complete configured suite, run before the three final credential-redaction
+- The complete configured suite, run before the five final credential-redaction
   regressions were added, produced `469 passed`, `3 failed` in `421.20 seconds`.
   The additional failure is the known slow local-reranker dependency: the
   configured Jina model was absent locally and Hugging Face metadata access failed
-  on this host. The three later tests all pass in the focused suite and do not
+  on this host. The five later tests all pass in the focused suite and do not
   execute the slow model path. Stage 6 does not modify these three failing tests or
   their production code.
 - The artificial Stage 4 golden fixture produced one valid Feishu preview with
