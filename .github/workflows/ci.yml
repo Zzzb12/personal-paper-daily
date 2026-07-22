@@ -1,4 +1,5 @@
 name: CI
+
 on:
   workflow_dispatch:
   push:
@@ -9,16 +10,39 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
 
       - name: Setup uv
-        uses: astral-sh/setup-uv@v7.1.4
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4
+        with:
+          version: "0.11.29"
+
+      - name: Synchronize frozen dependencies
+        timeout-minutes: 15
+        run: uv sync --frozen
+
+      - name: Validate Stage 7 workflow and pipeline
+        timeout-minutes: 10
+        run: uv run pytest tests/workflows tests/pipeline/test_daily_schemas.py tests/pipeline/test_daily_cache.py tests/pipeline/test_daily_artifacts.py tests/pipeline/test_daily.py tests/pipeline/test_daily_cli.py -q
 
       - name: Run Pytest
+        timeout-minutes: 30
         run: |
           uv run pytest -m "" --cov=src/zotero_arxiv_daily --cov-report=term-missing

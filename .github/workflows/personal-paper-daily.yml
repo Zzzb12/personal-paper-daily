@@ -1,0 +1,158 @@
+name: Personal Paper Daily
+
+on:
+  workflow_dispatch:
+    inputs:
+      live_run:
+        description: Run Zotero, arXiv, PDF, and LLM stages
+        required: false
+        default: false
+        type: boolean
+      send_feishu:
+        description: Send the validated digest to Feishu
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 22 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-paper-daily-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@b75a909f75acd358c2196fb9a5f1299a9a8868a4
+        with:
+          version: "0.11.29"
+          enable-cache: false
+
+      - name: Synchronize frozen dependencies
+        timeout-minutes: 15
+        run: uv sync --frozen
+
+      - name: Restore version-matched safe caches
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: |
+            cache/embeddings
+            cache/documents
+            cache/workflow
+          key: personal-paper-daily-stage7-v1-${{ runner.os }}-${{ hashFiles('uv.lock', 'config/base.yaml', 'src/zotero_arxiv_daily/**/*.py') }}-${{ vars.LLM_MODEL }}
+
+      - name: Run daily pipeline
+        timeout-minutes: 70
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_LIVE_REQUEST: ${{ inputs.live_run }}
+          MANUAL_SEND_REQUEST: ${{ inputs.send_feishu }}
+          SCHEDULE_LIVE_ACK: ${{ vars.PAPER_DAILY_SCHEDULE_LIVE }}
+          SCHEDULE_SEND_ACK: ${{ vars.PAPER_DAILY_SCHEDULE_SEND }}
+          MANUAL_LIVE_ACK: ${{ vars.PAPER_DAILY_MANUAL_LIVE }}
+          MANUAL_SEND_ACK: ${{ vars.PAPER_DAILY_MANUAL_SEND }}
+          ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
+          ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_CHAT_ID: ${{ secrets.FEISHU_CHAT_ID }}
+          PAPER_DAILY_SITE_URL: ${{ vars.PAPER_DAILY_SITE_URL }}
+        run: |
+          trigger="scheduled"
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            trigger="manual"
+          fi
+
+          mode="dry-run"
+          fixture_args=(--offline-fixture tests/fixtures/evidence/stage4_golden.json)
+          send_args=()
+
+          if [[ "$EVENT_NAME" == "schedule" && "$SCHEDULE_LIVE_ACK" == "I_UNDERSTAND_LIVE_NETWORK" ]]; then
+            mode="live"
+            fixture_args=()
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_LIVE_REQUEST" == "true" && "$MANUAL_LIVE_ACK" == "I_UNDERSTAND_LIVE_NETWORK" ]]; then
+            mode="live"
+            fixture_args=()
+          fi
+
+          if [[ "$mode" == "live" && "$EVENT_NAME" == "schedule" && "$SCHEDULE_SEND_ACK" == "I_UNDERSTAND_FEISHU_SEND" ]]; then
+            send_args=(--send-feishu)
+          elif [[ "$mode" == "live" && "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_SEND_REQUEST" == "true" && "$MANUAL_SEND_ACK" == "I_UNDERSTAND_FEISHU_SEND" ]]; then
+            send_args=(--send-feishu)
+          fi
+
+          uv run python -m zotero_arxiv_daily.pipeline.daily \
+            --trigger "$trigger" \
+            --mode "$mode" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --run-root outputs/daily \
+            --viewer-output viewer \
+            --manifest-output run-manifest.json \
+            "${fixture_args[@]}" \
+            "${send_args[@]}"
+
+      - name: Verify reviewed viewer artifact
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("outputs/daily/run-manifest.json").read_text(encoding="utf-8"))
+          viewer = Path("outputs/daily/viewer")
+          if manifest["static_site"]["status"] != "success":
+              raise SystemExit("static site did not pass its audited build")
+          if not manifest.get("artifact_hash") or manifest["artifact_hash"] != manifest["static_site"]["artifact_hash"]:
+              raise SystemExit("artifact hash is missing or inconsistent")
+          if not viewer.is_dir() or not (viewer / "build-manifest.json").is_file():
+              raise SystemExit("reviewed viewer directory is incomplete")
+          PY
+
+      - name: Upload safe run manifest
+        if: ${{ always() && hashFiles('outputs/daily/run-manifest.json') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: personal-paper-daily-run-manifest-${{ github.run_id }}-${{ github.run_attempt }}
+          path: outputs/daily/run-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload reviewed Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: outputs/daily/viewer
+          retention-days: 1
+
+  deploy:
+    if: ${{ vars.PAPER_DAILY_ENABLE_PAGES_DEPLOY == 'I_UNDERSTAND_PUBLIC_ARTIFACT' }}
+    needs: daily
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy reviewed Pages artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
