@@ -33,8 +33,9 @@ trigger/config -> DailyRunContext
   与内容哈希；拒绝路径穿越、符号链接、UNC/外部 Windows drive、私有/缓存文件。
 - `pipeline/daily.py` 只做依赖编排、状态归并、计数和 CLI 组合；网络、clock、sleep、
   runner、ledger、manifest store 和 artifact auditor 都可替换。
-- `delivery/ledger.py` 只持久化 idempotency key 与无敏感信息的收据摘要。同一 key
-  在跨进程/跨 workflow 恢复后仍不会重复发送。
+- `delivery/ledger.py` 只持久化 SHA-256 idempotency keys。跨进程锁覆盖
+  check/send/record；Actions 以每次 run 唯一 cache key 和稳定 restore prefix 串接
+  ledger 快照，同一 default-branch workflow 恢复后不会重复调用发送路径。
 
 阶段级异常只转换成固定错误码；不保存异常文本。已有 Stage 2–4 的逐论文结果继续
 保留成功项，整体状态按 `success / empty / partial / failed` 归并。viewer 与 Feishu
@@ -65,10 +66,12 @@ prompt、analysis schema、validator、viewer renderer/template 和 delivery ren
 
 cache envelope 读取时检查最大字节数、JSON/schema、cache version、创建时间/TTL、
 完整 identity、payload hash；损坏、过大、过期或任一身份不符都视为 miss。写入与
-manifest 使用相同原子协议。GitHub Actions 只允许缓存 `cache/embeddings`、
-`cache/documents` 和 `cache/workflow`；明确排除 `.env`、Zotero 原始数据、
-`cache/analysis`、`cache/validation`、viewer/feedback 和 outputs。因分析/验证结果不从
-workflow cache 恢复，且编排固定重跑 Stage 4，旧缓存不能绕过发布资格。
+manifest 使用相同原子协议，payload 采用审计摘要字段白名单。GitHub Actions 的一般
+cache 只允许 `cache/embeddings`、`cache/documents` 和 `models/docling`；另一个独立
+cache 精确到 `cache/workflow/delivery-ledger.json`，不包含 lock 文件。明确排除
+`.env`、Zotero 原始数据、`cache/analysis`、`cache/validation`、viewer/feedback 和
+outputs。因分析/验证结果不从 workflow cache 恢复，且编排固定重跑 Stage 4，旧缓存
+不能绕过发布资格。
 
 ## CLI 与 GitHub Actions
 
@@ -88,11 +91,15 @@ live schedule 需要 GitHub Variable `PAPER_DAILY_SCHEDULE_LIVE` 精确等于
 `PAPER_DAILY_SCHEDULE_SEND=I_UNDERSTAND_FEISHU_SEND`。manual live/send 同时需要显式
 dispatch boolean 和对应确认 Variable。缺省或拼写不完全匹配都不会联网/发送。
 
-工作流设置最小权限、branch concurrency、job/step timeout，所有外部 action 固定到
-完整 commit SHA，checkout 使用 `persist-credentials: false`。build job 只缓存白名单
-目录；上传前要求 daily CLI 已完成 artifact 审计。Pages deployment 是独立 job，仅在
-`PAPER_DAILY_ENABLE_PAGES_DEPLOY=I_UNDERSTAND_PUBLIC_ARTIFACT` 时运行，权限只在该 job
-提升为 `pages: write`/`id-token: write`；工作流不会改变 repository visibility 或 push。
+工作流设置最小权限、全局 concurrency、`cancel-in-progress: false`、job/step timeout，
+所有外部 action 固定到完整 commit SHA，checkout 使用 `persist-credentials: false`。
+manual live/send 只允许 default branch；live 门开启后用锁定的 Docling 工具版本准备
+最小模型集，并在私人网络调用前预检。上传前重新以严格 RunManifest、
+ArtifactAuditor、核心 stage 状态、published count 和 hash 计算 `pages_ready`；空站或
+核心失败保留上一个 Pages。Pages deployment 是独立 job，仅在
+`PAPER_DAILY_ENABLE_PAGES_DEPLOY=I_UNDERSTAND_PUBLIC_ARTIFACT` 且 `pages_ready=true` 时
+运行，权限只在该 job 提升为 `pages: write`/`id-token: write`；工作流不会改变
+repository visibility 或 push。
 旧的 secret-bearing/写仓库 workflow 被移除，CI 保留原测试覆盖并补充 Stage 7 静态
 安全测试。
 
@@ -117,3 +124,7 @@ fixture CLI 和 artifact 审计，并区分既有 Windows/Hugging Face 失败。
 回滚时禁用或回退 Stage 7 workflow/daily CLI，保留 Stage 1–6 数据与最后一个已审核
 站点。删除忽略的 Stage 7 outputs/cache/workflow 状态不会影响 Stage 6；若曾配置外部
 凭据，应在 GitHub/供应商侧轮换，不改写 Git 历史。
+
+Actions cache 由 GitHub 管理，可能因配额或平台清理而丢失。ledger restore miss 不应
+被解释为“从未投递”；发生时先关闭 send 门并人工核对。真实 GitHub dispatch、模型
+下载、Zotero/LLM/Feishu 和 Pages 仍属于外部验收步骤，本地 Stage 7 不执行它们。

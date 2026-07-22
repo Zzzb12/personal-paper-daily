@@ -809,7 +809,7 @@ never add it to history while attempting recovery.
 
 ## Stage 7 completion notes (2026-07-22)
 
-Stage 7 was implemented in the isolated
+Stage 7 was completed in the isolated
 `feat/stage-7-github-actions-automation` worktree from exact Stage 6 commit
 `16beba28d84f8e5c19de2246b1f9b346dbe1dd3c`. Stage 6's branch/worktree was not
 modified, merged, or removed. No push, pull request, upstream write, repository
@@ -827,56 +827,94 @@ Implemented boundary:
   codes. It has no prompt, full-text, Zotero, secret, response-body, traceback, or
   dynamic exception field and is written with same-directory flush/fsync/replace.
 - Workflow cache identity binds config, embedding, parser, mapper, prompt, schema,
-  validator, viewer, and delivery versions. Corrupt, oversized, stale, content-
-  tampered, or identity-mismatched JSON entries are misses. Actions only caches
-  `cache/embeddings`, `cache/documents`, and `cache/workflow`; analysis/validation,
-  `.env`, raw Zotero, outputs, and feedback are excluded. Publication always reruns
+  validator, viewer, and delivery versions. The JSON summary cache uses a field
+  allowlist; corrupt, oversized, stale, tampered, or identity-mismatched entries are
+  misses. General Actions cache paths are only `cache/embeddings`,
+  `cache/documents`, and `models/docling`. The separate delivery cache is exactly
+  `cache/workflow/delivery-ledger.json`; analysis/validation, `.env`, raw Zotero,
+  outputs, feedback, and the lock file are excluded. Publication always reruns
   Stage 4.
 - Viewer audit rejects traversal, UNC/foreign Windows drives, symlink/junction
   routing, undeclared HTML, private/cache/feedback paths, PDFs, archives, databases,
   scripts, excessive size, and invalid build manifests before hashing/upload.
-- A non-sensitive atomic delivery ledger suppresses repeated idempotency keys across
-  runs. Viewer success survives Feishu failure; viewer failure skips Feishu and can
-  never mark it successful.
+- Stage 4 results are reduced to an eligible-only typed batch before either target;
+  Stage 7 forces `allow_partial=false` and verifies viewer publication count before
+  audit. A non-sensitive ledger holds a cross-process lock over check/send/record.
+  Actions uses a unique run/attempt cache key plus stable restore prefix to append
+  the latest ledger snapshot across default-branch runs. Viewer success survives
+  Feishu failure; viewer/core failure or zero publication cannot replace Pages.
 - `personal-paper-daily.yml` uses one CLI for schedule/dispatch, minimal permissions,
-  concurrency, timeouts, full-SHA action pins, `persist-credentials: false`, safe
-  cache/artifact paths, and exact live/send/Pages acknowledgement Variables. Legacy
-  workflows that printed generated config or committed/pushed keep-alive changes
-  were removed. `docs/ACTIONS_SETUP.md` distinguishes Secrets from Variables.
+  global non-cancelling concurrency, timeouts, full-SHA action pins,
+  `persist-credentials: false`, default-branch-only manual live/send, safe paths,
+  and exact live/send/Pages acknowledgement Variables. Live mode prepares the
+  Docling layout/table models, then production preflight rejects missing/incomplete
+  artifacts before private network clients are constructed. Pages requires a strict
+  RunManifest reread, core-stage check, positive publication count, and a second
+  ArtifactAuditor hash/count match. Unsafe legacy write/config workflows were
+  removed; `docs/ACTIONS_SETUP.md` distinguishes Secrets from Variables.
 
-Verification completed before the final full-suite pass:
+Fresh verification evidence:
 
-- `uv sync --frozen`: installed/checked 172 locked packages in the Stage 7 worktree.
+- `uv sync --frozen`: `Checked 172 packages` successfully using the existing
+  isolated uv tool and Stage 7 virtual environment.
 - Stage 6/4 pre-change baseline: `151 passed`.
 - Default pre-change baseline: `474 passed`, `2 failed`, `1 deselected`; both failures
   are the unchanged Windows one-second multiprocessing spawn-timeout tests.
-- Stage 7 pipeline/workflow focused checks: `55 passed`.
-- Stage 7 plus validator/viewer/delivery focused regression: `145 passed`.
-- Offline daily fixture returned `status=success`, `published=1`, `delivered=0`,
-  wrote an atomic manifest, and produced an audited five-file viewer artifact with
-  a SHA-256. No live dependency factory or send callback was constructed/called.
+- Final Stage 7 pipeline/workflow focused suite: `65 passed in 6.55 seconds`.
+- Final Stage 4/5/6 validator/viewer/delivery regression: `184 passed in 4.64
+  seconds`.
+- Default suite: `539 passed`, `2 failed`, `1 deselected` in `18.05 seconds`. Both
+  failures are the unchanged Windows one-second multiprocessing spawn tests in
+  `tests/retriever/test_arxiv_retriever.py`.
+- Complete slow/non-slow suite: `539 passed`, `3 failed` in `507.07 seconds`. The
+  additional failure is the known `tests/reranker/test_local_reranker.py` attempt to
+  obtain the absent Jina model from Hugging Face; metadata/model access timed out and
+  the model was not cached. No test was removed, skipped, or weakened.
+- Workflow YAML/static safety validation: `10 passed`; final `compileall` and
+  `git diff --check` passed.
+- The final offline CLI returned `status=success`, `published=1`, `delivered=0`.
+  Strict manifest reread and ArtifactAuditor agreed on a five-file, 6397-byte viewer
+  and SHA-256 `0c77ffd4180f8a8818ec730a2085508bee5090e9b5bea1630d25c6453c8a01ef`.
+  Content audit found zero credential/prompt/full-text/feedback markers. No live
+  factory, paid call, private read, model download, or send was invoked.
+- Tracked hygiene found no secret-shaped values, forbidden private/cache/output
+  paths (apart from the required empty `.env.example` template), archives/databases,
+  or files over 5 MiB. `.env` and generated `outputs/` remain ignored.
 
-The final default, complete slow/non-slow, compileall, workflow YAML, diff, hygiene,
-artifact, and independent-review results are recorded in the final Stage 7 review
-commit after those commands finish. Known baseline expectations remain the two
-Windows spawn failures and the optional slow Hugging Face model/cache failure; no
-test is removed, skipped, or weakened to hide them.
+Independent review history:
+
+- The first whole-branch review reproduced Docling hosted-runner failure/empty Pages,
+  non-durable delivery cache semantics, Stage 4 partial publication, inconsistent
+  manifest status, cache-key bypasses, and run-root junction acceptance. Each code
+  issue was captured by a failing regression before the minimal fix.
+- The second review confirmed Docling preflight/model preparation, Stage 4 filtering,
+  state contracts, Pages fail-closed behavior, cache allowlist, junction rejection,
+  and local ledger locking. It identified the remaining same-key Actions cache update
+  problem.
+- The final review verified the unique run/attempt key plus restore-prefix ledger
+  chain, global non-cancelling concurrency, and default-branch live boundary. It
+  reported zero Critical/Important findings and `Ready to merge? Yes`.
 
 Known limits:
 
-- A live Stage 2 production run requires pre-provisioned local Docling artifacts.
 - The workflow cache intentionally excludes unvalidated LLM/validation payloads,
   trading additional live recomputation for a narrower privacy/recovery boundary.
-- Cross-branch concurrency is not suppressed; cache and delivery identities prevent
-  unsafe reuse, while the workflow concurrency group suppresses duplicate runs of
-  the same ref.
+- Docling tools and model repositories are external live dependencies. Their actual
+  GitHub-hosted download/runtime was not executed locally; failure is fail-closed.
+- GitHub manages Actions cache retention and quota. If the delivery ledger snapshot
+  is cleared, keep the send gate disabled and reconcile delivery history before a
+  new send; an empty restore is not proof that a payload was never delivered.
+- Stage 6 derives a stable Feishu UUID from the idempotency key, but no real Feishu
+  service behavior or receipt recovery was tested locally.
 - GitHub dispatch, private repository Secrets/Variables, Pages configuration, real
-  Zotero/LLM execution, and Feishu delivery require external authorization and were
-  intentionally not acceptance-tested locally.
+  model preparation, Zotero/LLM execution, Feishu delivery, and Pages deployment
+  require external authorization/runtime and were intentionally not acceptance-tested.
 
 Rollback: remove/disable the Stage 7 schedule and exact acknowledgement Variables,
 retain manual fixture dry-run and the last audited viewer, and revert Stage 7
 workflow/pipeline commits without changing Stage 1–6. Ignored `outputs/daily` and
-`cache/workflow` can be removed after retaining any desired non-sensitive manifest.
-Revoke/rotate any credential exposed outside Git; credentials previously pasted in
-chat should be rotated even though Stage 7 never prints or commits them.
+`cache/workflow` can be removed after retaining any desired non-sensitive manifest
+and reconciling delivery history. Clearing the Actions ledger cache while send is
+enabled is not a safe rollback. Revoke/rotate any credential exposed outside Git;
+credentials previously pasted in chat should be rotated even though Stage 7 never
+prints or commits them.

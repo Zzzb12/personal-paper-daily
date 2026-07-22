@@ -8,6 +8,10 @@
 
 **Tech Stack:** Python 3.13、Pydantic 2、PyYAML、pytest、GitHub Actions、现有 Stage 1–6 模块。
 
+**Status:** Completed locally on 2026-07-22. Final commands, baseline failures,
+review fixes, external operations not performed, and rollback are recorded in
+`docs/BASELINE.md`.
+
 ## Global Constraints
 
 - 默认 `dry-run` 和 `no-send`；fixture 验收零网络、零付费、零发送。
@@ -63,7 +67,8 @@
 **Interfaces:**
 - `DailyDependencies` injects candidate/document/analysis/validation/viewer/delivery runners, manifest store, auditor, clock, sleep, and ledger.
 - `run_daily(settings, dependencies) -> RunManifest` always writes one safe final manifest when the output boundary is available.
-- `DeliveryLedger.reserve_or_get(idempotency_key)` prevents duplicate real sends across processes/runs.
+- `DeliveryLedger.claim(idempotency_key)` locks check/send/record across processes;
+  the workflow restores and appends safe ledger snapshots with unique cache keys.
 
 - [ ] Write RED tests for full success, empty candidates, one-paper partial, Stage 4 blocked publication, viewer success/Feishu failure, viewer failure/Feishu skipped, and same idempotency key duplicate.
 - [ ] Run `uv run pytest tests/pipeline/test_daily.py -q` and confirm missing imports.
@@ -99,7 +104,9 @@
 **Interfaces:**
 - schedule and workflow_dispatch share one daily CLI invocation.
 - Build job has `contents: read`; deploy job alone has `pages: write` and `id-token: write`.
-- Cache path allowlist is exactly `cache/embeddings`, `cache/documents`, and `cache/workflow`.
+- General cache allowlist is exactly `cache/embeddings`, `cache/documents`, and
+  `models/docling`; a separate cache path is exactly the non-sensitive
+  `cache/workflow/delivery-ledger.json`.
 
 - [ ] Write RED YAML/static tests for triggers, permissions, concurrency, timeouts, SHA pins, checkout credentials, identical CLI, exact gates, safe cache/artifact paths, forbidden commands, no push/visibility mutation, and Pages conditions.
 - [ ] Add the workflow with verified action SHAs, frozen sync, safe mode selection, artifact audit/upload, and optional Pages deployment; update CI while preserving its pytest coverage.

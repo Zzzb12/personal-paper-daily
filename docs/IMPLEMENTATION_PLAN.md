@@ -503,7 +503,9 @@ Disable the Feishu delivery stage while retaining rendered previews and the stat
 
 ## Stage 7: GitHub Actions daily automation
 
-**Status: implemented on 2026-07-22.**
+**Status: completed locally on 2026-07-22.** Final fixture verification, independent
+review, known environment-dependent failures, external steps not executed, and
+rollback evidence are recorded in `docs/BASELINE.md`.
 
 The delivered boundary is documented in
 `docs/superpowers/specs/2026-07-22-stage-7-github-actions-automation-design.md`

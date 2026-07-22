@@ -222,6 +222,6 @@ def test_roadmap_and_baseline_have_stage7_completion_and_rollback_sections() -> 
     baseline = (ROOT / "docs" / "BASELINE.md").read_text(encoding="utf-8")
 
     assert "## Stage 7: GitHub Actions daily automation" in roadmap
-    assert "**Status: implemented on 2026-07-22.**" in roadmap
+    assert "**Status: completed locally on 2026-07-22.**" in roadmap
     assert "## Stage 7 completion notes (2026-07-22)" in baseline
     assert "Rollback" in baseline.split("## Stage 7 completion notes (2026-07-22)", 1)[1]

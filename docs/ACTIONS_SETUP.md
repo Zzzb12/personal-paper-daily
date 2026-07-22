@@ -46,15 +46,23 @@ model 通常不是密钥，也不得在运行时打印完整环境或生成配�
 
 字符串必须精确匹配。Pages 门只允许部署 daily CLI 已审核并哈希的
 `outputs/daily/viewer`，不会改变 repository visibility。启用 live 前还必须准备本地
-Docling artifacts；模型不存在时应保持 dry-run，而不是临时放宽验证或下载未经审核的
-输出。
+Docling artifacts；workflow 仅在 live 门精确开启后通过锁定的 Docling 工具版本下载
+`layout`/`tableformer` 到 `models/docling`，随后 production factory 在构造 Zotero/arXiv
+客户端前执行本地预检。模型准备失败会阻止 live run 和 Pages 更新。
+
+manual live/send 只允许从 repository default branch 触发。workflow 使用全局
+concurrency 且不取消进行中的 run，避免发送中断。飞书 ledger 只包含 SHA-256
+idempotency keys：每个 Actions run 使用唯一 cache key，并通过稳定 restore prefix
+恢复上一份 ledger 后保存新快照；lock 文件、消息正文和凭据不进入 cache。若 GitHub
+平台清理了该 cache，应先保持 send 门关闭并执行 no-send 检查，不要把空 ledger 当作
+已有投递历史。
 
 ## 手动验收与恢复
 
 首先运行默认 workflow_dispatch，不勾选 live/send，确认 run manifest、viewer
 artifact 和 Pages artifact 都不含 `.env`、cache、Zotero 数据或 feedback。之后如需
 受控 live run，先只启用 live、不启用 send；检查 Stage 4 eligibility 和站点，再单独
-启用飞书。
+启用飞书。manual live/send 必须选择 default branch；其他分支会保持 dry-run。
 
 回滚时删除/禁用精确确认 Variable 或禁用 schedule。保留上一个已审核 Pages artifact
 和 Stage 1–6 数据；不要通过 Git 提交“撤销”密钥。若凭据曾在聊天或日志出现，请在
