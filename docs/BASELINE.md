@@ -768,7 +768,7 @@ Implemented boundary:
 Fresh verification evidence:
 
 - Frozen dependency sync checked `172 packages` successfully.
-- Stage 6 plus Stage 4 focused suite: `146 passed` in `4.17 seconds`.
+- Stage 6 plus Stage 4 focused suite: `147 passed` in `3.91 seconds`.
 - Default suite: `469 passed`, `2 failed`, `1 deselected` in `15.85 seconds`.
   Both failures are the unchanged Windows one-second multiprocessing spawn-timeout
   tests in `tests/retriever/test_arxiv_retriever.py`.

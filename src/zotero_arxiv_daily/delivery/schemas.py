@@ -14,7 +14,7 @@ from zotero_arxiv_daily.analysis.schemas import StrictModel
 _CHAT_ID_RE = re.compile(r"^oc_[0-9a-f]{32}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _MESSAGE_ID_RE = re.compile(r"^om_[A-Za-z0-9_-]+$")
-_URL_USERINFO_RE = re.compile(r"https?://[^/?#\s]*@", re.IGNORECASE)
+_URL_USERINFO_RE = re.compile(r"https?://[^/?#]*@", re.IGNORECASE)
 _REDACTED_CREDENTIAL_URL = "https://redacted.invalid/credential-url-rejected"
 
 
