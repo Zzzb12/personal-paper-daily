@@ -5,11 +5,13 @@ import os
 import stat
 import subprocess
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID
 
 import pytest
+
+import zotero_arxiv_daily.viewer.feedback as feedback_module
 
 from zotero_arxiv_daily.viewer.feedback import (
     FeedbackBundle,
@@ -187,6 +189,34 @@ def test_stale_or_invalid_bundle_never_partially_replaces_existing_store(tmp_pat
     assert store.path.read_bytes() == before
 
 
+def test_stale_bundle_reports_stale_count_and_preserves_newer_record(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    store.import_bundle(_bundle(), dry_run=False)
+    stale_command = FeedbackCommand(
+        command_id=UUID("00000000-0000-4000-8000-000000000099"),
+        paper_id="2401.01234",
+        action="set_read",
+        value=False,
+        occurred_at=NOW - timedelta(seconds=1),
+        device_id="device-a",
+        sequence=99,
+    )
+    stale_bundle_id = UUID("00000000-0000-4000-8000-000000000100")
+    stale_bundle = FeedbackBundle(
+        bundle_id=stale_bundle_id,
+        generated_at=NOW,
+        commands=(stale_command,),
+        digest=canonical_feedback_bundle_digest(
+            (stale_command,), bundle_id=stale_bundle_id, generated_at=NOW
+        ),
+    )
+
+    result = store.import_bundle(stale_bundle, dry_run=False)
+
+    assert result.stale_count == 1
+    assert result.state.records[0].read is True
+
+
 def test_atomic_writer_uses_target_directory_flushes_fsyncs_and_cleans_failed_replace(
     tmp_path: Path,
 ) -> None:
@@ -245,6 +275,57 @@ def test_atomic_writer_syncs_the_parent_directory_after_replace(tmp_path: Path) 
     assert events == ["replace", ("directory-fsync", store.path.parent)]
 
 
+def test_atomic_writer_uses_injected_parent_creation_and_observes_flush_before_fsync(
+    tmp_path: Path,
+) -> None:
+    events: list[str] = []
+    store = _store(tmp_path)
+    original = FeedbackStoreFileOps.default()
+
+    class Handle:
+        def __init__(self, handle: object) -> None:
+            self.handle = handle
+
+        def __enter__(self) -> "Handle":
+            return self
+
+        def __exit__(self, *arguments: object) -> None:
+            self.handle.close()  # type: ignore[attr-defined]
+
+        def write(self, value: bytes) -> int:
+            return self.handle.write(value)  # type: ignore[attr-defined]
+
+        def flush(self) -> None:
+            events.append("flush")
+            self.handle.flush()  # type: ignore[attr-defined]
+
+        def fileno(self) -> int:
+            return self.handle.fileno()  # type: ignore[attr-defined]
+
+    def ensure_parent(directory: str) -> None:
+        events.append("mkdir")
+        Path(directory).mkdir(parents=True, exist_ok=True)
+
+    def open_fd(descriptor: int, mode: str) -> Handle:
+        return Handle(original.open_fd(descriptor, mode))
+
+    def sync(descriptor: int) -> None:
+        events.append("fsync")
+        original.fsync(descriptor)
+
+    store = FeedbackStore(
+        store.path,
+        root=store.root,
+        file_ops=replace(
+            original, ensure_parent=ensure_parent, open_fd=open_fd, fsync=sync
+        ),
+    )
+
+    store.import_bundle(_bundle(), dry_run=False)
+
+    assert events.index("mkdir") < events.index("flush") < events.index("fsync")
+
+
 def test_store_rejects_symlink_parent_and_paths_outside_explicit_root(tmp_path: Path) -> None:
     store = _store(tmp_path)
     link = store.root / "linked"
@@ -267,6 +348,102 @@ def test_store_rejects_symlink_parent_and_paths_outside_explicit_root(tmp_path: 
         FeedbackStore(store.root / ".." / "escape.json", root=store.root).read()
     with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
         FeedbackStore(Path("..") / "escape.json", root=store.root).read()
+
+
+def test_store_rejects_root_ancestor_reparse_point_and_final_nonregular_file(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    original = FeedbackStoreFileOps.default()
+    ancestor = store.root.parent
+
+    class ReparseDirectory:
+        st_mode = stat.S_IFDIR
+        st_file_attributes = 0x0400
+
+    def lstat(path: str) -> object:
+        if Path(path) == ancestor:
+            return ReparseDirectory()
+        return original.lstat(path)
+
+    reparse_store = FeedbackStore(
+        store.path, root=store.root, file_ops=replace(original, lstat=lstat)
+    )
+    with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
+        reparse_store.read()
+
+    store.path.parent.mkdir()
+    store.path.write_text("not a regular store", encoding="utf-8")
+    nonregular = FeedbackStore(
+        store.path,
+        root=store.root,
+        file_ops=replace(
+            original,
+            lstat=lambda path: os.stat_result((stat.S_IFIFO, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+            if Path(path) == store.path
+            else original.lstat(path),
+        ),
+    )
+    with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
+        nonregular.read()
+
+
+def test_store_rejects_a_final_symlink_file(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    original = FeedbackStoreFileOps.default()
+    final_link = os.stat_result((stat.S_IFLNK, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    linked = FeedbackStore(
+        store.path,
+        root=store.root,
+        file_ops=replace(
+            original,
+            lstat=lambda path: final_link if Path(path) == store.path else original.lstat(path),
+        ),
+    )
+
+    with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
+        linked.read()
+
+
+def test_store_rechecks_final_path_after_replace_and_rejects_a_swapped_reparse_point(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    original = FeedbackStoreFileOps.default()
+    swapped = False
+
+    class ReparseFile:
+        st_mode = stat.S_IFREG
+        st_file_attributes = 0x0400
+
+    def replace_file(source: str, target: str) -> None:
+        nonlocal swapped
+        original.replace(source, target)
+        swapped = True
+
+    def lstat(path: str) -> object:
+        if swapped and Path(path) == store.path:
+            return ReparseFile()
+        return original.lstat(path)
+
+    guarded = FeedbackStore(
+        store.path,
+        root=store.root,
+        file_ops=replace(original, replace=replace_file, lstat=lstat),
+    )
+    with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
+        guarded.import_bundle(_bundle(), dry_run=False)
+
+
+def test_default_directory_sync_propagates_io_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(feedback_module.os, "open", lambda path, flags: 11)
+    monkeypatch.setattr(
+        feedback_module.os,
+        "fsync",
+        lambda descriptor: (_ for _ in ()).throw(OSError(5, "io failure")),
+    )
+    monkeypatch.setattr(feedback_module.os, "close", lambda descriptor: None)
+
+    with pytest.raises(OSError):
+        feedback_module._sync_feedback_directory("private-directory")
 
 
 def test_store_translates_malformed_nul_path_to_the_fixed_safety_error(tmp_path: Path) -> None:

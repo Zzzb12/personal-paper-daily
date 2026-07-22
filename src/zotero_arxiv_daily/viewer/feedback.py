@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import errno
 import os
 import re
 import stat
@@ -38,16 +39,31 @@ def _make_feedback_temp(directory: str, prefix: str, suffix: str) -> tuple[int, 
     return tempfile.mkstemp(dir=directory, prefix=prefix, suffix=suffix)
 
 
+def _ensure_feedback_parent(directory: str) -> None:
+    Path(directory).mkdir(parents=True, exist_ok=True)
+
+
+def _directory_sync_is_unsupported(error: OSError) -> bool:
+    unsupported = {errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP}
+    if error.errno in unsupported:
+        return True
+    return os.name == "nt" and error.errno in {errno.EACCES, errno.EPERM}
+
+
 def _sync_feedback_directory(directory: str) -> None:
-    """Best-effort metadata durability for platforms that permit opening directories."""
+    """Synchronize metadata, swallowing only errno values that prove it unsupported."""
     try:
         descriptor = os.open(directory, os.O_RDONLY)
-    except OSError:
-        return
+    except OSError as error:
+        if _directory_sync_is_unsupported(error):
+            return
+        raise
     try:
         os.fsync(descriptor)
-    except OSError:
-        return
+    except OSError as error:
+        if _directory_sync_is_unsupported(error):
+            return
+        raise
     finally:
         os.close(descriptor)
 
@@ -340,6 +356,7 @@ class FeedbackStoreFileOps:
     unlink: Callable[[str], None]
     lstat: Callable[[str], os.stat_result]
     sync_directory: Callable[[str], None]
+    ensure_parent: Callable[[str], None]
 
     @classmethod
     def default(cls) -> Self:
@@ -352,6 +369,7 @@ class FeedbackStoreFileOps:
             unlink=os.unlink,
             lstat=os.lstat,
             sync_directory=_sync_feedback_directory,
+            ensure_parent=_ensure_feedback_parent,
         )
 
 
@@ -405,6 +423,7 @@ class FeedbackStore:
         if any(part == ".." for part in path.parts):
             raise FeedbackStoreSafetyError()
         root = self.root.absolute()
+        self._check_root_ancestors(root)
         candidate = path if path.is_absolute() else root / path
         candidate = candidate.absolute()
         if _has_windows_unsafe_prefix(candidate, root):
@@ -418,6 +437,10 @@ class FeedbackStore:
         self._reject_symlinks_and_non_directories(root, relative, candidate)
         return candidate
 
+    def checked_path(self) -> Path:
+        """Return the validated local store path without reading or writing its contents."""
+        return self._checked_path(self.path)
+
     def _reject_symlinks_and_non_directories(
         self, root: Path, relative: Path, candidate: Path
     ) -> None:
@@ -428,14 +451,21 @@ class FeedbackStore:
         self._check_existing_path(current, directory=True)
         self._check_existing_path(candidate, directory=False)
 
-    def _check_existing_path(self, path: Path, *, directory: bool) -> None:
+    def _check_root_ancestors(self, root: Path) -> None:
+        for ancestor in reversed(root.parents):
+            self._check_existing_path(ancestor, directory=True, required=True)
+
+    def _check_existing_path(self, path: Path, *, directory: bool, required: bool = False) -> None:
         try:
             information = self.file_ops.lstat(str(path))
         except FileNotFoundError:
+            if required:
+                raise FeedbackStoreSafetyError()
             return
         except (OSError, ValueError) as error:
             raise FeedbackStoreSafetyError() from error
-        if stat.S_ISLNK(information.st_mode):
+        attributes = getattr(information, "st_file_attributes", 0) or 0
+        if stat.S_ISLNK(information.st_mode) or (attributes & 0x0400):
             raise FeedbackStoreSafetyError()
         if directory and not stat.S_ISDIR(information.st_mode):
             raise FeedbackStoreSafetyError()
@@ -453,6 +483,7 @@ class FeedbackStore:
             raise FeedbackStoreSafetyError() from error
         if len(contents) > max_bytes:
             raise FeedbackStoreSafetyError()
+        self._checked_path(path)
         return contents
 
     def _state_from_payload(self, payload: object) -> tuple[FeedbackStoreState, bool]:
@@ -539,8 +570,8 @@ class FeedbackStore:
     def _atomic_write(self, state: FeedbackStoreState) -> None:
         path = self._checked_path(self.path)
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as error:
+            self.file_ops.ensure_parent(str(path.parent))
+        except (OSError, ValueError) as error:
             raise FeedbackStoreSafetyError() from error
         self._checked_path(path)
         payload = _canonical_json(
@@ -561,6 +592,7 @@ class FeedbackStore:
             self.file_ops.replace(temp_name, str(path))
             temp_name = None
             self.file_ops.sync_directory(str(path.parent))
+            self._checked_path(path)
         except (OSError, ValueError) as error:
             raise FeedbackStoreSafetyError() from error
         finally:
