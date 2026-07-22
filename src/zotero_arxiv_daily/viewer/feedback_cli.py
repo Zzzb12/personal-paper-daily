@@ -34,6 +34,7 @@ class _FixedErrorParser(argparse.ArgumentParser):
 
 BundleLoader = Callable[..., FeedbackBundle]
 StoreFactory = Callable[..., FeedbackStore]
+ValidationStoreFactory = Callable[..., object]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -57,9 +58,18 @@ def _print_result(result: FeedbackImportResult, *, dry_run: bool, stdout: TextIO
     stdout.write(f"bundle_duplicate_count={result.bundle_duplicate_count}\n")
 
 
-def _private_store_path(value: str, *, private_root: Path) -> Path:
+def _private_store_path(
+    value: str, *, private_root: Path, validation_store_factory: ValidationStoreFactory
+) -> Path:
     """Resolve only a store location that remains inside the trusted private anchor."""
-    return FeedbackStore(value, root=private_root).checked_path()
+    return validation_store_factory(value, root=private_root).checked_path()  # type: ignore[union-attr]
+
+
+def _lexical_private_root(private_root: Path, *, cwd: Path) -> Path:
+    if not cwd.is_absolute():
+        raise ValueError("cwd must be absolute")
+    candidate = private_root if private_root.is_absolute() else cwd / private_root
+    return candidate.absolute()
 
 
 def run_import(
@@ -68,10 +78,15 @@ def run_import(
     private_root: Path,
     bundle_loader: BundleLoader,
     store_factory: StoreFactory,
+    validation_store_factory: ValidationStoreFactory,
     stdout: TextIO,
 ) -> int:
     namespace = _parser().parse_args(arguments)
-    store_path = _private_store_path(namespace.store, private_root=private_root)
+    store_path = _private_store_path(
+        namespace.store,
+        private_root=private_root,
+        validation_store_factory=validation_store_factory,
+    )
     bundle = bundle_loader(Path(namespace.bundle), root=private_root)
     result = store_factory(store_path, root=private_root).import_bundle(
         bundle, dry_run=namespace.dry_run
@@ -84,8 +99,10 @@ def main(
     arguments: Sequence[str] | None = None,
     *,
     private_root: Path = DEFAULT_PRIVATE_ROOT,
+    cwd: Path | None = None,
     bundle_loader: BundleLoader = load_feedback_bundle,
     store_factory: StoreFactory = FeedbackStore,
+    validation_store_factory: ValidationStoreFactory | None = None,
     stdout: TextIO | None = None,
     stderr: TextIO | None = None,
 ) -> int:
@@ -93,12 +110,16 @@ def main(
     output = stdout or sys.stdout
     _ = stderr or sys.stderr
     try:
-        resolved_private_root = Path(private_root).absolute()
+        composition_cwd = Path.cwd() if cwd is None else Path(cwd)
+        resolved_private_root = _lexical_private_root(
+            Path(private_root), cwd=composition_cwd
+        )
         return run_import(
             arguments,
             private_root=resolved_private_root,
             bundle_loader=bundle_loader,
             store_factory=store_factory,
+            validation_store_factory=validation_store_factory or store_factory,
             stdout=output,
         )
     except (Exception,):

@@ -13,6 +13,7 @@ from zotero_arxiv_daily.viewer.feedback import (
     FeedbackBundle,
     FeedbackCommand,
     FeedbackImportResult,
+    FeedbackStore,
     FeedbackStoreState,
     canonical_feedback_bundle_digest,
 )
@@ -74,6 +75,7 @@ def _run(
     private_root: Path,
     bundle_loader: object = lambda path, *, root: object(),
     store_factory: object = lambda path, *, root: _Store(),
+    validation_store_factory: object = FeedbackStore,
 ) -> tuple[int, str, str]:
     stdout = StringIO()
     stderr = StringIO()
@@ -82,6 +84,7 @@ def _run(
         private_root=private_root,
         bundle_loader=bundle_loader,  # type: ignore[arg-type]
         store_factory=store_factory,  # type: ignore[arg-type]
+        validation_store_factory=validation_store_factory,  # type: ignore[arg-type]
         stdout=stdout,
         stderr=stderr,
     )
@@ -257,6 +260,7 @@ def test_cli_keeps_lexical_private_root_for_the_store_reparse_boundary(
         private_root=lexical_root,
         bundle_loader=loader,  # type: ignore[arg-type]
         store_factory=lambda path, *, root: _Store(),  # type: ignore[arg-type]
+        validation_store_factory=feedback_cli.FeedbackStore,  # type: ignore[arg-type]
         stdout=stdout,
         stderr=stderr,
     )
@@ -265,3 +269,53 @@ def test_cli_keeps_lexical_private_root_for_the_store_reparse_boundary(
     assert stdout.getvalue() == "status=error\n"
     assert stderr.getvalue() == ""
     assert loader_called is False
+
+
+def test_cli_injects_cwd_and_validation_factory_before_loader_or_final_store(
+    tmp_path: Path,
+) -> None:
+    injected_cwd = tmp_path / "injected-cwd"
+    injected_cwd.mkdir()
+    relative_root = Path("data/private-feedback")
+    lexical_root = injected_cwd / relative_root
+    captured: dict[str, Path] = {}
+    loader_called = False
+    final_factory_called = False
+
+    class ReparseValidationStore:
+        def __init__(self, path: str | Path, *, root: Path) -> None:
+            captured["path"] = Path(path)
+            captured["root"] = root
+
+        def checked_path(self) -> Path:
+            raise ValueError("root reparse boundary rejected")
+
+    def loader(path: Path, *, root: Path) -> object:
+        nonlocal loader_called
+        loader_called = True
+        return object()
+
+    def final_factory(path: Path, *, root: Path) -> _Store:
+        nonlocal final_factory_called
+        final_factory_called = True
+        return _Store()
+
+    stdout = StringIO()
+    stderr = StringIO()
+    code = main(
+        ["import", "--bundle", "feedback-v1-export.json", "--store", "store.json", "--dry-run"],
+        private_root=relative_root,
+        cwd=injected_cwd,
+        validation_store_factory=ReparseValidationStore,  # type: ignore[arg-type]
+        bundle_loader=loader,  # type: ignore[arg-type]
+        store_factory=final_factory,  # type: ignore[arg-type]
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert code == 1
+    assert stdout.getvalue() == "status=error\n"
+    assert stderr.getvalue() == ""
+    assert captured == {"path": Path("store.json"), "root": lexical_root}
+    assert loader_called is False
+    assert final_factory_called is False
