@@ -56,8 +56,16 @@ jobs:
             models/docling
           key: personal-paper-daily-stage7-v1-${{ runner.os }}-${{ hashFiles('uv.lock', 'config/base.yaml', 'src/zotero_arxiv_daily/**/*.py') }}-${{ vars.LLM_MODEL }}
 
+      - name: Restore append-only delivery ledger
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
+        with:
+          path: cache/workflow/delivery-ledger.json
+          key: personal-paper-daily-delivery-stage7-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            personal-paper-daily-delivery-stage7-v1-${{ runner.os }}-
+
       - name: Prepare version-declared Docling models for live mode
-        if: ${{ (github.event_name == 'schedule' && vars.PAPER_DAILY_SCHEDULE_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') || (github.event_name == 'workflow_dispatch' && inputs.live_run && vars.PAPER_DAILY_MANUAL_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') }}
+        if: ${{ (github.event_name == 'schedule' && vars.PAPER_DAILY_SCHEDULE_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch && inputs.live_run && vars.PAPER_DAILY_MANUAL_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') }}
         timeout-minutes: 30
         run: uv run docling-tools models download layout tableformer --output-dir models/docling --quiet
 
@@ -68,6 +76,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           MANUAL_LIVE_REQUEST: ${{ inputs.live_run }}
           MANUAL_SEND_REQUEST: ${{ inputs.send_feishu }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SCHEDULE_LIVE_ACK: ${{ vars.PAPER_DAILY_SCHEDULE_LIVE }}
           SCHEDULE_SEND_ACK: ${{ vars.PAPER_DAILY_SCHEDULE_SEND }}
           MANUAL_LIVE_ACK: ${{ vars.PAPER_DAILY_MANUAL_LIVE }}
@@ -94,7 +104,7 @@ jobs:
           if [[ "$EVENT_NAME" == "schedule" && "$SCHEDULE_LIVE_ACK" == "I_UNDERSTAND_LIVE_NETWORK" ]]; then
             mode="live"
             fixture_args=()
-          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_LIVE_REQUEST" == "true" && "$MANUAL_LIVE_ACK" == "I_UNDERSTAND_LIVE_NETWORK" ]]; then
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" && "$REF_NAME" == "$DEFAULT_BRANCH" && "$MANUAL_LIVE_REQUEST" == "true" && "$MANUAL_LIVE_ACK" == "I_UNDERSTAND_LIVE_NETWORK" ]]; then
             mode="live"
             fixture_args=()
           fi

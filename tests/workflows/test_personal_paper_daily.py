@@ -81,12 +81,23 @@ def test_every_external_action_is_pinned_and_checkout_cannot_persist_credentials
 def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() -> None:
     workflow = _load(DAILY)
     steps = workflow["jobs"]["daily"]["steps"]
-    cache_step = next(step for step in steps if str(step.get("uses", "")).startswith("actions/cache@"))
+    cache_steps = [
+        step for step in steps if str(step.get("uses", "")).startswith("actions/cache@")
+    ]
+    assert len(cache_steps) == 2
+    cache_step = next(step for step in cache_steps if "safe caches" in step["name"])
     cache_paths = tuple(line.strip() for line in cache_step["with"]["path"].splitlines() if line.strip())
     assert cache_paths == ("cache/embeddings", "cache/documents", "models/docling")
     assert "stage7-v1" in cache_step["with"]["key"]
     assert "hashFiles" in cache_step["with"]["key"]
     assert "LLM_MODEL" in cache_step["with"]["key"]
+
+    ledger_cache = next(step for step in cache_steps if "delivery ledger" in step["name"])
+    assert ledger_cache["with"]["path"] == "cache/workflow/delivery-ledger.json"
+    assert "github.run_id" in ledger_cache["with"]["key"]
+    assert "github.run_attempt" in ledger_cache["with"]["key"]
+    assert ledger_cache["with"]["restore-keys"].strip().endswith("stage7-v1-${{ runner.os }}-")
+    assert ".lock" not in ledger_cache["with"]["path"]
 
     pages = next(
         step for step in steps if str(step.get("uses", "")).startswith("actions/upload-pages-artifact@")
@@ -135,7 +146,9 @@ def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
         if step["name"] == "Prepare version-declared Docling models for live mode"
     )
     assert "I_UNDERSTAND_LIVE_NETWORK" in model_step["if"]
+    assert "github.ref_name == github.event.repository.default_branch" in model_step["if"]
     assert int(model_step["timeout-minutes"]) > 0
+    assert '"$REF_NAME" == "$DEFAULT_BRANCH"' in raw
     deploy = _load(DAILY)["jobs"]["deploy"]
     assert "I_UNDERSTAND_PUBLIC_ARTIFACT" in deploy["if"]
 
