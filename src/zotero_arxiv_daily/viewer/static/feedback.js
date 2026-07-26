@@ -5,6 +5,7 @@
   const STORAGE_KEY = "personal-paper-daily:reader-feedback:v1";
   const MAX_COMMANDS = 500;
   const MAX_BACKUP_BYTES = 1000000;
+  const MAX_FEEDBACK_SEQUENCE = Number.MAX_SAFE_INTEGER;
   const ACTIONS = new Set(["read", "favorite", "irrelevant"]);
   const COMMAND_ACTIONS = new Set(["set_read", "set_favorite", "set_irrelevant"]);
   const PAPER_ID_PATTERN = /^(?:[a-z-]+(?:\.[A-Z]{2})?\/\d{7}|\d{4}\.\d{4,5})(?:v[1-9]\d*)?$/i;
@@ -123,7 +124,10 @@
       "occurred_at", "device_id", "sequence",
     ]);
     if (value.schema_version !== SCHEMA_VERSION || !COMMAND_ACTIONS.has(value.action)) fail();
-    if (typeof value.value !== "boolean" || !Number.isInteger(value.sequence) || value.sequence < 1) fail();
+    if (
+      typeof value.value !== "boolean" || !Number.isSafeInteger(value.sequence)
+      || value.sequence < 0 || value.sequence > MAX_FEEDBACK_SEQUENCE
+    ) fail();
     return {
       schema_version: SCHEMA_VERSION,
       command_id: validateUuid(value.command_id),
@@ -156,7 +160,10 @@
 
   function validateState(value) {
     assertExactKeys(value, ["schema_version", "device_id", "sequence", "commands"]);
-    if (value.schema_version !== SCHEMA_VERSION || !Number.isInteger(value.sequence) || value.sequence < 0) fail();
+    if (
+      value.schema_version !== SCHEMA_VERSION || !Number.isSafeInteger(value.sequence)
+      || value.sequence < 0 || value.sequence > MAX_FEEDBACK_SEQUENCE
+    ) fail();
     return {
       schema_version: SCHEMA_VERSION,
       device_id: validateDeviceId(value.device_id),
@@ -183,6 +190,7 @@
   function appendFeedback(stateValue, paperId, action, value, options) {
     const state = validateState(stateValue);
     if (!ACTIONS.has(action) || typeof value !== "boolean" || !options || typeof options !== "object") fail();
+    if (state.sequence >= MAX_FEEDBACK_SEQUENCE) fail();
     const sequence = state.sequence + 1;
     const command = normalizeCommand({
       schema_version: SCHEMA_VERSION,

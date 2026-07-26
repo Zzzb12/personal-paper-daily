@@ -21,6 +21,7 @@ from zotero_arxiv_daily.viewer.feedback import (
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "src" / "zotero_arxiv_daily" / "viewer" / "static" / "feedback.js"
 PINNED_NODE = Path(r"C:\Users\Berton\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe")
+MAX_SAFE_SEQUENCE = 9_007_199_254_740_991
 
 
 NODE_HARNESS = r"""
@@ -513,6 +514,22 @@ async function browserAdapterSameSecondBundle() {
   process.stdout.write(JSON.stringify(JSON.parse(await urls[0].text())));
 }
 
+async function sequenceBoundsAndPythonMaximumBundle() {
+  const unsafe = Number.MAX_SAFE_INTEGER + 1;
+  assert.throws(() => api.parseStoredState(JSON.stringify({
+    schema_version: "1.0", device_id: "browser-test", sequence: unsafe, commands: [],
+  })));
+  assert.throws(() => api.parseStoredState(JSON.stringify({
+    schema_version: "1.0", device_id: "browser-test", sequence: 0,
+    commands: [{
+      schema_version: "1.0", command_id: "00000000-0000-4000-8000-000000000401",
+      paper_id: "2401.00001", action: "set_read", value: true,
+      occurred_at: "2026-07-22T18:30:00Z", device_id: "browser-test", sequence: unsafe,
+    }],
+  })));
+  await importPythonPrecisionBundleAndReexport();
+}
+
 const scenarios = {
   transitions: transitionsAndRefresh,
   filters: filtersUseInputAndChange,
@@ -523,6 +540,7 @@ const scenarios = {
   files: blobExportAndFileImport,
   "cross-language": importPythonPrecisionBundleAndReexport,
   "adapter-same-second": browserAdapterSameSecondBundle,
+  "sequence-bounds": sequenceBoundsAndPythonMaximumBundle,
 };
 
 scenarios[scenario]().catch((error) => {
@@ -727,6 +745,96 @@ def test_browser_adapter_preserves_python_origin_timestamp_serialization(
 
     assert command.model_dump(mode="json")["occurred_at"] == expected_timestamp
     assert reexported.commands[0].occurred_at == command.occurred_at
+
+
+def test_browser_adapter_accepts_python_maximum_sequence_and_rejects_unsafe_json_numbers(
+    node_harness: Path,
+) -> None:
+    command = FeedbackCommand(
+        command_id=UUID("00000000-0000-4000-8000-000000000402"),
+        paper_id="2401.00001",
+        action="set_read",
+        value=True,
+        occurred_at="2026-07-22T18:30:00Z",
+        device_id="python-device",
+        sequence=MAX_SAFE_SEQUENCE,
+    )
+    bundle_id = UUID("00000000-0000-4000-8000-000000000499")
+    generated_at = datetime.fromisoformat("2026-07-22T19:00:00Z")
+    bundle = FeedbackBundle(
+        bundle_id=bundle_id,
+        generated_at=generated_at,
+        commands=(command,),
+        digest=canonical_feedback_bundle_digest(
+            (command,), bundle_id=bundle_id, generated_at=generated_at
+        ),
+    )
+
+    completed = _run_node(node_harness, "sequence-bounds", bundle.model_dump_json())
+    reexported = FeedbackBundle.model_validate_json(completed.stdout)
+
+    assert reexported.commands[0].sequence == MAX_SAFE_SEQUENCE
+
+
+def test_browser_and_python_order_equal_timestamps_by_device_then_sequence_then_uuid(
+    node_harness: Path,
+) -> None:
+    occurred_at = "2026-07-22T18:30:00Z"
+    commands = (
+        FeedbackCommand(
+            command_id=UUID("00000000-0000-4000-8000-000000000403"),
+            paper_id="2401.00001",
+            action="set_read",
+            value=True,
+            occurred_at=occurred_at,
+            device_id="device-a",
+            sequence=9,
+        ),
+        FeedbackCommand(
+            command_id=UUID("00000000-0000-4000-8000-000000000404"),
+            paper_id="2401.00001",
+            action="set_read",
+            value=False,
+            occurred_at=occurred_at,
+            device_id="device-b",
+            sequence=1,
+        ),
+        FeedbackCommand(
+            command_id=UUID("00000000-0000-4000-8000-000000000405"),
+            paper_id="2401.00001",
+            action="set_read",
+            value=True,
+            occurred_at=occurred_at,
+            device_id="device-c",
+            sequence=2,
+        ),
+        FeedbackCommand(
+            command_id=UUID("00000000-0000-4000-8000-000000000406"),
+            paper_id="2401.00001",
+            action="set_read",
+            value=False,
+            occurred_at=occurred_at,
+            device_id="device-c",
+            sequence=2,
+        ),
+    )
+    bundle_id = UUID("00000000-0000-4000-8000-000000000498")
+    generated_at = datetime.fromisoformat("2026-07-22T19:00:00Z")
+    bundle = FeedbackBundle(
+        bundle_id=bundle_id,
+        generated_at=generated_at,
+        commands=commands,
+        digest=canonical_feedback_bundle_digest(
+            commands, bundle_id=bundle_id, generated_at=generated_at
+        ),
+    )
+
+    completed = _run_node(node_harness, "cross-language", bundle.model_dump_json())
+    reexported = FeedbackBundle.model_validate_json(completed.stdout)
+
+    assert tuple(command.command_id for command in reexported.commands) == tuple(
+        command.command_id for command in commands
+    )
 
 
 @pytest.mark.parametrize("scenario", ["import", "files"])

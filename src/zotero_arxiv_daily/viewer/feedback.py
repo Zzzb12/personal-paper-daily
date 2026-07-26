@@ -27,6 +27,7 @@ MAX_APPLIED_COMMAND_IDS = 1_000
 MAX_APPLIED_BUNDLE_IDS = 100
 MAX_FEEDBACK_STORE_BYTES = 1_000_000
 MAX_FEEDBACK_BUNDLE_BYTES = 1_000_000
+MAX_FEEDBACK_SEQUENCE = 9_007_199_254_740_991
 
 _ARXIV_ID_RE = re.compile(
     r"^(?:[a-z-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5})(?:v[1-9]\d*)?$", re.IGNORECASE
@@ -101,7 +102,7 @@ def normalize_feedback_paper_id(value: str) -> str:
 class FeedbackWatermark(StrictModel):
     occurred_at: datetime
     device_id: str
-    sequence: StrictInt = Field(ge=1)
+    sequence: StrictInt = Field(ge=0, le=MAX_FEEDBACK_SEQUENCE)
     command_id: UUID
 
     @field_validator("occurred_at")
@@ -139,7 +140,7 @@ class FeedbackCommand(StrictModel):
     value: StrictBool
     occurred_at: datetime
     device_id: str
-    sequence: StrictInt = Field(ge=1)
+    sequence: StrictInt = Field(ge=0, le=MAX_FEEDBACK_SEQUENCE)
 
     @field_validator("command_id")
     @classmethod

@@ -18,6 +18,7 @@ from zotero_arxiv_daily.viewer.feedback import (
 
 
 NOW = datetime(2026, 7, 22, 4, 0, tzinfo=UTC)
+MAX_SAFE_SEQUENCE = 9_007_199_254_740_991
 
 
 def _command(**overrides: object) -> FeedbackCommand:
@@ -86,7 +87,7 @@ def test_feedback_models_are_frozen_strict_and_normalize_utc_timestamps() -> Non
         ("command_id", UUID("00000000-0000-0000-0000-000000000000")),
         ("device_id", "device id"),
         ("device_id", "\\\\server"),
-        ("sequence", 0),
+        ("sequence", -1),
         ("sequence", True),
         ("value", "true"),
     ],
@@ -94,6 +95,13 @@ def test_feedback_models_are_frozen_strict_and_normalize_utc_timestamps() -> Non
 def test_feedback_command_rejects_invalid_identity_and_scalar_fields(field: str, value: object) -> None:
     with pytest.raises(ValidationError):
         _command(**{field: value})
+
+
+def test_feedback_command_sequence_is_limited_to_the_cross_runtime_safe_integer_range() -> None:
+    assert _command(sequence=0).sequence == 0
+    assert _command(sequence=MAX_SAFE_SEQUENCE).sequence == MAX_SAFE_SEQUENCE
+    with pytest.raises(ValidationError):
+        _command(sequence=MAX_SAFE_SEQUENCE + 1)
 
 
 def test_bundle_requires_safe_digest_and_canonical_command_order() -> None:
