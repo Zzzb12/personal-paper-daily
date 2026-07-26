@@ -931,7 +931,8 @@ The optional production store configuration is
 `candidate_pipeline.feedback.store_path` in `config/base.yaml` (tracked default:
 `null`). Its path is removed before configuration hashing; feedback state, paper-ID
 lists, bundles, browser snapshots, migration backups, and credentials are not
-configuration-hash inputs. The default favorite delta is `0.05`, capped at `0.10`;
+configuration-hash inputs. `favorite_delta` is the only feedback setting retained in
+that hash. The default favorite delta is `0.05`, capped at `0.10`;
 `irrelevant` exact-ID veto occurs before embedding or paid work, `read` has no
 ranking effect, and Stage 4 remains the sole publication eligibility gate.
 

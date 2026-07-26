@@ -192,6 +192,44 @@ def test_artifact_audit_rejects_private_seed_basenames_and_path_segments(
 @pytest.mark.parametrize(
     "relative_path",
     (
+        "assets/zotero-export.css",
+        "assets/private-export.css",
+        "assets/cache-copy.css",
+        "assets/ZOTERO_EXPORT.svg",
+        "assets/feedbackStore.css",
+        "assets/feedbackstore.css",
+        "assets/readerState.css",
+        "assets/READERSTATE.css",
+        "assets/localStorage.css",
+        "assets/BROWSERSTATE.css",
+        "assets/favorites.css",
+    ),
+)
+def test_artifact_audit_rejects_private_tokens_and_camel_case_compounds(
+    tmp_path: Path, relative_path: str
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    _write_declared_viewer_file(viewer, relative_path)
+
+    with pytest.raises(ValueError, match="artifact contains a forbidden path"):
+        ArtifactAuditor(tmp_path).audit(viewer)
+
+
+@pytest.mark.parametrize("relative_path", ("assets/restore.svg", "assets/stateless.css"))
+def test_artifact_audit_allows_unrelated_words_containing_sensitive_substrings(
+    tmp_path: Path, relative_path: str
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    _write_declared_viewer_file(viewer, relative_path)
+
+    audit = ArtifactAuditor(tmp_path).audit(viewer)
+
+    assert relative_path in audit.build_manifest.written_paths
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
         "assets/reader-bundle.json",
         "assets/Reader-Bundle.JSON",
         "assets/export.snapshot.json",

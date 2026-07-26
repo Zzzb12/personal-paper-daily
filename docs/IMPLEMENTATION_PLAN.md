@@ -605,7 +605,9 @@ Persist private read/favorite/irrelevant states, expose them in the reader, and 
 - The CLI default private root is `data/private-feedback/`, which is Git-ignored and
   constrained as a local boundary. Production configuration may set only the optional
   `candidate_pipeline.feedback.store_path` in `config/base.yaml`; the tracked default
-  is `null` and `favorite_delta` defaults to `0.05` (bounded to `0.10`).
+  is `null` and `favorite_delta` defaults to `0.05` (bounded to `0.10`). Only
+  `favorite_delta` enters configuration hashing; every other feedback field is
+  excluded from that public-safe hash input.
 - `irrelevant` exact-ID veto happens before embedding or paid work; `favorite` adds a
   capped delta and `read` has no ranking effect. Stage 4 remains the only publication
   eligibility gate.

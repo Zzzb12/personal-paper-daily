@@ -361,7 +361,8 @@ Cache reads always validate schema version and content identity. A cache miss de
   do not auto-sync private state.
 - The default CLI private root is `data/private-feedback/`. The optional production
   store path is `candidate_pipeline.feedback.store_path` in `config/base.yaml`; it is
-  redacted from configuration hashes.
+  redacted from configuration hashes. `favorite_delta` is the only feedback setting
+  admitted to that hash; all other feedback fields are omitted.
 - Logs include run/paper/evidence IDs and redacted error categories, not keys or unnecessary Zotero text.
 - Network clients use explicit timeout and bounded retry policies.
 

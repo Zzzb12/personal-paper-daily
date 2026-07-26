@@ -220,6 +220,30 @@ def test_daily_config_hash_uses_final_merged_mapping_and_safely_rejects_invalid_
     assert invalid_private not in str(error.value)
 
 
+def test_daily_config_hash_drops_all_nonpublic_feedback_configuration(
+    tmp_path: Path,
+) -> None:
+    baseline = _merged_feedback_hash(tmp_path / "baseline")
+    with_private_paper_ids = _merged_feedback_hash(
+        tmp_path / "paper-ids",
+        custom="candidate_pipeline:\n  feedback:\n    paper_ids: [private-not-a-real-id]\n",
+    )
+    with_private_bundle_path = _merged_feedback_hash(
+        tmp_path / "bundle-path",
+        custom="candidate_pipeline:\n  feedback:\n    bundle_path: private-bundle.json\n",
+    )
+    with_both_private_values = _merged_feedback_hash(
+        tmp_path / "both",
+        custom=(
+            "candidate_pipeline:\n  feedback:\n"
+            "    paper_ids: [different-private-value]\n"
+            "    bundle_path: another-private-bundle.json\n"
+        ),
+    )
+
+    assert baseline == with_private_paper_ids == with_private_bundle_path == with_both_private_values
+
+
 def test_prune_empty_configuration_keeps_explicit_empty_lists_hash_distinct_from_absence(
     tmp_path: Path,
 ) -> None:

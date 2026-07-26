@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import tempfile
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -35,21 +36,37 @@ _FORBIDDEN_SUFFIXES = frozenset(
     {".pdf", ".zip", ".tar", ".gz", ".7z", ".rar", ".db", ".sqlite", ".sqlite3"}
 )
 _REVIEWED_FEEDBACK_SCRIPT = "assets/feedback.js"
-_FEEDBACK_STATE_SIGNALS = frozenset(
+_PRIVATE_ARTIFACT_TOKENS = frozenset(
     {
         "archive",
         "backup",
         "browser",
+        "browserstate",
         "bundle",
+        "cache",
         "feedback",
+        "feedbackstore",
         "favorite",
+        "favorites",
         "localstorage",
         "migration",
+        "private",
+        "readerstate",
         "snapshot",
         "state",
         "store",
+        "zotero",
     }
 )
+_PRIVATE_ARTIFACT_COMPOUNDS = frozenset(
+    {
+        ("browser", "state"),
+        ("local", "storage"),
+        ("reader", "state"),
+    }
+)
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_PATH_TOKEN_BOUNDARY = re.compile(r"[^A-Za-z0-9]+")
 
 
 class ArtifactAudit(StrictModel):
@@ -70,6 +87,22 @@ def _windows_path_kind(path: Path) -> tuple[str, str]:
 def _is_link_or_junction(path: Path) -> bool:
     return path.is_symlink() or (
         hasattr(path, "is_junction") and path.is_junction()
+    )
+
+
+def _contains_private_artifact_token(path: PurePosixPath) -> bool:
+    tokens = tuple(
+        token.casefold()
+        for part in path.parts
+        for token in _PATH_TOKEN_BOUNDARY.split(_CAMEL_CASE_BOUNDARY.sub(" ", part))
+        if token
+    )
+    if any(token in _PRIVATE_ARTIFACT_TOKENS for token in tokens):
+        return True
+    return any(
+        tokens[index : index + len(compound)] == compound
+        for compound in _PRIVATE_ARTIFACT_COMPOUNDS
+        for index in range(len(tokens) - len(compound) + 1)
     )
 
 
@@ -250,11 +283,7 @@ class ArtifactAuditor:
         if (
             (
                 relative != _REVIEWED_FEEDBACK_SCRIPT
-                and any(
-                    signal in part
-                    for part in lowered_parts
-                    for signal in _FEEDBACK_STATE_SIGNALS
-                )
+                and _contains_private_artifact_token(path)
             )
             or any(part in _FORBIDDEN_PARTS or part.startswith(".env.") for part in lowered_parts)
             or suffix in _FORBIDDEN_SUFFIXES

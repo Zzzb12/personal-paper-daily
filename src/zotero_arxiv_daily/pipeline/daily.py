@@ -587,6 +587,7 @@ _REQUIRED_DOCLING_MODEL_DIRECTORIES = (
     "docling-project--docling-models",
 )
 _PRUNED_CONFIGURATION_VALUE = object()
+_PUBLIC_FEEDBACK_CONFIGURATION_KEYS = frozenset({"favorite_delta"})
 
 
 def _prune_empty_configuration(value: object) -> object:
@@ -623,7 +624,11 @@ def _sanitized_daily_configuration(config_dir: Path) -> dict[str, object]:
         if isinstance(candidate_pipeline, dict):
             feedback = candidate_pipeline.get("feedback")
             if isinstance(feedback, dict):
-                feedback.pop("store_path", None)
+                candidate_pipeline["feedback"] = {
+                    key: value
+                    for key, value in feedback.items()
+                    if key in _PUBLIC_FEEDBACK_CONFIGURATION_KEYS
+                }
         cleaned = _prune_empty_configuration(configuration)
         if not isinstance(cleaned, dict):
             raise TypeError("daily configuration must be a mapping")
