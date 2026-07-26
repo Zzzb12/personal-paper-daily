@@ -59,11 +59,11 @@
 - `MetricsSession.finalize(...) -> RunMetrics` freezes collection and rejects duplicate/missing stages or aggregate mismatch.
 - `MetricsWriter(run_root)` always writes `run-metrics.json`; `write(metrics) -> MetricsWriteResult` validates canonical UTF-8 JSON and returns its SHA-256.
 
-- [ ] Write RED collector tests with fake clocks/samplers for success, exception timing, partial failures, cache/retry accounting, one successful call after retry, cache-hit zero calls, estimator bounds, pricing configured/unconfigured, finalize-once, and no retained input text.
-- [ ] Write RED store tests for exact filename, canonical round trip/hash, size/version/identity mismatch, corrupt existing destination, same-directory temp, flush/fsync, atomic replace, directory sync where supported, cleanup after replace failure, traversal impossibility, unsafe symlink/junction/reparse ancestor/destination, UNC, and foreign Windows drive.
-- [ ] Run both files and confirm missing-module RED.
-- [ ] Implement the minimal injected collector and reuse `pipeline.artifacts.resolve_within` plus `atomic_write_bytes`; extend the atomic helper only if the directory-sync test proves a shared change is necessary.
-- [ ] Rerun both focused files and `tests/pipeline/test_daily_artifacts.py -q`; commit `feat: collect and atomically store run metrics`.
+- [x] Write RED collector tests with fake clocks/samplers for success, exception timing, partial failures, cache/retry accounting, one successful call after retry, cache-hit zero calls, estimator bounds, pricing configured/unconfigured, finalize-once, and no retained input text.
+- [x] Write RED store tests for exact filename, canonical round trip/hash, size/version/identity mismatch, corrupt existing destination, same-directory temp, flush/fsync, atomic replace, directory sync where supported, cleanup after replace failure, traversal impossibility, unsafe symlink/junction/reparse ancestor/destination, UNC, and foreign Windows drive.
+- [x] Run both files and confirm missing-module RED.
+- [x] Implement the minimal injected collector and reuse `pipeline.artifacts.resolve_within` plus `atomic_write_bytes`; extend the atomic helper only if the directory-sync test proves a shared change is necessary.
+- [x] Rerun both focused files and `tests/pipeline/test_daily_artifacts.py -q`; commit `feat: collect and atomically store run metrics`.
 
 ### Task 3: Instrument Stage 3 generation without changing analysis semantics
 

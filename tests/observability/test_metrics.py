@@ -42,6 +42,7 @@ def _usage(**updates: object) -> ModelUsageMetric:
     values: dict[str, object] = {
         "model_identity_hash": HASH,
         "paid_call_count": 0,
+        "successful_call_count": 0,
         "attempt_count": 0,
         "estimated_input_tokens": 0,
         "configured_output_token_count": 0,
@@ -173,6 +174,7 @@ def test_model_usage_requires_consistent_pricing_and_attempt_counts() -> None:
     )
     configured = _usage(
         paid_call_count=1,
+        successful_call_count=1,
         attempt_count=2,
         estimated_input_tokens=3,
         configured_output_token_count=8_192,
@@ -189,6 +191,10 @@ def test_model_usage_requires_consistent_pricing_and_attempt_counts() -> None:
         _usage(estimated_cost_micro_usd=0)
     with pytest.raises(ValidationError, match="attempt"):
         _usage(paid_call_count=2, attempt_count=1)
+    offline_success = _usage(successful_call_count=1, paid_call_count=0, attempt_count=1)
+    assert offline_success.paid_call_count == 0
+    with pytest.raises(ValidationError, match="attempt"):
+        _usage(successful_call_count=2, paid_call_count=0, attempt_count=1)
     with pytest.raises(ValidationError, match="SHA-256"):
         _usage(model_identity_hash="model-name")
 

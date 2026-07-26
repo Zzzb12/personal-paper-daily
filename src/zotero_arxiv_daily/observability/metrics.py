@@ -138,6 +138,7 @@ def _validate_plain_count(value: int, *, name: str) -> int:
 class ModelUsageMetric(StrictModel):
     model_identity_hash: str
     paid_call_count: int = Field(default=0, ge=0)
+    successful_call_count: int = Field(default=0, ge=0)
     attempt_count: int = Field(default=0, ge=0)
     estimated_input_tokens: int = Field(default=0, ge=0)
     configured_output_token_count: int = Field(default=0, ge=0)
@@ -148,6 +149,7 @@ class ModelUsageMetric(StrictModel):
 
     @field_validator(
         "paid_call_count",
+        "successful_call_count",
         "attempt_count",
         "estimated_input_tokens",
         "configured_output_token_count",
@@ -171,8 +173,11 @@ class ModelUsageMetric(StrictModel):
 
     @model_validator(mode="after")
     def validate_usage(self) -> Self:
-        if self.paid_call_count > self.attempt_count:
-            raise ValueError("paid call count cannot exceed attempt count")
+        if (
+            self.successful_call_count > self.attempt_count
+            or self.paid_call_count > self.attempt_count
+        ):
+            raise ValueError("successful and paid call counts cannot exceed attempts")
         if self.pricing_status == "configured":
             if self.estimated_cost_micro_usd is None or self.pricing_policy_hash is None:
                 raise ValueError("configured pricing requires cost and pricing policy hash")
