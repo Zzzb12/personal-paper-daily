@@ -530,6 +530,36 @@ async function sequenceBoundsAndPythonMaximumBundle() {
   await importPythonPrecisionBundleAndReexport();
 }
 
+async function rejectZeroCommandSequenceButAllowEmptyStateCounter() {
+  const empty = api.createEmptyState("browser-test");
+  assert.equal(empty.sequence, 0);
+  const first = api.appendFeedback(empty, "2401.00001", "read", true, {
+    commandId: "00000000-0000-4000-8000-000000000501",
+    occurredAt: "2026-07-22T18:30:00Z",
+  });
+  assert.equal(first.sequence, 1);
+  assert.equal(first.commands[0].sequence, 1);
+
+  const zeroCommand = {
+    schema_version: "1.0", command_id: "00000000-0000-4000-8000-000000000502",
+    paper_id: "2401.00001", action: "set_read", value: true,
+    occurred_at: "2026-07-22T18:30:00Z", device_id: "browser-test", sequence: 0,
+  };
+  assert.throws(() => api.parseStoredState(JSON.stringify({
+    schema_version: "1.0", device_id: "browser-test", sequence: 0, commands: [zeroCommand],
+  })));
+
+  const payload = {
+    schema_version: "1.0", bundle_id: "00000000-0000-4000-8000-000000000503",
+    generated_at: "2026-07-22T19:00:00Z", commands: [zeroCommand],
+  };
+  const digestBytes = await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(api.canonicalStringify(payload)));
+  const digest = [...new Uint8Array(digestBytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  await assert.rejects(() => api.importBackup(
+    JSON.stringify({ ...payload, digest }), api.createEmptyState("browser-existing"), new MemoryStorage(), webcrypto.subtle,
+  ));
+}
+
 const scenarios = {
   transitions: transitionsAndRefresh,
   filters: filtersUseInputAndChange,
@@ -541,6 +571,7 @@ const scenarios = {
   "cross-language": importPythonPrecisionBundleAndReexport,
   "adapter-same-second": browserAdapterSameSecondBundle,
   "sequence-bounds": sequenceBoundsAndPythonMaximumBundle,
+  "zero-command": rejectZeroCommandSequenceButAllowEmptyStateCounter,
 };
 
 scenarios[scenario]().catch((error) => {
@@ -774,6 +805,12 @@ def test_browser_adapter_accepts_python_maximum_sequence_and_rejects_unsafe_json
     reexported = FeedbackBundle.model_validate_json(completed.stdout)
 
     assert reexported.commands[0].sequence == MAX_SAFE_SEQUENCE
+
+
+def test_browser_rejects_zero_command_sequence_but_keeps_empty_counter_at_zero(
+    node_harness: Path,
+) -> None:
+    _run_node(node_harness, "zero-command")
 
 
 def test_browser_and_python_order_equal_timestamps_by_device_then_sequence_then_uuid(

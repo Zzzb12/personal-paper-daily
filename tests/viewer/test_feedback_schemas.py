@@ -11,6 +11,7 @@ from zotero_arxiv_daily.viewer.feedback import (
     FeedbackCommand,
     FeedbackRecord,
     FeedbackStoreState,
+    FeedbackWatermark,
     InterestFeedbackProjection,
     canonical_feedback_bundle_digest,
     normalize_feedback_paper_id,
@@ -87,6 +88,7 @@ def test_feedback_models_are_frozen_strict_and_normalize_utc_timestamps() -> Non
         ("command_id", UUID("00000000-0000-0000-0000-000000000000")),
         ("device_id", "device id"),
         ("device_id", "\\\\server"),
+        ("sequence", 0),
         ("sequence", -1),
         ("sequence", True),
         ("value", "true"),
@@ -98,10 +100,18 @@ def test_feedback_command_rejects_invalid_identity_and_scalar_fields(field: str,
 
 
 def test_feedback_command_sequence_is_limited_to_the_cross_runtime_safe_integer_range() -> None:
-    assert _command(sequence=0).sequence == 0
     assert _command(sequence=MAX_SAFE_SEQUENCE).sequence == MAX_SAFE_SEQUENCE
     with pytest.raises(ValidationError):
+        _command(sequence=0)
+    with pytest.raises(ValidationError):
         _command(sequence=MAX_SAFE_SEQUENCE + 1)
+    with pytest.raises(ValidationError):
+        FeedbackWatermark(
+            occurred_at=NOW,
+            device_id="device-a",
+            sequence=0,
+            command_id=UUID("00000000-0000-4000-8000-000000000001"),
+        )
 
 
 def test_bundle_requires_safe_digest_and_canonical_command_order() -> None:

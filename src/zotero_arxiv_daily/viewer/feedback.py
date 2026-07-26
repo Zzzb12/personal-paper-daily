@@ -102,7 +102,7 @@ def normalize_feedback_paper_id(value: str) -> str:
 class FeedbackWatermark(StrictModel):
     occurred_at: datetime
     device_id: str
-    sequence: StrictInt = Field(ge=0, le=MAX_FEEDBACK_SEQUENCE)
+    sequence: StrictInt = Field(ge=1, le=MAX_FEEDBACK_SEQUENCE)
     command_id: UUID
 
     @field_validator("occurred_at")
@@ -140,7 +140,7 @@ class FeedbackCommand(StrictModel):
     value: StrictBool
     occurred_at: datetime
     device_id: str
-    sequence: StrictInt = Field(ge=0, le=MAX_FEEDBACK_SEQUENCE)
+    sequence: StrictInt = Field(ge=1, le=MAX_FEEDBACK_SEQUENCE)
 
     @field_validator("command_id")
     @classmethod

@@ -126,7 +126,7 @@
     if (value.schema_version !== SCHEMA_VERSION || !COMMAND_ACTIONS.has(value.action)) fail();
     if (
       typeof value.value !== "boolean" || !Number.isSafeInteger(value.sequence)
-      || value.sequence < 0 || value.sequence > MAX_FEEDBACK_SEQUENCE
+      || value.sequence < 1 || value.sequence > MAX_FEEDBACK_SEQUENCE
     ) fail();
     return {
       schema_version: SCHEMA_VERSION,
