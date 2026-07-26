@@ -918,3 +918,38 @@ and reconciling delivery history. Clearing the Actions ledger cache while send i
 enabled is not a safe rollback. Revoke/rotate any credential exposed outside Git;
 credentials previously pasted in chat should be rotated even though Stage 7 never
 prints or commits them.
+
+## Stage 8 privacy-hardening observations (2026-07-26)
+
+This is a factual privacy/configuration record, not a Stage 8 completion claim.
+Browser feedback is immediate same-origin `localStorage`; only an explicit export
+and local CLI import can reach the Git-ignored authoritative store under the default
+`data/private-feedback/` root. GitHub Pages cannot write back to that local store,
+and scheduled Actions do not synchronize private feedback by default.
+
+The optional production store configuration is
+`candidate_pipeline.feedback.store_path` in `config/base.yaml` (tracked default:
+`null`). Its path is removed before configuration hashing; feedback state, paper-ID
+lists, bundles, browser snapshots, migration backups, and credentials are not
+configuration-hash inputs. The default favorite delta is `0.05`, capped at `0.10`;
+`irrelevant` exact-ID veto occurs before embedding or paid work, `read` has no
+ranking effect, and Stage 4 remains the sole publication eligibility gate.
+
+Observed focused checks on this worktree: declared private artifact seeds including
+`.env`, cache/private/Zotero paths, archive, migration backup, feedback store/bundle,
+and browser-state variants were rejected; an explicit empty list remains distinct
+from an absent configuration field; the workflow retained its existing explicit
+cache/upload allowlists, least permissions, triggers, concurrency, timeouts, SHA
+pins, and single CLI while containing no feedback path. No real state, browser
+export, credential, or external operation was used.
+
+The project owner has confirmed authorization for Hermes reuse/adaptation. No Hermes
+license name, terms, or license file are asserted. Rollback keeps any desired
+explicit private-store export outside Git, then disables/reverts the feedback
+UI/ranking adapter; Pages, Actions cache, manifests, and Git history are not a
+feedback backup.
+
+Task 2's historical behavior-level TDD evidence deviation remains an explicitly
+user-accepted process-history note; it does not indicate missing current coverage.
+Task 6's complete-suite commands and external operations remain pending and are not
+reported as successful here.

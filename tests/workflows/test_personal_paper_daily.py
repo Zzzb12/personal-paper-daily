@@ -124,10 +124,14 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
         "cache/analysis",
         "cache/validation",
         "data/zotero",
+        "data/private-feedback",
+        "feedback-v1",
         "viewer/feedback",
         ".env\n",
     ):
         assert forbidden not in raw
+
+    assert "feedback" not in raw
 
 
 def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
@@ -225,3 +229,25 @@ def test_roadmap_and_baseline_have_stage7_completion_and_rollback_sections() -> 
     assert "**Status: completed locally on 2026-07-22.**" in roadmap
     assert "## Stage 7 completion notes (2026-07-22)" in baseline
     assert "Rollback" in baseline.split("## Stage 7 completion notes (2026-07-22)", 1)[1]
+
+
+def test_stage8_privacy_docs_record_only_local_explicit_feedback_flow() -> None:
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    roadmap = (ROOT / "docs" / "IMPLEMENTATION_PLAN.md").read_text(encoding="utf-8")
+    baseline = (ROOT / "docs" / "BASELINE.md").read_text(encoding="utf-8")
+    stage8_roadmap = roadmap.split("## Stage 8: Read, favorite, and irrelevant feedback", 1)[1].split(
+        "## Stage 9:", 1
+    )[0]
+    stage8_baseline = baseline.split("## Stage 8 privacy-hardening observations (2026-07-26)", 1)[1]
+
+    assert "explicit export/import" in architecture
+    assert "GitHub Pages never writes to this store or auto-syncs it" in architecture
+    assert "candidate_pipeline.feedback.store_path" in architecture
+    assert "data/private-feedback/" in stage8_roadmap
+    assert "Stage 4 remains the only publication" in stage8_roadmap
+    assert "eligibility gate" in stage8_roadmap
+    assert "Task 6's complete-suite commands and external operations remain pending" in stage8_baseline
+    assert "project owner has confirmed authorization" in stage8_baseline
+    for prohibited in ("2401.", "feedback-v1", "reader-feedback:v1"):
+        assert prohibited not in stage8_roadmap
+        assert prohibited not in stage8_baseline

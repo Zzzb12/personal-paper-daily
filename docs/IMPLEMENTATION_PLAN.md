@@ -581,6 +581,10 @@ Disable the schedule or workflow file, retain manual execution, and redeploy the
 
 ## Stage 8: Read, favorite, and irrelevant feedback
 
+**Implementation boundary: local/private only; final full-stage verification remains
+pending.** No real feedback, credentials, paper IDs, browser snapshots, or external
+operations are used in the implementation record.
+
 ### Goal
 
 Persist private read/favorite/irrelevant states, expose them in the reader, and feed explicit preference signals back into future ranking without publishing local state.
@@ -591,6 +595,23 @@ Persist private read/favorite/irrelevant states, expose them in the reader, and 
 - No implicit behavioral tracking.
 - No retroactive rewriting of evidence or analysis.
 - No unreviewed automatic deletion from Zotero.
+- No Pages write-back or scheduled/private-state synchronization.
+
+### Configuration and privacy boundary
+
+- Browser actions update immediate same-origin `localStorage`. Reaching the
+  authoritative local store requires an explicit feedback export followed by the
+  local import CLI; GitHub Pages cannot write back to that store.
+- The CLI default private root is `data/private-feedback/`, which is Git-ignored and
+  constrained as a local boundary. Production configuration may set only the optional
+  `candidate_pipeline.feedback.store_path` in `config/base.yaml`; the tracked default
+  is `null` and `favorite_delta` defaults to `0.05` (bounded to `0.10`).
+- `irrelevant` exact-ID veto happens before embedding or paid work; `favorite` adds a
+  capped delta and `read` has no ranking effect. Stage 4 remains the only publication
+  eligibility gate.
+- Workflow cache/upload paths are explicit allowlists and exclude feedback state,
+  bundles, browser snapshots, private stores, migration backups, `.env`, and Zotero
+  data. Scheduled/manual defaults remain fixture dry-run and no-send.
 
 ### Files
 
@@ -633,7 +654,10 @@ Persist private read/favorite/irrelevant states, expose them in the reader, and 
 
 ### Rollback
 
-Disable feedback influence while preserving a backup of the private store. Revert UI/ranking adapters; the static reader remains read-only. Migrate forward/back using schema-versioned exports rather than deleting user state.
+Disable feedback influence while preserving an explicit private-store backup. Revert
+the UI/ranking adapters; the static reader remains read-only. Migrate forward/back
+using schema-versioned exports rather than deleting user state. Do not use Pages,
+Actions cache, or Git history as a feedback backup.
 
 ### Suggested commits
 

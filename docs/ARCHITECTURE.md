@@ -74,8 +74,8 @@ flowchart LR
     FA --> FR["Feishu renderer"]
     FR --> FC["Feishu client"]
     FA --> WEB
-    FB["Feedback store"] --> IC
-    FB --> WEB
+    BL["Browser localStorage (local only)"] -. explicit export/import .-> FB["Ignored private feedback store"]
+    FB --> IC
 ```
 
 The candidate store is the cost boundary: retrieval and embedding ranking occur before selected papers may cross into PDF download and full analysis.
@@ -294,18 +294,22 @@ The following ownership table is normative for every numbered contract below. â€
 
 - **Input:** stable paper ID and explicit read/favorite/irrelevant command.
 - **Output:** validated `FeedbackRecord` and updated interest weighting projection.
-- **Dependencies:** local storage interface; optional future sync adapter.
+- **Dependencies:** browser `localStorage`, explicit export/import, and a local-only
+  CLI; GitHub Pages never writes to this store or auto-syncs it.
 - **Cache:** the private feedback store is authoritative local state, not a generated cache.
 - **Errors:** atomic updates and conflict policy; corrupt state is backed up and rejected.
 - **Test seam:** in-memory store, idempotency, state conflict, migration, and concurrent-write tests.
-- **Decision:** **Licensed Hermes reuse/adaptation** of the `localStorage` favorite mechanism and local server validation. Add read/irrelevant semantics and keep state untracked.
+- **Decision:** the project owner confirmed authorization to reuse/adapt Hermes
+  `localStorage` favorite behavior. No license name or terms are asserted here; read/
+  irrelevant semantics remain local and untracked.
 
 ### 18. GitHub Actions pipeline
 
 - **Input:** schedule/manual trigger, repository variables, GitHub Secrets, cached artifacts.
 - **Output:** run report, static site artifact/deployment, optional Feishu receipt.
 - **Dependencies:** daily pipeline CLI, Actions cache/artifacts, Pages deployment actions.
-- **Cache:** explicit embedding/parser/LLM caches scoped by version; never cache secrets or private raw Zotero exports in public artifacts.
+- **Cache:** explicit embedding/parser/LLM caches scoped by version; never cache
+  secrets, feedback state/bundles, or private raw Zotero exports in public artifacts.
 - **Errors:** stage-level summaries, per-paper partial failures, concurrency control, least-privilege permissions, no secret-bearing config output.
 - **Test seam:** workflow YAML validation, CLI dry-run with fakes, cache-key tests, and manual-dispatch smoke test.
 - **Decision:** **Adapt** upstream `main.yml`/`ci.yml` plus licensed Hermes `pages.yml`; do not retain upstream behavior that prints generated custom configuration.
@@ -352,6 +356,12 @@ Cache reads always validate schema version and content identity. A cache miss de
 - Environment resolution occurs at process edges; domain records never store secret values.
 - Raw Zotero data, PDFs, caches, feedback, logs, and LLM responses remain under ignored private paths.
 - Rendered public/static data includes only explicitly allowed paper metadata and generated analysis.
+- Browser feedback is immediate `localStorage` state. Only user-initiated export and
+  local CLI import reach the ignored authoritative store; Pages and scheduled Actions
+  do not auto-sync private state.
+- The default CLI private root is `data/private-feedback/`. The optional production
+  store path is `candidate_pipeline.feedback.store_path` in `config/base.yaml`; it is
+  redacted from configuration hashes.
 - Logs include run/paper/evidence IDs and redacted error categories, not keys or unnecessary Zotero text.
 - Network clients use explicit timeout and bounded retry policies.
 
@@ -386,6 +396,8 @@ Cache reads always validate schema version and content identity. A cache miss de
 
 ### Licensed Hermes reuse/adaptation
 
+- The project owner has confirmed authorization for Hermes reuse/adaptation. The
+  repository does not infer or invent a Hermes license name, terms, or license file.
 - Monitor state ideas and human-readable JSON/Excel field mapping where useful.
 - Chinese digest composition.
 - Static viewer structure, filtering/search, favorite state, local serving, and Pages publication.
