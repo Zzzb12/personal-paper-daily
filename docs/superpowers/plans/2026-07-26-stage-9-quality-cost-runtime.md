@@ -121,10 +121,10 @@
 - Duplicate/unknown IDs, inconsistent domains, non-canonical ordering, and invalid counts fail closed.
 - Empty denominator rules are explicit: a rate whose failure set is empty is perfect only when its complete expected domain is valid; otherwise construction fails.
 
-- [ ] Write RED tests using hand-computed perfect/imperfect cases, rank ties/order changes, duplicate/unknown IDs, empty valid domains, inconsistent claims/evidence/fields, exact ppm rounding, strict privacy serialization, and each quality budget boundary.
-- [ ] Run `uv run pytest tests/observability/test_quality.py -q` and confirm missing-module RED.
-- [ ] Implement integer/rational metric math and deterministic validators without numpy/pandas or serialized IDs.
-- [ ] Rerun focused tests; commit `feat: evaluate aggregate pipeline quality`.
+- [x] Write RED tests using hand-computed perfect/imperfect cases, rank ties/order changes, duplicate/unknown IDs, empty valid domains, inconsistent claims/evidence/fields, exact ppm rounding, strict privacy serialization, and each quality budget boundary.
+- [x] Run `uv run pytest tests/observability/test_quality.py -q` and confirm missing-module RED.
+- [x] Implement integer/rational metric math and deterministic validators without numpy/pandas or serialized IDs.
+- [x] Rerun focused tests; commit `feat: evaluate aggregate pipeline quality`.
 
 ### Task 6: Add original synthetic 30/15/5 benchmark fixture
 

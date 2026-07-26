@@ -8,6 +8,7 @@ from zotero_arxiv_daily.observability.metrics import (
     RunMetrics,
     StageMetric,
 )
+from zotero_arxiv_daily.observability.quality import QualityEvaluation, evaluate_quality
 
 __all__ = [
     "BudgetEvaluation",
@@ -16,5 +17,6 @@ __all__ = [
     "PricingPolicy",
     "RunMetrics",
     "StageMetric",
+    "QualityEvaluation",
+    "evaluate_quality",
 ]
-
