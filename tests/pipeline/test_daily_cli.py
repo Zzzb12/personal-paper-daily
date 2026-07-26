@@ -151,6 +151,75 @@ def test_daily_config_hash_omits_feedback_store_path_but_binds_delta_and_impleme
     assert first != changed_implementation
 
 
+def _merged_feedback_hash(
+    root: Path, *, custom: str | None = None
+) -> str:
+    config_dir = root / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "base.yaml").write_text(
+        "source:\n  arxiv:\n    category: [cs.CV]\n"
+        "candidate_pipeline:\n  feedback:\n    favorite_delta: 0.05\n",
+        encoding="utf-8",
+    )
+    if custom is not None:
+        (config_dir / "custom.yaml").write_text(custom, encoding="utf-8")
+    return daily._configuration_hash(
+        config_dir,
+        mode="live",
+        fixture=None,
+        environment={
+            "LLM_BASE_URL": "https://llm.example.test/v1",
+            "LLM_MODEL": "model-v1",
+            "PAPER_DAILY_SITE_URL": "https://papers.example.test/",
+        },
+    )
+
+
+def test_daily_config_hash_uses_final_merged_mapping_and_safely_rejects_invalid_yaml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    baseline = _merged_feedback_hash(tmp_path / "baseline")
+    only_private_path = _merged_feedback_hash(
+        tmp_path / "path",
+        custom="candidate_pipeline:\n  feedback:\n    store_path: private-only.json\n",
+    )
+    different_path = _merged_feedback_hash(
+        tmp_path / "path-other",
+        custom="candidate_pipeline:\n  feedback:\n    store_path: private-other.json\n",
+    )
+    changed_delta = _merged_feedback_hash(
+        tmp_path / "delta",
+        custom="candidate_pipeline:\n  feedback:\n    favorite_delta: 0.10\n",
+    )
+    changed_source = _merged_feedback_hash(
+        tmp_path / "source",
+        custom="source:\n  arxiv:\n    category: [cs.LG]\n",
+    )
+    monkeypatch.setattr(daily, "FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION", "other", raising=False)
+    changed_implementation = _merged_feedback_hash(tmp_path / "implementation")
+    invalid_dir = tmp_path / "invalid" / "config"
+    invalid_dir.mkdir(parents=True)
+    invalid_private = "private-invalid-yaml-content"
+    (invalid_dir / "base.yaml").write_text(
+        f"candidate_pipeline: [{invalid_private}", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError) as error:
+        daily._configuration_hash(
+            invalid_dir,
+            mode="live",
+            fixture=None,
+            environment={},
+        )
+
+    assert baseline == only_private_path == different_path
+    assert baseline != changed_delta
+    assert baseline != changed_source
+    assert baseline != changed_implementation
+    assert str(error.value) == "daily configuration is invalid"
+    assert invalid_private not in str(error.value)
+
+
 def test_corrupt_configured_feedback_store_writes_safe_failed_manifest_before_clients(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

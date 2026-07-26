@@ -586,6 +586,50 @@ _REQUIRED_DOCLING_MODEL_DIRECTORIES = (
     "docling-project--docling-layout-heron",
     "docling-project--docling-models",
 )
+_PRUNED_CONFIGURATION_VALUE = object()
+
+
+def _prune_empty_configuration(value: object) -> object:
+    if isinstance(value, dict):
+        cleaned = {
+            key: child
+            for key, item in value.items()
+            if (child := _prune_empty_configuration(item)) is not _PRUNED_CONFIGURATION_VALUE
+        }
+        return cleaned if cleaned else _PRUNED_CONFIGURATION_VALUE
+    if isinstance(value, list):
+        cleaned = [
+            child
+            for item in value
+            if (child := _prune_empty_configuration(item)) is not _PRUNED_CONFIGURATION_VALUE
+        ]
+        return cleaned if cleaned else _PRUNED_CONFIGURATION_VALUE
+    return value
+
+
+def _sanitized_daily_configuration(config_dir: Path) -> dict[str, object]:
+    from omegaconf import OmegaConf
+
+    try:
+        base = OmegaConf.load(Path(config_dir) / "base.yaml")
+        custom_path = Path(config_dir) / "custom.yaml"
+        merged = OmegaConf.merge(
+            base, OmegaConf.load(custom_path) if custom_path.exists() else {}
+        )
+        configuration = OmegaConf.to_container(merged, resolve=False)
+        if not isinstance(configuration, dict):
+            raise TypeError("daily configuration must be a mapping")
+        candidate_pipeline = configuration.get("candidate_pipeline")
+        if isinstance(candidate_pipeline, dict):
+            feedback = candidate_pipeline.get("feedback")
+            if isinstance(feedback, dict):
+                feedback.pop("store_path", None)
+        cleaned = _prune_empty_configuration(configuration)
+        if not isinstance(cleaned, dict):
+            raise TypeError("daily configuration must be a mapping")
+        return cleaned
+    except Exception as error:
+        raise ValueError("daily configuration is invalid") from error
 
 
 def _configuration_hash(
@@ -595,34 +639,20 @@ def _configuration_hash(
     fixture: Path | None,
     environment: Mapping[str, str],
 ) -> str:
-    from omegaconf import OmegaConf
-
     digest = hashlib.sha256()
     digest.update(b"stage7-v1\0")
     digest.update(FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION.encode("utf-8"))
     digest.update(b"\0")
-    for name in ("base.yaml", "custom.yaml"):
-        path = Path(config_dir) / name
-        if path.exists():
-            configuration = OmegaConf.to_container(OmegaConf.load(path), resolve=False)
-            if not isinstance(configuration, dict):
-                raise ValueError("daily configuration must be a mapping")
-            candidate_pipeline = configuration.get("candidate_pipeline")
-            if isinstance(candidate_pipeline, dict):
-                feedback = candidate_pipeline.get("feedback")
-                if isinstance(feedback, dict):
-                    feedback.pop("store_path", None)
-            digest.update(name.encode("utf-8"))
-            digest.update(b"\0")
-            digest.update(
-                json.dumps(
-                    configuration,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            )
-            digest.update(b"\0")
+    configuration = _sanitized_daily_configuration(config_dir)
+    digest.update(
+        json.dumps(
+            configuration,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    digest.update(b"\0")
     digest.update(mode.encode("ascii"))
     digest.update(b"\0")
     if fixture is not None:

@@ -168,6 +168,25 @@ def test_artifact_audit_rejects_declared_feedback_state_bundle_and_snapshot_vari
 @pytest.mark.parametrize(
     "relative_path",
     (
+        "assets/reader-bundle.json",
+        "assets/Reader-Bundle.JSON",
+        "assets/export.snapshot.json",
+        "assets/nested/STORE.json",
+    ),
+)
+def test_artifact_audit_rejects_every_declared_json_except_root_build_manifest(
+    tmp_path: Path, relative_path: str
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    _write_declared_viewer_file(viewer, relative_path)
+
+    with pytest.raises(ValueError, match="artifact contains a forbidden path"):
+        ArtifactAuditor(tmp_path).audit(viewer)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
         "assets/other.js",
         "assets/Feedback.js",
         "assets/feedback.JS",

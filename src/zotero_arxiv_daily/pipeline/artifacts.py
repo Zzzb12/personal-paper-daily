@@ -247,6 +247,7 @@ class ArtifactAuditor:
             or any(part in _FORBIDDEN_PARTS or part.startswith(".env.") for part in lowered_parts)
             or suffix in _FORBIDDEN_SUFFIXES
             or suffix not in _ALLOWED_ARTIFACT_SUFFIXES
+            or (suffix == ".json" and relative != "build-manifest.json")
             or (suffix == ".js" and relative != _REVIEWED_FEEDBACK_SCRIPT)
         ):
             raise ValueError("artifact contains a forbidden path")
