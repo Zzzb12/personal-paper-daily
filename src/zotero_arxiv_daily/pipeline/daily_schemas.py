@@ -9,8 +9,8 @@ from pydantic import Field, field_validator, model_validator
 from zotero_arxiv_daily.analysis.schemas import StrictModel, validate_run_id_value
 
 
-RUN_MANIFEST_SCHEMA_VERSION = "1.0"
-PIPELINE_VERSION = "stage7-v1"
+RUN_MANIFEST_SCHEMA_VERSION = "1.1"
+PIPELINE_VERSION = "stage9-v1"
 CACHE_VERSION = "stage7-cache-v1"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_ERROR_CODE_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
@@ -171,9 +171,37 @@ class FeishuRunResult(StrictModel):
         return self
 
 
+class MetricsRunResult(StrictModel):
+    status: Literal["success", "failed", "skipped"]
+    sidecar_hash: str | None = None
+    error_codes: tuple[str, ...] = ()
+
+    @field_validator("sidecar_hash")
+    @classmethod
+    def validate_sidecar_hash(cls, value: str | None) -> str | None:
+        return _sha256(value) if value is not None else None
+
+    @field_validator("error_codes")
+    @classmethod
+    def validate_error_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _safe_error_codes(value)
+
+    @model_validator(mode="after")
+    def validate_status(self) -> Self:
+        if self.status == "success" and self.sidecar_hash is None:
+            raise ValueError("successful metrics result requires a sidecar hash")
+        if self.status != "success" and self.sidecar_hash is not None:
+            raise ValueError("unsuccessful metrics result must not contain a sidecar hash")
+        if self.status == "failed" and not self.error_codes:
+            raise ValueError("failed metrics result requires a safe error code")
+        if self.status != "failed" and self.error_codes:
+            raise ValueError("non-failed metrics result must not contain error codes")
+        return self
+
+
 class CacheIdentity(StrictModel):
     cache_version: Literal["stage7-cache-v1"] = CACHE_VERSION
-    pipeline_version: Literal["stage7-v1"] = PIPELINE_VERSION
+    pipeline_version: Literal["stage9-v1"] = PIPELINE_VERSION
     config_hash: str
     embedding_model: str
     embedding_version: str
@@ -212,8 +240,8 @@ WorkflowCacheIdentity = CacheIdentity
 
 
 class RunManifest(StrictModel):
-    schema_version: Literal["1.0"] = RUN_MANIFEST_SCHEMA_VERSION
-    pipeline_version: Literal["stage7-v1"] = PIPELINE_VERSION
+    schema_version: Literal["1.1"] = RUN_MANIFEST_SCHEMA_VERSION
+    pipeline_version: Literal["stage9-v1"] = PIPELINE_VERSION
     run_id: str
     trigger: Trigger
     config_hash: str
@@ -229,6 +257,7 @@ class RunManifest(StrictModel):
     partial_failure_count: int = Field(ge=0)
     static_site: StaticSiteResult
     feishu: FeishuRunResult
+    metrics: MetricsRunResult = MetricsRunResult(status="skipped")
     artifact_hash: str | None = None
     error_codes: tuple[str, ...] = ()
 

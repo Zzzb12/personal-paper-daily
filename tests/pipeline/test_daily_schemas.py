@@ -9,6 +9,7 @@ from zotero_arxiv_daily.pipeline.daily_schemas import (
     PIPELINE_VERSION,
     CacheIdentity,
     FeishuRunResult,
+    MetricsRunResult,
     RunCounts,
     RunManifest,
     StageRunResult,
@@ -65,6 +66,10 @@ def _manifest(**updates: object) -> RunManifest:
         ),
         "feishu": FeishuRunResult(status="preview", delivered_count=0),
         "artifact_hash": HASH,
+        "metrics": MetricsRunResult(
+            status="success",
+            sidecar_hash="b" * 64,
+        ),
     }
     values.update(updates)
     return RunManifest(**values)
@@ -73,11 +78,29 @@ def _manifest(**updates: object) -> RunManifest:
 def test_run_manifest_is_versioned_strict_and_deterministic() -> None:
     manifest = _manifest()
 
-    assert manifest.schema_version == "1.0"
-    assert manifest.pipeline_version == PIPELINE_VERSION == "stage7-v1"
+    assert manifest.schema_version == "1.1"
+    assert manifest.pipeline_version == PIPELINE_VERSION == "stage9-v1"
     assert manifest.model_dump(mode="json")["trigger"] == "local"
     with pytest.raises(ValidationError, match="Extra inputs"):
         RunManifest(**manifest.model_dump(), prompt="private prompt")
+
+
+def test_metrics_run_result_has_strict_status_and_hash_contract() -> None:
+    success = MetricsRunResult(status="success", sidecar_hash=HASH)
+    assert success.sidecar_hash == HASH
+    with pytest.raises(ValidationError, match="hash"):
+        MetricsRunResult(status="success")
+    with pytest.raises(ValidationError, match="hash"):
+        MetricsRunResult(status="failed", sidecar_hash=HASH)
+    with pytest.raises(ValidationError, match="error"):
+        MetricsRunResult(status="failed")
+    failed = MetricsRunResult(
+        status="failed",
+        error_codes=("metrics_persistence_failed",),
+    )
+    assert failed.sidecar_hash is None
+    with pytest.raises(ValidationError, match="Extra inputs"):
+        MetricsRunResult(status="skipped", path="private/path")
 
 
 def test_manifest_has_no_field_for_secrets_prompts_full_text_or_exceptions() -> None:
