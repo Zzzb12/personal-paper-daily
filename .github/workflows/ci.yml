@@ -42,6 +42,10 @@ jobs:
         timeout-minutes: 10
         run: uv run pytest tests/workflows tests/pipeline/test_daily_schemas.py tests/pipeline/test_daily_cache.py tests/pipeline/test_daily_artifacts.py tests/pipeline/test_daily.py tests/pipeline/test_daily_cli.py -q
 
+      - name: Validate Stage 9 offline budgets
+        timeout-minutes: 10
+        run: uv run pytest tests/benchmarks tests/observability tests/workflows/test_stage9_ci.py -q
+
       - name: Run Pytest
         timeout-minutes: 30
         run: |

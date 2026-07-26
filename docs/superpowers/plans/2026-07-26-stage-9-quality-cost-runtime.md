@@ -182,10 +182,10 @@
 - Pages upload remains exactly `outputs/daily/viewer`; the metrics file can never satisfy or enter `pages_ready`.
 - CI runs deterministic Stage 9 schema/quality/benchmark-budget tests with an explicit timeout and retains minimal permissions, concurrency, full-SHA pins, and `persist-credentials: false`.
 
-- [ ] Write RED static tests for exact private upload allowlist, no directory-wide run upload, viewer-only Pages path, metrics hash verification, no metrics cache, no secrets/environment dump, trigger/concurrency/timeouts/SHA pins, and bounded Stage 9 CI command.
-- [ ] Run `uv run pytest tests/workflows -q` and confirm the expected missing Stage 9 workflow behavior.
-- [ ] Make the minimal YAML changes without floating actions, writes to upstream, secret-bearing command output, `set -x`, `printenv`, or schedule send-default changes.
-- [ ] Rerun workflow tests and parse both YAML files through the existing static loader; commit `ci: validate private stage 9 metrics`.
+- [x] Write RED static tests for exact private upload allowlist, no directory-wide run upload, viewer-only Pages path, metrics hash verification, no metrics cache, no secrets/environment dump, trigger/concurrency/timeouts/SHA pins, and bounded Stage 9 CI command.
+- [x] Run `uv run pytest tests/workflows -q` and confirm the expected missing Stage 9 workflow behavior.
+- [x] Make the minimal YAML changes without floating actions, writes to upstream, secret-bearing command output, `set -x`, `printenv`, or schedule send-default changes.
+- [x] Rerun workflow tests and parse both YAML files through the existing static loader; commit `ci: validate private stage 9 metrics`.
 
 ### Task 9: Generate, audit, and commit the Stage 9A baseline/profile decision
 

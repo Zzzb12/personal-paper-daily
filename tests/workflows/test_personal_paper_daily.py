@@ -88,7 +88,7 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     cache_step = next(step for step in cache_steps if "safe caches" in step["name"])
     cache_paths = tuple(line.strip() for line in cache_step["with"]["path"].splitlines() if line.strip())
     assert cache_paths == ("cache/embeddings", "cache/documents", "models/docling")
-    assert "stage7-v1" in cache_step["with"]["key"]
+    assert "stage9-v1" in cache_step["with"]["key"]
     assert "hashFiles" in cache_step["with"]["key"]
     assert "LLM_MODEL" in cache_step["with"]["key"]
 
@@ -106,7 +106,15 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
         step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")
     )
     assert pages["with"]["path"] == "outputs/daily/viewer"
-    assert manifest["with"]["path"] == "outputs/daily/run-manifest.json"
+    run_paths = tuple(
+        line.strip()
+        for line in manifest["with"]["path"].splitlines()
+        if line.strip()
+    )
+    assert run_paths == (
+        "outputs/daily/run-manifest.json",
+        "outputs/daily/run-metrics.json",
+    )
     assert "Verify reviewed viewer artifact" in tuple(step["name"] for step in steps)
     assert "cache/workflow" not in cache_paths
 
@@ -115,6 +123,8 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     assert "RunManifest" in review["run"]
     assert "ArtifactAuditor" in review["run"]
     assert "published_count" in review["run"]
+    assert "sidecar_hash" in review["run"]
+    assert "run-metrics.json" in review["run"]
     assert pages["if"] == "${{ steps.review.outputs.pages_ready == 'true' }}"
     assert workflow["jobs"]["daily"]["outputs"]["pages_ready"] == "${{ steps.review.outputs.pages_ready }}"
     assert "needs.daily.outputs.pages_ready == 'true'" in workflow["jobs"]["deploy"]["if"]
@@ -180,6 +190,8 @@ def test_ci_preserves_full_upstream_coverage_and_adds_stage7_static_tests() -> N
     assert "uv sync --frozen" in raw
     assert 'pytest -m "" --cov=src/zotero_arxiv_daily --cov-report=term-missing' in raw
     assert "pytest tests/workflows tests/pipeline/test_daily" in raw
+    assert "Validate Stage 9 offline budgets" in raw
+    assert "tests/benchmarks tests/observability" in raw
 
 
 def test_unsafe_legacy_scheduled_or_write_workflows_are_removed() -> None:

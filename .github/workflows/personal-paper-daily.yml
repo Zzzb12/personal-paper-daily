@@ -54,7 +54,7 @@ jobs:
             cache/embeddings
             cache/documents
             models/docling
-          key: personal-paper-daily-stage7-v1-${{ runner.os }}-${{ hashFiles('uv.lock', 'config/base.yaml', 'src/zotero_arxiv_daily/**/*.py') }}-${{ vars.LLM_MODEL }}
+          key: personal-paper-daily-stage9-v1-${{ runner.os }}-${{ hashFiles('uv.lock', 'config/base.yaml', 'src/zotero_arxiv_daily/**/*.py') }}-${{ vars.LLM_MODEL }}
 
       - name: Restore append-only delivery ledger
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684
@@ -131,6 +131,7 @@ jobs:
         shell: bash
         run: |
           uv run python - <<'PY'
+          import hashlib
           import os
           from pathlib import Path
 
@@ -141,6 +142,13 @@ jobs:
           manifest = RunManifest.model_validate_json(
               (run_root / "run-manifest.json").read_text(encoding="utf-8")
           )
+          metrics_path = run_root / "run-metrics.json"
+          if manifest.metrics.status == "success":
+              metrics_payload = metrics_path.read_bytes()
+              if hashlib.sha256(metrics_payload).hexdigest() != manifest.metrics.sidecar_hash:
+                  raise SystemExit("run metrics hash differs from the run manifest")
+          elif metrics_path.exists():
+              raise SystemExit("unsuccessful metrics result must not expose a sidecar")
           core_failed = any(
               stage.status == "failed" and stage.name != "feishu"
               for stage in manifest.stages
@@ -161,12 +169,14 @@ jobs:
               output.write(f"pages_ready={'true' if pages_ready else 'false'}\n")
           PY
 
-      - name: Upload safe run manifest
+      - name: Upload safe private run records
         if: ${{ always() && hashFiles('outputs/daily/run-manifest.json') != '' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: personal-paper-daily-run-manifest-${{ github.run_id }}-${{ github.run_attempt }}
-          path: outputs/daily/run-manifest.json
+          path: |
+            outputs/daily/run-manifest.json
+            outputs/daily/run-metrics.json
           if-no-files-found: error
           retention-days: 14
 
