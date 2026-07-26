@@ -38,11 +38,11 @@
 - `BudgetEvaluation` stores only fixed boolean/limit/observed integer fields.
 - `RunMetrics` validates ordered stage metrics and recomputes every aggregate from its children.
 
-- [ ] Write RED tests for valid minimal/full models, frozen instances, unknown fields, booleans masquerading as integers, negative/oversized values, unsafe/duplicate errors, invalid hashes, wrong stage order, aggregate mismatch, configured/unconfigured pricing, rounding, and canonical JSON determinism.
-- [ ] Add a recursive serialization privacy test rejecting keys or values matching credential, prompt, response, paper text/ID, URL, path, hostname, username, and dynamic exception markers.
-- [ ] Run `uv run pytest tests/observability/test_metrics.py -q` and confirm collection fails because the module does not exist.
-- [ ] Implement `StrictModel` subclasses, safe validators, canonical hash helpers, cost calculation, budget constants, and aggregate cross-field validation without free-form metadata.
-- [ ] Rerun the focused test plus `tests/pipeline/test_daily_schemas.py -q`; commit `feat: define privacy-safe run metrics`.
+- [x] Write RED tests for valid minimal/full models, frozen instances, unknown fields, booleans masquerading as integers, negative/oversized values, unsafe/duplicate errors, invalid hashes, wrong stage order, aggregate mismatch, configured/unconfigured pricing, rounding, and canonical JSON determinism.
+- [x] Add a recursive serialization privacy test rejecting keys or values matching credential, prompt, response, paper text/ID, URL, path, hostname, username, and dynamic exception markers.
+- [x] Run `uv run pytest tests/observability/test_metrics.py -q` and confirm collection fails because the module does not exist.
+- [x] Implement `StrictModel` subclasses, safe validators, canonical hash helpers, cost calculation, budget constants, and aggregate cross-field validation without free-form metadata.
+- [x] Rerun the focused test plus `tests/pipeline/test_daily_schemas.py -q`; commit `feat: define privacy-safe run metrics`.
 
 ### Task 2: Add deterministic collection and atomic fixed-root persistence
 
