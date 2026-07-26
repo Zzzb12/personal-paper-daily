@@ -19,6 +19,10 @@ from zotero_arxiv_daily.analysis.schemas import (
     StrictModel,
 )
 from zotero_arxiv_daily.reranker.base import weighted_similarity_scores
+from zotero_arxiv_daily.viewer.feedback import (
+    InterestFeedbackProjection,
+    normalize_feedback_paper_id,
+)
 
 
 class EmbeddingIdentity(StrictModel):
@@ -229,6 +233,8 @@ class CachedEmbeddingProvider:
 
 class CandidateRanker:
     SCORER_VERSION = "weighted-cosine-v1"
+    SCORE_MIN = -10.0
+    SCORE_MAX = 10.0
 
     def __init__(self, provider: EmbeddingProvider) -> None:
         self.provider = provider
@@ -252,19 +258,53 @@ class CandidateRanker:
         candidates: Sequence[CandidatePaper],
         interests: Sequence[InterestPaper],
         limits: RankingLimits | None = None,
+        feedback: InterestFeedbackProjection | None = None,
     ) -> RankedCandidates:
         limits = limits or RankingLimits()
+        try:
+            projection = (
+                InterestFeedbackProjection()
+                if feedback is None
+                else InterestFeedbackProjection.model_validate(feedback)
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError("feedback projection rejected") from error
         ordered_interests = tuple(sorted(interests, key=lambda paper: paper.added_at, reverse=True))
         if not ordered_interests:
             raise ValueError("interest corpus must not be empty")
-        if not candidates:
+        eligible_candidates = tuple(
+            paper
+            for paper in candidates
+            if normalize_feedback_paper_id(paper.arxiv_id) not in projection.irrelevant_ids
+        )
+        if not eligible_candidates:
             return RankedCandidates(
                 candidates=(), rankings=(), selected_for_llm=(), selected_for_full_analysis=()
             )
-        candidate_vectors = np.asarray(self.provider.encode(tuple(self._text(p) for p in candidates)))
+        candidate_vectors = np.asarray(
+            self.provider.encode(tuple(self._text(p) for p in eligible_candidates))
+        )
         interest_vectors = np.asarray(self.provider.encode(tuple(self._text(p) for p in ordered_interests)))
         scores = weighted_similarity_scores(self._cosine(candidate_vectors, interest_vectors))
-        ordered = sorted(zip(candidates, scores, strict=True), key=lambda item: (-item[1], item[0].paper_id))
+        scored = tuple(
+            (
+                paper,
+                min(
+                    self.SCORE_MAX,
+                    max(
+                        self.SCORE_MIN,
+                        float(score)
+                        + (
+                            projection.favorite_delta
+                            if normalize_feedback_paper_id(paper.arxiv_id) in projection.favorite_ids
+                            else 0.0
+                        ),
+                    ),
+                ),
+            )
+            for paper, score in zip(eligible_candidates, scores, strict=True)
+        )
+        ordered = sorted(scored, key=lambda item: (-item[1], item[0].paper_id))
         ordered = ordered[: limits.candidate_pool_size]
         versions = RankingModelVersions(
             provider=self.provider.identity.provider,
@@ -280,7 +320,12 @@ class CandidateRanker:
                 embedding_score=float(score),
                 final_score=float(score),
                 rank=index,
-                reason="embedding similarity to the Zotero interest corpus",
+                reason=(
+                    "embedding similarity to the Zotero interest corpus; "
+                    "explicit feedback adjustment applied"
+                    if normalize_feedback_paper_id(paper.arxiv_id) in projection.favorite_ids
+                    else "embedding similarity to the Zotero interest corpus"
+                ),
                 model_versions=versions,
             )
             for index, (paper, score) in enumerate(ordered, start=1)

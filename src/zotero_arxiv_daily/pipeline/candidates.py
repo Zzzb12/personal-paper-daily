@@ -25,7 +25,12 @@ from zotero_arxiv_daily.candidates.ranking import (
     RankingLimits,
     SentenceTransformerEmbeddingProvider,
 )
+from zotero_arxiv_daily.candidates.feedback import (
+    FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION,
+    FeedbackProjectionLoader,
+)
 from zotero_arxiv_daily.candidates.store import CandidateStore
+from zotero_arxiv_daily.viewer.feedback import InterestFeedbackProjection
 from zotero_arxiv_daily.interest.base import (
     InterestReadResult,
     ZoteroCollection,
@@ -54,7 +59,13 @@ class MetadataRetriever(Protocol):
 
 
 class Ranker(Protocol):
-    def rank(self, candidates: Sequence[Any], interests: Sequence[Any], limits: RankingLimits) -> RankedCandidates: ...
+    def rank(
+        self,
+        candidates: Sequence[Any],
+        interests: Sequence[Any],
+        limits: RankingLimits,
+        feedback: InterestFeedbackProjection | None = None,
+    ) -> RankedCandidates: ...
 
 
 class Store(Protocol):
@@ -73,6 +84,8 @@ class CandidatePipelineSettings(StrictModel):
     full_analysis_limit: int = Field(default=5, ge=1, le=5)
     output_dir: Path = Path("data/candidates")
     embedding_cache_dir: Path = Path("cache/embeddings")
+    feedback_store_path: Path | None = None
+    feedback_favorite_delta: float = Field(default=0.05, ge=0.0, le=0.10)
     dry_run: bool = False
 
     def ranking_limits(self) -> RankingLimits:
@@ -83,7 +96,12 @@ class CandidatePipelineSettings(StrictModel):
         )
 
     def config_hash(self, embedding_identity_hash: str | None = None) -> str:
-        configuration = self.model_dump(mode="json", exclude={"dry_run"})
+        configuration = self.model_dump(
+            mode="json", exclude={"dry_run", "feedback_store_path"}
+        )
+        configuration["feedback_projection_implementation_version"] = (
+            FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION
+        )
         configuration["embedding_identity_hash"] = embedding_identity_hash
         payload = json.dumps(
             configuration,
@@ -100,6 +118,7 @@ class CandidatePipelineDependencies:
     ranker: Ranker
     store: Store
     run_id_factory: Callable[[datetime], str]
+    feedback: InterestFeedbackProjection = InterestFeedbackProjection()
     close_callbacks: tuple[Callable[[], None], ...] = ()
 
     def close(self) -> None:
@@ -117,7 +136,10 @@ def build_candidate_batch(
         raise EmptyInterestCorpusError("no eligible Zotero interest papers")
     metadata = dependencies.arxiv_retriever.retrieve()
     ranked = dependencies.ranker.rank(
-        metadata.candidates, interests.papers, settings.ranking_limits()
+        metadata.candidates,
+        interests.papers,
+        settings.ranking_limits(),
+        feedback=dependencies.feedback,
     )
     now = clock()
     provider = getattr(dependencies.ranker, "provider", None)
@@ -206,6 +228,7 @@ def _offline_dependencies(fixture: dict[str, Any]) -> CandidatePipelineDependenc
         ranker=CandidateRanker(_FixtureEmbeddings(fixture)),
         store=CandidateStore(Path("data/candidates")),
         run_id_factory=lambda value: value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"),
+        feedback=InterestFeedbackProjection(),
     )
 
 
@@ -227,6 +250,16 @@ def build_production_pipeline(
         raise RuntimeError("ZOTERO_ID and ZOTERO_KEY must be set in the process environment")
 
     config = _merged_config(Path(config_dir))
+    feedback_config = config.candidate_pipeline.feedback
+    configured_feedback_path = feedback_config.store_path
+    feedback_path = (
+        None if configured_feedback_path is None else Path(str(configured_feedback_path))
+    )
+    feedback = FeedbackProjectionLoader.from_optional_path(
+        feedback_path,
+        root=Path.cwd(),
+        favorite_delta=float(feedback_config.favorite_delta),
+    ).load()
     timeout_values = OmegaConf.to_container(config.candidate_pipeline.request_timeout, resolve=True)
     retry_values = OmegaConf.to_container(config.candidate_pipeline.retry, resolve=True)
     timeout = httpx.Timeout(**timeout_values)
@@ -267,6 +300,8 @@ def build_production_pipeline(
         full_analysis_limit=int(config.candidate_pipeline.full_analysis_limit),
         output_dir=Path(str(config.candidate_pipeline.output_dir)),
         embedding_cache_dir=Path(str(config.candidate_pipeline.embedding_cache_dir)),
+        feedback_store_path=feedback_path,
+        feedback_favorite_delta=float(feedback_config.favorite_delta),
         dry_run=dry_run,
     )
     ranking_provider = (
@@ -290,6 +325,7 @@ def build_production_pipeline(
         ranker=CandidateRanker(ranking_provider),
         store=CandidateStore(settings.output_dir),
         run_id_factory=lambda value: value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"),
+        feedback=feedback,
         close_callbacks=(zotero_gateway.close, arxiv_gateway.close),
     )
     return settings, dependencies

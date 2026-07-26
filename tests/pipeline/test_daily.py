@@ -207,6 +207,30 @@ def test_empty_candidates_stop_without_calling_expensive_or_delivery_stages(tmp_
     assert manifest.feishu.status == "skipped"
 
 
+def test_feedback_vetoed_candidates_never_reach_document_analysis_validation_viewer_or_feishu(
+    tmp_path: Path,
+) -> None:
+    order: list[str] = []
+    dependencies = _dependencies(tmp_path, _inputs(1), order=order)
+    vetoed = _candidate_batch(_inputs(1)).model_copy(
+        update={
+            "candidates": (),
+            "rankings": (),
+            "selected_for_llm": (),
+            "selected_for_full_analysis": (),
+        }
+    )
+    dependencies.candidate_runner = lambda: (order.append("candidates") or vetoed)
+
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert order == ["candidates"]
+    assert manifest.status == "empty"
+    serialized = dependencies.manifest_store.output.read_text(encoding="utf-8")
+    assert "feedback" not in serialized
+    assert "2401." not in serialized
+
+
 def test_one_paper_failure_keeps_successful_paper_and_marks_partial(tmp_path: Path) -> None:
     items = _inputs(2)
     original_documents = _document_batch(items)

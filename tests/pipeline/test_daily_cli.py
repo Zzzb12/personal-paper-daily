@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from zotero_arxiv_daily.pipeline import daily
+from zotero_arxiv_daily.pipeline import candidates
 from zotero_arxiv_daily.pipeline.daily import DailyFactoryContext
 from tests.pipeline.test_daily import _dependencies
 from tests.pipeline.test_validation import _inputs
@@ -79,6 +80,25 @@ def test_default_dry_run_constructs_no_production_network_or_send_boundary(
 
     assert "send_feishu" not in events
     assert events[-1] == "closed"
+
+
+def test_offline_daily_mode_does_not_construct_or_read_a_feedback_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        candidates.FeedbackProjectionLoader,
+        "load",
+        lambda self: pytest.fail("dry-run must not read feedback storage"),
+    )
+
+    result = daily.main(
+        _arguments(tmp_path),
+        environ={},
+        clock=lambda: NOW,
+        production_factory=lambda context: pytest.fail("production factory was called"),
+    )
+
+    assert result == 0
 
 
 @pytest.mark.parametrize("abbreviation", ("--trig", "--off", "--send-fei"))

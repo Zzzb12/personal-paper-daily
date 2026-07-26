@@ -1,4 +1,5 @@
 import json
+import shutil
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
@@ -9,6 +10,7 @@ from omegaconf import OmegaConf
 
 from zotero_arxiv_daily.analysis.schemas import CandidatePaper, InterestPaper
 from zotero_arxiv_daily.candidates.ranking import CandidateRanker, EmbeddingIdentity
+from zotero_arxiv_daily.viewer.feedback import InterestFeedbackProjection
 from zotero_arxiv_daily.interest.base import InterestReadResult
 from zotero_arxiv_daily.pipeline.candidates import (
     CandidatePipelineDependencies,
@@ -137,6 +139,39 @@ def test_dry_run_does_not_change_ranking_config_hash():
     assert dry.config_hash == persistent.config_hash
 
 
+def test_feedback_veto_reaches_candidate_pipeline_before_embedding_or_selection():
+    blocked, allowed = candidate(1), candidate(2)
+
+    class RecordingEmbeddings(DeterministicEmbeddings):
+        def __init__(self):
+            self.calls = []
+
+        def encode(self, texts):
+            self.calls.append(tuple(texts))
+            return super().encode(texts)
+
+    provider = RecordingEmbeddings()
+    deps = dependencies(papers=(blocked, allowed))
+    deps.ranker = CandidateRanker(provider)
+    deps.feedback = InterestFeedbackProjection(irrelevant_ids=("2401.00001v4",))
+
+    batch = build_candidate_batch(CandidatePipelineSettings(dry_run=True), deps, lambda: NOW)
+
+    assert [paper.paper_id for paper in batch.candidates] == [allowed.paper_id]
+    assert all("Candidate 1" not in text for call in provider.calls for text in call)
+    assert batch.selected_for_full_analysis == (allowed.paper_id,)
+
+
+def test_candidate_config_hash_binds_feedback_implementation_and_delta_not_projection_content():
+    common = dict(dry_run=True, feedback_favorite_delta=0.05)
+    left = CandidatePipelineSettings(**common)
+    right = CandidatePipelineSettings(**common)
+    changed = CandidatePipelineSettings(dry_run=True, feedback_favorite_delta=0.10)
+
+    assert left.config_hash() == right.config_hash()
+    assert left.config_hash() != changed.config_hash()
+
+
 def test_empty_interest_corpus_fails_before_metadata_or_embeddings():
     deps = dependencies(interests=())
     deps.arxiv_retriever = Mock()
@@ -235,6 +270,37 @@ def test_production_dry_run_does_not_construct_writable_embedding_cache(monkeypa
         deps.close()
 
 
+def test_configured_corrupt_feedback_store_fails_before_live_clients_and_without_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    project_config = Path(__file__).parents[2] / "config"
+    shutil.copy(project_config / "base.yaml", config_dir / "base.yaml")
+    (tmp_path / "private-feedback.json").write_text(
+        "private feedback content", encoding="utf-8"
+    )
+    (config_dir / "custom.yaml").write_text(
+        "candidate_pipeline:\n  feedback:\n    store_path: private-feedback.json\n    favorite_delta: 0.05\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.candidates.PyzoteroGateway.from_credentials",
+        lambda *args, **kwargs: pytest.fail("clients must not be constructed"),
+    )
+
+    with pytest.raises(Exception) as error:
+        build_production_pipeline(
+            config_dir,
+            environ={"ZOTERO_ID": "synthetic-id", "ZOTERO_KEY": "synthetic-key"},
+            dry_run=False,
+        )
+
+    assert str(error.value) == "feedback projection rejected"
+    assert "private feedback content" not in str(error.value)
+
+
 def test_production_cli_mode_runs_without_offline_fixture(monkeypatch, capsys):
     deps = dependencies()
     deps.close = Mock()
@@ -259,6 +325,7 @@ def test_config_contains_exact_stage_one_defaults():
     assert OmegaConf.to_container(base.candidate_pipeline, resolve=True) == {
         "candidate_pool_size": 30, "llm_rerank_limit": 15, "full_analysis_limit": 5,
         "output_dir": "data/candidates", "embedding_cache_dir": "cache/embeddings",
+        "feedback": {"store_path": None, "favorite_delta": 0.05},
         "request_timeout": {"connect": 10, "read": 30, "write": 10, "pool": 10},
         "retry": {"max_attempts": 3, "backoff_seconds": 1, "max_retry_after_seconds": 60},
     }

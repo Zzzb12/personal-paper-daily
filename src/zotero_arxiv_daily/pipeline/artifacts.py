@@ -16,7 +16,7 @@ from zotero_arxiv_daily.viewer.schemas import BuildManifest
 
 
 _ALLOWED_ARTIFACT_SUFFIXES = frozenset(
-    {".html", ".css", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".json"}
+    {".html", ".css", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".json", ".js"}
 )
 _ALLOWED_EVIDENCE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 _FORBIDDEN_PARTS = frozenset(
@@ -235,6 +235,7 @@ class ArtifactAuditor:
             any(part in _FORBIDDEN_PARTS or part.startswith(".env.") for part in lowered_parts)
             or suffix in _FORBIDDEN_SUFFIXES
             or suffix not in _ALLOWED_ARTIFACT_SUFFIXES
+            or (suffix == ".js" and relative != "assets/feedback.js")
         ):
             raise ValueError("artifact contains a forbidden path")
         is_evidence_image = (

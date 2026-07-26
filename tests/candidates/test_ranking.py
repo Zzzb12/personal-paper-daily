@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
+import pytest
 
 from zotero_arxiv_daily.analysis.schemas import CandidatePaper, InterestPaper
 from zotero_arxiv_daily.candidates.ranking import (
@@ -8,6 +9,7 @@ from zotero_arxiv_daily.candidates.ranking import (
     EmbeddingIdentity,
     RankingLimits,
 )
+from zotero_arxiv_daily.viewer.feedback import InterestFeedbackProjection
 from zotero_arxiv_daily.reranker.base import weighted_similarity_scores
 
 
@@ -25,6 +27,16 @@ class FakeProvider:
 
     def encode(self, texts):
         return np.asarray([self.vectors[text] for text in texts], dtype=np.float64)
+
+
+class RecordingProvider(FakeProvider):
+    def __init__(self, vectors):
+        super().__init__(vectors)
+        self.calls = []
+
+    def encode(self, texts):
+        self.calls.append(tuple(texts))
+        return super().encode(texts)
 
 
 def interest(index=1, days=0):
@@ -84,3 +96,93 @@ def test_more_recent_interests_have_greater_weight():
     vectors = {text(recent): [1, 0], text(old): [0, 1], text(paper): [1, 0]}
     result = CandidateRanker(FakeProvider(vectors)).rank((paper,), (old, recent))
     assert result.rankings[0].embedding_score > 5
+
+
+def test_empty_projection_and_read_have_no_ranking_effect():
+    papers = (candidate(2), candidate(1))
+    seed = interest()
+    vectors = {text(seed): [1, 0], text(papers[0]): [1, 0], text(papers[1]): [1, 0]}
+    ranker = CandidateRanker(FakeProvider(vectors))
+    baseline = ranker.rank(papers, (seed,))
+    projected = ranker.rank(
+        papers, (seed,),
+        feedback=InterestFeedbackProjection(read_ids=("2401.00002",)),
+    )
+
+    assert projected == baseline
+
+
+def test_favorite_bonus_is_bounded_clamped_and_ties_by_paper_id():
+    papers = (candidate(2), candidate(1))
+    seed = interest()
+    vectors = {text(seed): [1, 0], text(papers[0]): [1, 0], text(papers[1]): [1, 0]}
+    result = CandidateRanker(FakeProvider(vectors)).rank(
+        papers,
+        (seed,),
+        feedback=InterestFeedbackProjection(
+            favorite_ids=("2401.00002v7",), favorite_delta=0.10
+        ),
+    )
+
+    assert [paper.paper_id for paper in result.candidates] == ["arxiv:2401.00001", "arxiv:2401.00002"]
+    assert [record.final_score for record in result.rankings] == [10.0, 10.0]
+    assert all(record.final_score == record.embedding_score for record in result.rankings)
+
+
+def test_favorite_adds_exact_default_delta_before_sorting():
+    normal, favorite = candidate(1), candidate(2)
+    seed = interest()
+    vectors = {
+        text(seed): [1, 0],
+        text(normal): [0.60, 0.80],
+        text(favorite): [0.599, 0.800749],
+    }
+    result = CandidateRanker(FakeProvider(vectors)).rank(
+        (normal, favorite),
+        (seed,),
+        feedback=InterestFeedbackProjection(favorite_ids=("2401.00002",)),
+    )
+
+    assert result.candidates[0].paper_id == favorite.paper_id
+    assert result.rankings[0].final_score == pytest.approx(6.04, abs=0.02)
+    assert result.rankings[0].reason == "embedding similarity to the Zotero interest corpus; explicit feedback adjustment applied"
+
+
+def test_irrelevant_version_match_is_vetoed_before_any_embedding_call():
+    blocked, allowed = candidate(1), candidate(2)
+    seed = interest()
+    vectors = {text(seed): [1, 0], text(blocked): [1, 0], text(allowed): [1, 0]}
+    provider = RecordingProvider(vectors)
+    result = CandidateRanker(provider).rank(
+        (blocked, allowed),
+        (seed,),
+        feedback=InterestFeedbackProjection(irrelevant_ids=("2401.00001v9",)),
+    )
+
+    assert [paper.paper_id for paper in result.candidates] == [allowed.paper_id]
+    assert provider.calls == [(text(allowed),), (text(seed),)]
+
+
+def test_all_irrelevant_candidates_make_zero_provider_calls():
+    blocked = candidate(1)
+    seed = interest()
+    provider = RecordingProvider({text(seed): [1, 0], text(blocked): [1, 0]})
+
+    result = CandidateRanker(provider).rank(
+        (blocked,), (seed,),
+        feedback=InterestFeedbackProjection(irrelevant_ids=("2401.00001",)),
+    )
+
+    assert result.candidates == ()
+    assert provider.calls == []
+
+
+def test_invalid_feedback_projection_is_rejected_before_provider_calls():
+    paper = candidate(1)
+    seed = interest()
+    provider = RecordingProvider({text(seed): [1, 0], text(paper): [1, 0]})
+
+    with np.testing.assert_raises_regex(ValueError, "feedback projection rejected"):
+        CandidateRanker(provider).rank((paper,), (seed,), feedback=object())
+
+    assert provider.calls == []

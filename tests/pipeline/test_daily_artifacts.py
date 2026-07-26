@@ -92,6 +92,70 @@ def test_artifact_audit_accepts_only_a_complete_viewer_and_hashes_contents(tmp_p
     assert first.build_manifest.published_count == 0
 
 
+def test_artifact_audit_allows_only_the_exact_reviewed_feedback_script(tmp_path: Path) -> None:
+    viewer = _valid_viewer(tmp_path)
+    script = viewer / "assets" / "feedback.js"
+    script.write_text("export {};", encoding="utf-8")
+    manifest = BuildManifest.model_validate_json(
+        (viewer / "build-manifest.json").read_text(encoding="utf-8")
+    ).model_copy(
+        update={
+            "written_paths": (
+                "assets/feedback.js",
+                "assets/site.css",
+                "build-manifest.json",
+                "index.html",
+            )
+        }
+    )
+    (viewer / "build-manifest.json").write_text(
+        manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+
+    audit = ArtifactAuditor(tmp_path).audit(viewer)
+
+    assert audit.file_count == 4
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "assets/other.js",
+        "assets/Feedback.js",
+        "assets/feedback.JS",
+        "assets/feedback.json",
+        "assets/feedback-store.json",
+        "assets/reader-state.json",
+        "assets/feedback.js.bak",
+    ),
+)
+def test_artifact_audit_rejects_feedback_state_and_script_path_variants(
+    tmp_path: Path, relative_path: str
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    target = viewer / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("unsafe", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        ArtifactAuditor(tmp_path).audit(viewer)
+
+
+def test_artifact_audit_rejects_a_symlinked_feedback_script(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    target = viewer / "assets" / "feedback.js"
+    target.write_text("export {};", encoding="utf-8")
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.pipeline.artifacts._is_link_or_junction",
+        lambda path: Path(path) == target,
+    )
+
+    with pytest.raises(ValueError, match="symbolic link|junction"):
+        ArtifactAuditor(tmp_path).audit(viewer)
+
+
 @pytest.mark.parametrize(
     "relative_path",
     (

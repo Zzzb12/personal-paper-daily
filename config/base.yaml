@@ -56,6 +56,9 @@ candidate_pipeline:
   full_analysis_limit: 5
   output_dir: data/candidates
   embedding_cache_dir: cache/embeddings
+  feedback:
+    store_path: null
+    favorite_delta: 0.05
   request_timeout: {connect: 10, read: 30, write: 10, pool: 10}
   retry: {max_attempts: 3, backoff_seconds: 1, max_retry_after_seconds: 60}
 
