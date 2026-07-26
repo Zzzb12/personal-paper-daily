@@ -163,11 +163,11 @@
 - CLI `python -m tools.benchmarks.run_stage9_benchmark --output outputs/stage9/baseline.json` uses `allow_abbrev=False`, returns nonzero on a failed budget, and prints only fixed status/count/duration fields.
 - Raw generated reports remain ignored; the benchmark never imports a local embedding model or constructs a real HTTP/LLM/Feishu client.
 
-- [ ] Write RED tests for exact 30/15/5, at least nine observations, deterministic non-timing fields, percentile/quartile math, generous runtime/memory thresholds, zero network/paid calls, configured output ceiling ≤40,960, attempts ≤15, calls ≤5, budget nonzero exit, report privacy, and no viewer contamination.
-- [ ] Add monkeypatch tripwires for `httpx.Client`, OpenAI construction, socket creation, real sleep, and Feishu send.
-- [ ] Run `uv run pytest tests/benchmarks/test_stage9_benchmark.py -q` and confirm missing-module RED.
-- [ ] Implement the benchmark runner, strict report model, budget evaluator and safe CLI; add only generated `outputs/stage9/` to `.gitignore`.
-- [ ] Rerun all `tests/benchmarks tests/observability -q`; commit `feat: add offline stage 9 benchmark gate`.
+- [x] Write RED tests for exact 30/15/5, at least nine observations, deterministic non-timing fields, percentile/quartile math, generous runtime/memory thresholds, zero network/paid calls, configured output ceiling ≤40,960, attempts ≤15, calls ≤5, budget nonzero exit, report privacy, and no viewer contamination.
+- [x] Add monkeypatch tripwires for `httpx.Client`, OpenAI construction, socket creation, real sleep, and Feishu send.
+- [x] Run `uv run pytest tests/benchmarks/test_stage9_benchmark.py -q` and confirm missing-module RED.
+- [x] Implement the benchmark runner, strict report model, budget evaluator and safe CLI; retain generated `outputs/stage9/` under the existing repository-wide ignored `outputs` boundary.
+- [x] Rerun all `tests/benchmarks tests/observability -q`; commit `feat: add offline stage 9 benchmark gate`.
 
 ### Task 8: Keep workflow uploads private and add a bounded CI gate
 
