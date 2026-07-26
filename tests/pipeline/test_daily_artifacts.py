@@ -168,6 +168,30 @@ def test_artifact_audit_rejects_declared_feedback_state_bundle_and_snapshot_vari
 @pytest.mark.parametrize(
     "relative_path",
     (
+        ".env",
+        "assets/cache/site.css",
+        "assets/PRIVATE/site.css",
+        "assets/Zotero/site.css",
+        "assets/archive/site.css",
+        "assets/migration/backup.css",
+        "assets/feedback-store/site.css",
+        "assets/nested/BUNDLE/site.css",
+        "assets/browser-state/site.css",
+    ),
+)
+def test_artifact_audit_rejects_private_seed_basenames_and_path_segments(
+    tmp_path: Path, relative_path: str
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    _write_declared_viewer_file(viewer, relative_path)
+
+    with pytest.raises(ValueError, match="artifact contains a forbidden path"):
+        ArtifactAuditor(tmp_path).audit(viewer)
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
         "assets/reader-bundle.json",
         "assets/Reader-Bundle.JSON",
         "assets/export.snapshot.json",

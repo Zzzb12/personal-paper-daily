@@ -220,6 +220,23 @@ def test_daily_config_hash_uses_final_merged_mapping_and_safely_rejects_invalid_
     assert invalid_private not in str(error.value)
 
 
+def test_prune_empty_configuration_keeps_explicit_empty_lists_hash_distinct_from_absence(
+    tmp_path: Path,
+) -> None:
+    redacted = {"candidate_pipeline": {"feedback": {}}}
+    absent = _merged_feedback_hash(tmp_path / "absent")
+    explicit_empty_list = _merged_feedback_hash(
+        tmp_path / "explicit-empty-list",
+        custom="candidate_pipeline:\n  retained_empty_list: []\n",
+    )
+
+    assert daily._prune_empty_configuration(redacted) is daily._PRUNED_CONFIGURATION_VALUE
+    assert daily._prune_empty_configuration({"source": {"categories": []}}) == {
+        "source": {"categories": []}
+    }
+    assert absent != explicit_empty_list
+
+
 def test_corrupt_configured_feedback_store_writes_safe_failed_manifest_before_clients(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

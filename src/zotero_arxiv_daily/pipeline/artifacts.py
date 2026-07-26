@@ -36,7 +36,19 @@ _FORBIDDEN_SUFFIXES = frozenset(
 )
 _REVIEWED_FEEDBACK_SCRIPT = "assets/feedback.js"
 _FEEDBACK_STATE_SIGNALS = frozenset(
-    {"feedback", "state", "favorite", "localstorage", "browser"}
+    {
+        "archive",
+        "backup",
+        "browser",
+        "bundle",
+        "feedback",
+        "favorite",
+        "localstorage",
+        "migration",
+        "snapshot",
+        "state",
+        "store",
+    }
 )
 
 

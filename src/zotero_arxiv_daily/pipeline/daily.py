@@ -603,7 +603,7 @@ def _prune_empty_configuration(value: object) -> object:
             for item in value
             if (child := _prune_empty_configuration(item)) is not _PRUNED_CONFIGURATION_VALUE
         ]
-        return cleaned if cleaned else _PRUNED_CONFIGURATION_VALUE
+        return cleaned
     return value
 
 
