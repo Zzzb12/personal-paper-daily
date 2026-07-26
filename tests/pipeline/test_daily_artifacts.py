@@ -117,6 +117,54 @@ def test_artifact_audit_allows_only_the_exact_reviewed_feedback_script(tmp_path:
     assert audit.file_count == 4
 
 
+def _write_declared_viewer_file(viewer: Path, relative_path: str) -> None:
+    target = viewer / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("unsafe", encoding="utf-8")
+    manifest = BuildManifest.model_validate_json(
+        (viewer / "build-manifest.json").read_text(encoding="utf-8")
+    ).model_copy(
+        update={
+            "written_paths": tuple(
+                sorted(
+                    {
+                        *BuildManifest.model_validate_json(
+                            (viewer / "build-manifest.json").read_text(encoding="utf-8")
+                        ).written_paths,
+                        relative_path,
+                    }
+                )
+            )
+        }
+    )
+    (viewer / "build-manifest.json").write_text(
+        manifest.model_dump_json(indent=2) + "\n", encoding="utf-8"
+    )
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "assets/feedback-store.json",
+        "assets/feedback.bundle.json",
+        "assets/feedback_export.json",
+        "assets/Feedback-Export.json",
+        "assets/nested/reader-state.snapshot.json",
+        "assets/nested/FAVORITES-backup.json",
+        "assets/browser/localStorage-snapshot.json",
+        "assets/browser/STATE/cache.json",
+    ),
+)
+def test_artifact_audit_rejects_declared_feedback_state_bundle_and_snapshot_variants(
+    tmp_path: Path, relative_path: str
+) -> None:
+    viewer = _valid_viewer(tmp_path)
+    _write_declared_viewer_file(viewer, relative_path)
+
+    with pytest.raises(ValueError, match="artifact contains a forbidden path"):
+        ArtifactAuditor(tmp_path).audit(viewer)
+
+
 @pytest.mark.parametrize(
     "relative_path",
     (

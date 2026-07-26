@@ -18,6 +18,10 @@ from zotero_arxiv_daily.analysis.document_schemas import DocumentBatchResult
 from zotero_arxiv_daily.analysis.paper_schemas import AnalysisBatchResult, EvidencePacket
 from zotero_arxiv_daily.analysis.schemas import CandidateBatch, StrictModel, validate_run_id_value
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationBatchResult
+from zotero_arxiv_daily.candidates.feedback import (
+    FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION,
+    FeedbackProjectionError,
+)
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
 from zotero_arxiv_daily.pipeline.artifacts import (
     ArtifactAudit,
@@ -145,6 +149,19 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
 
     try:
         candidates = dependencies.candidate_runner()
+    except FeedbackProjectionError:
+        stages.append(_failed_stage("candidates", "feedback_projection_rejected"))
+        stages.extend(_skipped_stages(start_at=1))
+        return _finish(
+            settings,
+            dependencies,
+            started_at,
+            stages,
+            counts,
+            static_site,
+            feishu,
+            status="failed",
+        )
     except Exception:
         stages.append(_failed_stage("candidates", "candidate_stage_failed"))
         stages.extend(_skipped_stages(start_at=1))
@@ -578,14 +595,33 @@ def _configuration_hash(
     fixture: Path | None,
     environment: Mapping[str, str],
 ) -> str:
+    from omegaconf import OmegaConf
+
     digest = hashlib.sha256()
     digest.update(b"stage7-v1\0")
+    digest.update(FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION.encode("utf-8"))
+    digest.update(b"\0")
     for name in ("base.yaml", "custom.yaml"):
         path = Path(config_dir) / name
         if path.exists():
+            configuration = OmegaConf.to_container(OmegaConf.load(path), resolve=False)
+            if not isinstance(configuration, dict):
+                raise ValueError("daily configuration must be a mapping")
+            candidate_pipeline = configuration.get("candidate_pipeline")
+            if isinstance(candidate_pipeline, dict):
+                feedback = candidate_pipeline.get("feedback")
+                if isinstance(feedback, dict):
+                    feedback.pop("store_path", None)
             digest.update(name.encode("utf-8"))
             digest.update(b"\0")
-            digest.update(path.read_bytes())
+            digest.update(
+                json.dumps(
+                    configuration,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
             digest.update(b"\0")
     digest.update(mode.encode("ascii"))
     digest.update(b"\0")
@@ -653,6 +689,31 @@ class _NoWriteValidationCache:
 
     def write(self, identity: Any, validated: Any) -> None:
         return None
+
+
+def _feedback_rejected_daily_dependencies(context: DailyFactoryContext) -> DailyDependencies:
+    """Return a local-only shell that records a configured feedback-store rejection."""
+
+    def reject_candidates() -> CandidateBatch:
+        raise FeedbackProjectionError()
+
+    def unreachable(*_: Any) -> Any:
+        raise AssertionError("feedback-rejected run must stop after candidates")
+
+    return DailyDependencies(
+        candidate_runner=reject_candidates,
+        document_runner=unreachable,
+        analysis_runner=unreachable,
+        validation_runner=unreachable,
+        viewer_runner=unreachable,
+        prepare_delivery=unreachable,
+        send_delivery=unreachable,
+        manifest_store=ManifestStore(context.run_root, context.manifest_output),
+        artifact_auditor=ArtifactAuditor(context.run_root),
+        delivery_ledger=DeliveryLedger(context.run_root / "delivery-ledger.json"),
+        clock=lambda: datetime.now(UTC),
+        sleep=lambda _: None,
+    )
 
 
 def build_offline_daily_dependencies(context: DailyFactoryContext) -> DailyDependencies:
@@ -801,17 +862,17 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
         custom_path = context.config_dir / "custom.yaml"
         if custom_path.exists():
             config = OmegaConf.merge(config, OmegaConf.load(custom_path))
-        document_config = config.document_pipeline
-        docling_artifacts_path = _require_docling_artifacts(
-            Path(str(document_config.docling_artifacts_path))
-        )
-
         candidate_settings, candidate_dependencies = build_production_pipeline(
             context.config_dir,
             environ=dict(context.environment),
             dry_run=False,
         )
         callbacks.append(candidate_dependencies.close)
+
+        document_config = config.document_pipeline
+        docling_artifacts_path = _require_docling_artifacts(
+            Path(str(document_config.docling_artifacts_path))
+        )
 
         document_timeout = OmegaConf.to_container(
             document_config.request_timeout, resolve=True
@@ -870,6 +931,10 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
             build_version=str(viewer_config.build_version),
             template_version=str(viewer_config.template_version),
         )
+    except FeedbackProjectionError:
+        for callback in reversed(callbacks):
+            callback()
+        return _feedback_rejected_daily_dependencies(context)
     except Exception:
         for callback in reversed(callbacks):
             callback()
@@ -1080,7 +1145,7 @@ def main(
         f"delivered={manifest.counts.delivered_count} "
         f"artifact_hash={manifest.artifact_hash or 'none'}"
     )
-    return 0
+    return 1 if "feedback_projection_rejected" in manifest.error_codes else 0
 
 
 __all__ = [

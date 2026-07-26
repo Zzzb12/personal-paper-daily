@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -99,6 +101,129 @@ def test_offline_daily_mode_does_not_construct_or_read_a_feedback_store(
     )
 
     assert result == 0
+
+
+def _feedback_config_hash(
+    root: Path, *, store_path: str, favorite_delta: float
+) -> str:
+    config_dir = root / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "base.yaml").write_text(
+        "candidate_pipeline:\n"
+        "  feedback:\n"
+        f"    store_path: {store_path}\n"
+        f"    favorite_delta: {favorite_delta}\n",
+        encoding="utf-8",
+    )
+    return daily._configuration_hash(
+        config_dir,
+        mode="live",
+        fixture=None,
+        environment={
+            "LLM_BASE_URL": "https://llm.example.test/v1",
+            "LLM_MODEL": "model-v1",
+            "PAPER_DAILY_SITE_URL": "https://papers.example.test/",
+        },
+    )
+
+
+def test_daily_config_hash_omits_feedback_store_path_but_binds_delta_and_implementation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _feedback_config_hash(
+        tmp_path / "first", store_path="private-a.json", favorite_delta=0.05
+    )
+    second = _feedback_config_hash(
+        tmp_path / "second", store_path="private-b.json", favorite_delta=0.05
+    )
+    changed_delta = _feedback_config_hash(
+        tmp_path / "delta", store_path="private-a.json", favorite_delta=0.10
+    )
+    monkeypatch.setattr(
+        daily, "FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION", "different-version", raising=False
+    )
+    changed_implementation = _feedback_config_hash(
+        tmp_path / "implementation", store_path="private-a.json", favorite_delta=0.05
+    )
+
+    assert first == second
+    assert first != changed_delta
+    assert first != changed_implementation
+
+
+def test_corrupt_configured_feedback_store_writes_safe_failed_manifest_before_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    project_config = Path(__file__).parents[2] / "config"
+    shutil.copy(project_config / "base.yaml", config_dir / "base.yaml")
+    private_name = "private-feedback-2401.00001.json"
+    (tmp_path / private_name).write_text("private feedback body", encoding="utf-8")
+    (config_dir / "custom.yaml").write_text(
+        "candidate_pipeline:\n"
+        "  feedback:\n"
+        f"    store_path: {private_name}\n"
+        "    favorite_delta: 0.05\n",
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        candidates.PyzoteroGateway,
+        "from_credentials",
+        lambda *args, **kwargs: calls.append("zotero"),
+    )
+    monkeypatch.setattr(
+        candidates.HttpArxivMetadataGateway,
+        "from_defaults",
+        lambda **kwargs: calls.append("arxiv"),
+    )
+    monkeypatch.setattr(
+        candidates,
+        "SentenceTransformerEmbeddingProvider",
+        lambda **kwargs: calls.append("embedding"),
+    )
+    run_root = tmp_path / "run"
+    manifest_path = run_root / "run-manifest.json"
+    environment = {
+        "ZOTERO_ID": "configured",
+        "ZOTERO_KEY": "configured",
+        "LLM_API_KEY": "configured",
+        "LLM_BASE_URL": "https://llm.example.test/v1",
+        "LLM_MODEL": "model-v1",
+        "PAPER_DAILY_SITE_URL": "https://papers.example.test/",
+    }
+
+    result = daily.main(
+        [
+            "--mode", "live", "--config-dir", str(config_dir), "--run-id", "run-feedback-rejected",
+            "--run-root", str(run_root), "--viewer-output", str(run_root / "viewer"),
+            "--manifest-output", str(manifest_path),
+        ],
+        environ=environment,
+        clock=lambda: NOW,
+    )
+
+    serialized = manifest_path.read_text(encoding="utf-8")
+    manifest = json.loads(serialized)
+    assert result != 0
+    assert calls == []
+    assert '"candidate_stage_failed"' not in serialized
+    assert '"feedback_projection_rejected"' in serialized
+    assert '"status": "failed"' in serialized
+    assert '"status": "skipped"' in serialized
+    assert [stage["status"] for stage in manifest["stages"]] == [
+        "failed", "skipped", "skipped", "skipped", "skipped", "skipped"
+    ]
+    assert manifest["stages"][0]["error_codes"] == ["feedback_projection_rejected"]
+    assert private_name not in serialized
+    assert "private feedback body" not in serialized
+    output = capsys.readouterr()
+    assert private_name not in output.out
+    assert private_name not in output.err
+    assert "private feedback body" not in output.out
+    assert "private feedback body" not in output.err
 
 
 @pytest.mark.parametrize("abbreviation", ("--trig", "--off", "--send-fei"))
