@@ -4,10 +4,11 @@ import hashlib
 import json
 import math
 import platform
+import re
 import time
 import tracemalloc
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal, Self
 
 import numpy as np
@@ -37,6 +38,108 @@ from zotero_arxiv_daily.pipeline.daily import (
 
 REPORT_VERSION = "stage9-benchmark-v1"
 _SHA256 = "0123456789abcdef"
+_PROFILE_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:<>\[\]-]{0,255}$")
+
+
+class ProfileRow(StrictModel):
+    symbol: str
+    relative_path: str
+    cumulative_time_ns: int = Field(ge=0)
+    allocation_bytes: int = Field(ge=0)
+
+    @field_validator("symbol")
+    @classmethod
+    def validate_symbol(cls, value: str) -> str:
+        if not _PROFILE_SYMBOL_RE.fullmatch(value):
+            raise ValueError("profile symbol is unsafe")
+        return value
+
+    @field_validator("relative_path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        windows = PureWindowsPath(value)
+        if (
+            path.is_absolute()
+            or windows.is_absolute()
+            or ".." in path.parts
+            or not value.startswith("src/zotero_arxiv_daily/")
+            or value.endswith("/observability/benchmark.py")
+        ):
+            raise ValueError("profile path is unsafe or excluded")
+        return value
+
+    @field_validator("cumulative_time_ns", "allocation_bytes", mode="before")
+    @classmethod
+    def reject_boolean_counts(cls, value: object) -> object:
+        if isinstance(value, bool):
+            raise ValueError("profile counts must not be booleans")
+        return value
+
+
+class ProfileTargetDecision(StrictModel):
+    symbol: str
+    relative_path: str
+    cumulative_time_ns: int = Field(ge=0)
+    allocation_bytes: int = Field(ge=0)
+    time_share_ppm: int = Field(ge=0)
+    allocation_share_ppm: int = Field(ge=0)
+    eligible_count: int = Field(ge=1)
+
+
+def _share_ppm(value: int, total: int) -> int:
+    if total == 0:
+        return 0
+    return (value * 1_000_000 + total // 2) // total
+
+
+def select_optimization_target(
+    rows: tuple[ProfileRow, ...],
+    *,
+    total_time_ns: int,
+    total_allocation_bytes: int,
+) -> ProfileTargetDecision:
+    if (
+        isinstance(total_time_ns, bool)
+        or isinstance(total_allocation_bytes, bool)
+        or total_time_ns <= 0
+        or total_allocation_bytes < 0
+    ):
+        raise ValueError("profile totals are invalid")
+    symbols = tuple(row.symbol for row in rows)
+    if len(symbols) != len(set(symbols)):
+        raise ValueError("profile rows contain a duplicate symbol")
+    candidates: list[tuple[int, int, str, ProfileRow, int, int]] = []
+    for row in rows:
+        time_share = _share_ppm(row.cumulative_time_ns, total_time_ns)
+        allocation_share = _share_ppm(
+            row.allocation_bytes, total_allocation_bytes
+        )
+        largest_share = max(time_share, allocation_share)
+        if largest_share >= 200_000:
+            candidates.append(
+                (
+                    -largest_share,
+                    -row.cumulative_time_ns,
+                    row.symbol,
+                    row,
+                    time_share,
+                    allocation_share,
+                )
+            )
+    if not candidates:
+        raise ValueError("profile contains no eligible optimization target")
+    candidates.sort(key=lambda item: item[:3])
+    _, _, _, selected, time_share, allocation_share = candidates[0]
+    return ProfileTargetDecision(
+        symbol=selected.symbol,
+        relative_path=selected.relative_path,
+        cumulative_time_ns=selected.cumulative_time_ns,
+        allocation_bytes=selected.allocation_bytes,
+        time_share_ppm=time_share,
+        allocation_share_ppm=allocation_share,
+        eligible_count=len(candidates),
+    )
 
 
 class BenchmarkReport(StrictModel):
@@ -310,12 +413,13 @@ def run_stage9_benchmark(
     daily_fixture: Path,
     work_root: Path,
     repetitions: int = 9,
+    steady_state_profiler: object | None = None,
 ) -> BenchmarkReport:
     if isinstance(repetitions, bool) or repetitions < 9 or repetitions > 99:
         raise ValueError("repetitions must be between 9 and 99")
     fixture_root = Path(fixture_root)
     daily_fixture = Path(daily_fixture)
-    work_root = Path(work_root)
+    work_root = Path(work_root).resolve()
     work_root.mkdir(parents=True, exist_ok=True)
 
     _ranking_and_quality(fixture_root)
@@ -324,13 +428,19 @@ def run_stage9_benchmark(
     last_manifest = None
     tracemalloc.start()
     tracemalloc.reset_peak()
-    for index in range(1, repetitions + 1):
-        started = time.perf_counter_ns()
-        quality = _ranking_and_quality(fixture_root)
-        last_manifest = _run_daily_fixture(
-            daily_fixture, work_root / f"run-{index:02d}", index
-        )
-        observations.append(time.perf_counter_ns() - started)
+    if steady_state_profiler is not None:
+        getattr(steady_state_profiler, "enable")()
+    try:
+        for index in range(1, repetitions + 1):
+            started = time.perf_counter_ns()
+            quality = _ranking_and_quality(fixture_root)
+            last_manifest = _run_daily_fixture(
+                daily_fixture, work_root / f"run-{index:02d}", index
+            )
+            observations.append(time.perf_counter_ns() - started)
+    finally:
+        if steady_state_profiler is not None:
+            getattr(steady_state_profiler, "disable")()
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
     if last_manifest is None or last_manifest.artifact_hash is None:
@@ -376,4 +486,3 @@ def run_stage9_benchmark(
         quality=quality,
         budget_passed=budget_passed,
     )
-

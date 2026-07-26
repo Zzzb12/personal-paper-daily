@@ -45,10 +45,11 @@ def test_offline_benchmark_exercises_exact_shape_and_passes_budgets(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _forbid_network_and_paid_calls(monkeypatch)
+    monkeypatch.chdir(tmp_path)
     report = run_stage9_benchmark(
         fixture_root=FIXTURE,
         daily_fixture=DAILY_FIXTURE,
-        work_root=tmp_path,
+        work_root=Path("relative-work"),
         repetitions=9,
     )
 
@@ -68,6 +69,31 @@ def test_offline_benchmark_exercises_exact_shape_and_passes_budgets(
     assert report.budget_passed is True
     assert report.viewer_published_count == 1
     assert len(report.viewer_artifact_hash) == 64
+
+
+def test_profiler_boundary_wraps_only_steady_state_repetitions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _forbid_network_and_paid_calls(monkeypatch)
+
+    class Profiler:
+        calls: list[str] = []
+
+        def enable(self):
+            self.calls.append("enable")
+
+        def disable(self):
+            self.calls.append("disable")
+
+    profiler = Profiler()
+    run_stage9_benchmark(
+        fixture_root=FIXTURE,
+        daily_fixture=DAILY_FIXTURE,
+        work_root=tmp_path,
+        repetitions=9,
+        steady_state_profiler=profiler,
+    )
+    assert profiler.calls == ["enable", "disable"]
 
 
 def test_report_is_strict_reproducible_and_privacy_safe(

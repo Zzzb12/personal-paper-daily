@@ -200,13 +200,13 @@
 - Tracked JSON contains only reviewed aggregates/hashes and the selected symbol/file-relative path; no absolute path, raw profiler dump, environment, ID, or text.
 - Markdown records the exact command, repetition count, distribution, budgets, limitations, and evidence-based Stage 9B target.
 
-- [ ] Write RED selection tests for eligibility threshold, exclusions, tie-breaks, no eligible target, unsafe path/symbol rejection, and deterministic canonical output.
-- [ ] Run the profile test and confirm missing selector RED.
-- [ ] Implement only selector/report contracts, then rerun focused tests.
-- [ ] Run the offline benchmark with at least nine warm repetitions under `cProfile` and `tracemalloc`; keep raw profiler/report files under ignored `outputs/stage9/`.
-- [ ] Audit the generated aggregate report for forbidden keys/values, absolute paths, credentials, private IDs/text, network/paid calls, exact 30/15/5 shape, quality 1,000,000 ppm/0 ppm rates, and all budget verdicts.
-- [ ] Copy only canonical reviewed aggregates into the two tracked report files; run their static tests and `git diff --check`.
-- [ ] Commit `perf: record stage 9 baseline and target`; stop Stage 9A production changes here.
+- [x] Write RED selection tests for eligibility threshold, exclusions, tie-breaks, no eligible target, unsafe path/symbol rejection, and deterministic canonical output.
+- [x] Run the profile test and confirm missing selector RED.
+- [x] Implement only selector/report contracts, then rerun focused tests.
+- [x] Run the offline benchmark with at least nine warm repetitions under `cProfile` and `tracemalloc`; keep raw profiler/report files under ignored `outputs/stage9/`.
+- [x] Audit the generated aggregate report for forbidden keys/values, absolute paths, credentials, private IDs/text, network/paid calls, exact 30/15/5 shape, quality 1,000,000 ppm/0 ppm rates, and all budget verdicts.
+- [x] Copy only canonical reviewed aggregates into the two tracked report files; run their static tests and `git diff --check`.
+- [x] Commit `perf: record stage 9 baseline and target`; stop Stage 9A production changes here.
 
 ### Task 10: Review Stage 9A and create the exact Stage 9B optimization plan
 
