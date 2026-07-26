@@ -109,14 +109,53 @@ class MetricsSession:
         self._input_tokens = 0
         self._output_tokens = 0
         self._configured_output_tokens = 0
+        self._collection_failed = False
 
     @property
     def stage_metrics(self) -> tuple[StageMetric, ...]:
         return tuple(self._stages)
 
-    def reconcile_stage_results(self, results: tuple[object, ...]) -> None:
+    @property
+    def collection_failed(self) -> bool:
+        return self._collection_failed
+
+    def observe(self, name: str, callback: Callable[[], object]) -> object:
+        """Run content even when the observational boundary itself fails."""
+        if self._collection_failed:
+            return callback()
+        try:
+            expected_index = len(self._stages)
+            if expected_index >= len(STAGE_NAMES) or name != STAGE_NAMES[expected_index]:
+                raise MetricsCollectionError("stage metrics must follow pipeline order")
+            observation = _StageObservation(name=name)
+            started = self._safe_monotonic()
+        except Exception:
+            self._collection_failed = True
+            return callback()
+
+        try:
+            result = callback()
+        except Exception:
+            try:
+                self._complete_stage(observation, started=started, failed=True)
+            except Exception:
+                self._collection_failed = True
+            raise
+        try:
+            self._complete_stage(observation, started=started, failed=False)
+        except Exception:
+            self._collection_failed = True
+        return result
+
+    def reconcile_stage_results(
+        self,
+        results: tuple[object, ...],
+        *,
+        byte_counts: dict[str, int] | None = None,
+    ) -> None:
         if self._finalized or len(results) != len(self._stages):
             raise MetricsCollectionError("stage reconciliation is invalid")
+        supplied_bytes = byte_counts or {}
         reconciled: list[StageMetric] = []
         for metric, result in zip(self._stages, results, strict=True):
             if getattr(result, "name", None) != metric.name:
@@ -127,7 +166,7 @@ class MetricsSession:
                     duration_ns=metric.duration_ns,
                     input_count=getattr(result, "input_count"),
                     output_count=getattr(result, "output_count"),
-                    byte_count=metric.byte_count,
+                    byte_count=supplied_bytes.get(metric.name, metric.byte_count),
                     cache_hit_count=getattr(result, "cache_hit_count"),
                     retry_count=getattr(result, "retry_count"),
                     partial_failure_count=getattr(result, "partial_failure_count"),
@@ -152,25 +191,33 @@ class MetricsSession:
             failed = True
             raise
         finally:
-            completed = self._safe_monotonic()
-            observation._closed = True
-            error_codes = observation.error_codes
-            if failed and not error_codes:
-                error_codes = ("stage_callback_failed",)
-            partial_failure_count = observation.partial_failure_count
-            self._stages.append(
-                StageMetric(
-                    name=name,
-                    duration_ns=max(completed - started, 0),
-                    input_count=observation.input_count,
-                    output_count=observation.output_count,
-                    byte_count=observation.byte_count,
-                    cache_hit_count=observation.cache_hit_count,
-                    retry_count=observation.retry_count,
-                    partial_failure_count=partial_failure_count,
-                    error_codes=error_codes,
-                )
+            self._complete_stage(observation, started=started, failed=failed)
+
+    def _complete_stage(
+        self,
+        observation: _StageObservation,
+        *,
+        started: int,
+        failed: bool,
+    ) -> None:
+        completed = self._safe_monotonic()
+        observation._closed = True
+        error_codes = observation.error_codes
+        if failed and not error_codes:
+            error_codes = ("stage_callback_failed",)
+        self._stages.append(
+            StageMetric(
+                name=observation.name,
+                duration_ns=max(completed - started, 0),
+                input_count=observation.input_count,
+                output_count=observation.output_count,
+                byte_count=observation.byte_count,
+                cache_hit_count=observation.cache_hit_count,
+                retry_count=observation.retry_count,
+                partial_failure_count=observation.partial_failure_count,
+                error_codes=error_codes,
             )
+        )
 
     def _safe_monotonic(self) -> int:
         try:

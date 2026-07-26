@@ -281,6 +281,16 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         cache_hits=analyses.cache_hit_count,
         error_code="analysis_paper_failed",
     )
+    if dependencies.metrics_session is not None:
+        analysis_stage = analysis_stage.model_copy(
+            update={
+                "retry_count": max(
+                    dependencies.metrics_session.model_usage.attempt_count
+                    - len(analyses.results),
+                    0,
+                )
+            }
+        )
     stages.append(analysis_stage)
 
     try:
@@ -316,17 +326,17 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     stages.append(validation_stage)
     publishable_validation = _eligible_validation_batch(validation)
 
-    try:
-        build = _observed_call(
-            dependencies,
-            "viewer",
-            lambda: dependencies.viewer_runner(publishable_validation),
-        )
-        if build.published_count != eligible_count:
+    def build_and_audit() -> tuple[BuildManifest, ArtifactAudit]:
+        built = dependencies.viewer_runner(publishable_validation)
+        if built.published_count != eligible_count:
             raise ValueError("viewer publication count differs from Stage 4 eligibility")
-        audit = dependencies.artifact_auditor.audit(settings.viewer_output)
-        if audit.build_manifest != build:
+        audited = dependencies.artifact_auditor.audit(settings.viewer_output)
+        if audited.build_manifest != built:
             raise ValueError("viewer build and audited manifest differ")
+        return built, audited
+
+    try:
+        build, audit = _observed_call(dependencies, "viewer", build_and_audit)
         static_site = StaticSiteResult(
             status="success",
             published_count=build.published_count,
@@ -372,62 +382,68 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
             status="failed",
         )
 
-    try:
-        delivery = _observed_call(
-            dependencies,
-            "feishu",
-            lambda: dependencies.prepare_delivery(publishable_validation),
-        )
+    def deliver() -> tuple[FeishuRunResult, StageRunResult, int]:
+        delivery = dependencies.prepare_delivery(publishable_validation)
         if not settings.send_feishu:
-            feishu = FeishuRunResult(status="preview")
-            stages.append(
+            return (
+                FeishuRunResult(status="preview"),
                 StageRunResult(
                     name="feishu",
                     status="success" if delivery.paper_count else "empty",
                     input_count=eligible_count,
                     output_count=delivery.paper_count,
-                )
+                ),
+                0,
             )
-        elif delivery.paper_count == 0:
-            feishu = FeishuRunResult(status="skipped")
-            stages.append(
+        if delivery.paper_count == 0:
+            return (
+                FeishuRunResult(status="skipped"),
                 StageRunResult(
                     name="feishu",
                     status="empty",
                     input_count=eligible_count,
-                )
+                ),
+                0,
             )
-        else:
-            with dependencies.delivery_ledger.claim(delivery.idempotency_key) as duplicate:
-                if duplicate:
-                    feishu = FeishuRunResult(
-                        status="duplicate", idempotency_key=delivery.idempotency_key
-                    )
-                    stages.append(
-                        StageRunResult(
-                            name="feishu",
-                            status="success",
-                            input_count=eligible_count,
-                        )
-                    )
-                else:
-                    dependencies.send_delivery(delivery)
-                    feishu = FeishuRunResult(
+        with dependencies.delivery_ledger.claim(delivery.idempotency_key) as duplicate:
+            if duplicate:
+                return (
+                    FeishuRunResult(
+                        status="duplicate",
+                        idempotency_key=delivery.idempotency_key,
+                    ),
+                    StageRunResult(
+                        name="feishu",
+                        status="success",
+                        input_count=eligible_count,
+                    ),
+                    0,
+                )
+            dependencies.send_delivery(delivery)
+            return (
+                FeishuRunResult(
                         status="sent",
                         delivered_count=delivery.paper_count,
                         idempotency_key=delivery.idempotency_key,
-                    )
-                    counts = counts.model_copy(
-                        update={"delivered_count": delivery.paper_count}
-                    )
-                    stages.append(
-                        StageRunResult(
-                            name="feishu",
-                            status="success",
-                            input_count=eligible_count,
-                            output_count=delivery.paper_count,
-                        )
-                    )
+                ),
+                StageRunResult(
+                    name="feishu",
+                    status="success",
+                    input_count=eligible_count,
+                    output_count=delivery.paper_count,
+                ),
+                delivery.paper_count,
+            )
+
+    try:
+        feishu, feishu_stage, delivered_count = _observed_call(
+            dependencies, "feishu", deliver
+        )
+        stages.append(feishu_stage)
+        if delivered_count:
+            counts = counts.model_copy(
+                update={"delivered_count": delivered_count}
+            )
     except Exception:
         feishu = FeishuRunResult(
             status="failed", error_codes=("feishu_delivery_failed",)
@@ -457,8 +473,7 @@ def _observed_call(
     session = dependencies.metrics_session
     if session is None:
         return callback()
-    with session.stage(name):
-        return callback()
+    return session.observe(name, callback)
 
 
 def _paper_stage(
@@ -585,29 +600,45 @@ def _finish(
                 errors.append(code)
     metrics_result = MetricsRunResult(status="skipped")
     if dependencies.metrics_session is not None and dependencies.metrics_writer is not None:
-        try:
-            session = dependencies.metrics_session
-            for name in STAGE_ORDER[len(session.stage_metrics) :]:
-                with session.stage(name):
-                    pass
-            session.reconcile_stage_results(tuple(stages))
-            run_metrics = session.finalize(
-                artifact_hash=static_site.artifact_hash,
-                candidate_count=counts.candidate_count,
-                selected_for_llm_count=min(counts.candidate_count, 15),
-                selected_for_analysis_count=counts.selected_count,
-                offline_network_call_count=0,
-                offline_paid_call_count=0,
-            )
-            written = dependencies.metrics_writer.write(run_metrics)
-            metrics_result = MetricsRunResult(
-                status="success", sidecar_hash=written.sha256
-            )
-        except Exception:
+        session = dependencies.metrics_session
+        if session.collection_failed:
             metrics_result = MetricsRunResult(
                 status="failed",
-                error_codes=("metrics_persistence_failed",),
+                error_codes=("metrics_collection_failed",),
             )
+        else:
+            try:
+                for name in STAGE_ORDER[len(session.stage_metrics) :]:
+                    with session.stage(name):
+                        pass
+                session.reconcile_stage_results(
+                    tuple(stages),
+                    byte_counts={"viewer": static_site.audited_byte_count},
+                )
+                run_metrics = session.finalize(
+                    artifact_hash=static_site.artifact_hash,
+                    candidate_count=counts.candidate_count,
+                    selected_for_llm_count=min(counts.candidate_count, 15),
+                    selected_for_analysis_count=counts.selected_count,
+                    offline_network_call_count=0,
+                    offline_paid_call_count=0,
+                )
+            except Exception:
+                metrics_result = MetricsRunResult(
+                    status="failed",
+                    error_codes=("metrics_collection_failed",),
+                )
+            else:
+                try:
+                    written = dependencies.metrics_writer.write(run_metrics)
+                    metrics_result = MetricsRunResult(
+                        status="success", sidecar_hash=written.sha256
+                    )
+                except Exception:
+                    metrics_result = MetricsRunResult(
+                        status="failed",
+                        error_codes=("metrics_persistence_failed",),
+                    )
     manifest = RunManifest(
         run_id=settings.run_id,
         trigger=settings.trigger,

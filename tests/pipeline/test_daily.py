@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Thread
@@ -232,6 +233,150 @@ def test_metrics_persistence_failure_does_not_change_content_success(
     assert manifest.metrics.status == "failed"
     assert manifest.metrics.error_codes == ("metrics_persistence_failed",)
     assert "PRIVATE" not in dependencies.manifest_store.output.read_text(encoding="utf-8")
+
+
+def test_metrics_collection_failure_does_not_skip_or_fail_content(
+    tmp_path: Path,
+) -> None:
+    order: list[str] = []
+    dependencies = _dependencies(tmp_path, _inputs(1), order=order)
+    dependencies.metrics_session = MetricsSession(
+        run_id="run-stage7",
+        trigger="local",
+        config_hash="a" * 64,
+        monotonic_ns=lambda: (_ for _ in ()).throw(
+            RuntimeError("PRIVATE CLOCK DETAIL")
+        ),
+    )
+
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert order == [
+        "candidates",
+        "documents",
+        "analysis",
+        "validation",
+        "viewer",
+        "prepare_feishu",
+    ]
+    assert manifest.status == "success"
+    assert manifest.static_site.status == "success"
+    assert manifest.feishu.status == "preview"
+    assert manifest.metrics.status == "failed"
+    assert manifest.metrics.error_codes == ("metrics_collection_failed",)
+    serialized = dependencies.manifest_store.output.read_text(encoding="utf-8")
+    assert "PRIVATE" not in serialized
+
+
+def test_metrics_peak_sampler_failure_does_not_change_content_success(
+    tmp_path: Path,
+) -> None:
+    dependencies = _dependencies(tmp_path, _inputs(1))
+    dependencies.metrics_session = MetricsSession(
+        run_id="run-stage7",
+        trigger="local",
+        config_hash="a" * 64,
+        peak_memory_sampler=lambda: (_ for _ in ()).throw(
+            RuntimeError("PRIVATE SAMPLER DETAIL")
+        ),
+    )
+
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert manifest.status == "success"
+    assert manifest.static_site.status == "success"
+    assert manifest.metrics.status == "failed"
+    assert manifest.metrics.error_codes == ("metrics_collection_failed",)
+
+
+def test_metrics_time_complete_viewer_and_feishu_boundaries_and_record_bytes(
+    tmp_path: Path,
+) -> None:
+    dependencies = _dependencies(tmp_path, _inputs(1))
+    elapsed = [0]
+    original_viewer = dependencies.viewer_runner
+    original_auditor = dependencies.artifact_auditor
+    original_prepare = dependencies.prepare_delivery
+    original_send = dependencies.send_delivery
+
+    def viewer(batch):
+        elapsed[0] += 10
+        return original_viewer(batch)
+
+    class TimedAuditor:
+        def audit(self, root):
+            elapsed[0] += 20
+            return original_auditor.audit(root)
+
+    def prepare(batch):
+        elapsed[0] += 30
+        return original_prepare(batch)
+
+    class TimedLedger:
+        @contextmanager
+        def claim(self, key):
+            elapsed[0] += 40
+            yield False
+
+    def send(delivery):
+        elapsed[0] += 50
+        original_send(delivery)
+
+    dependencies.viewer_runner = viewer
+    dependencies.artifact_auditor = TimedAuditor()
+    dependencies.prepare_delivery = prepare
+    dependencies.delivery_ledger = TimedLedger()
+    dependencies.send_delivery = send
+    dependencies.metrics_session = MetricsSession(
+        run_id="run-stage7",
+        trigger="local",
+        config_hash="a" * 64,
+        monotonic_ns=lambda: elapsed[0],
+        peak_memory_sampler=lambda: 0,
+    )
+
+    manifest = run_daily(_settings(tmp_path, send=True), dependencies)
+    metrics = RunMetrics.model_validate_json(
+        (tmp_path / "run" / "run-metrics.json").read_bytes()
+    )
+    by_name = {stage.name: stage for stage in metrics.stages}
+
+    assert manifest.status == "success"
+    assert by_name["viewer"].duration_ns == 30
+    assert by_name["viewer"].byte_count == manifest.static_site.audited_byte_count
+    assert by_name["viewer"].byte_count > 0
+    assert by_name["feishu"].duration_ns == 120
+
+
+def test_analysis_attempts_beyond_result_count_are_reported_as_retries(
+    tmp_path: Path,
+) -> None:
+    dependencies = _dependencies(tmp_path, _inputs(1))
+    original_analysis = dependencies.analysis_runner
+
+    def analysis(candidates, documents):
+        assert dependencies.metrics_session is not None
+        for succeeded in (False, True):
+            dependencies.metrics_session.record_model_attempt(
+                model_identity="offline-fake",
+                input_texts=(),
+                output_text=None,
+                configured_output_tokens=0,
+                succeeded=succeeded,
+                paid=False,
+            )
+        return original_analysis(candidates, documents)
+
+    dependencies.analysis_runner = analysis
+    manifest = run_daily(_settings(tmp_path), dependencies)
+    metrics = RunMetrics.model_validate_json(
+        (tmp_path / "run" / "run-metrics.json").read_bytes()
+    )
+
+    assert manifest.stages[2].retry_count == 1
+    assert manifest.retry_count == 1
+    assert metrics.stages[2].retry_count == 1
+    assert metrics.retry_count == 1
 
 
 def test_empty_candidates_stop_without_calling_expensive_or_delivery_stages(tmp_path: Path) -> None:
