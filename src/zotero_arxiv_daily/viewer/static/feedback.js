@@ -99,8 +99,12 @@
     return JSON.stringify(value);
   }
 
+  function timestampSortKey(timestamp) {
+    return timestamp.includes(".") ? timestamp : `${timestamp.slice(0, -1)}.000000Z`;
+  }
+
   function commandSortKey(command) {
-    return [command.occurred_at, command.device_id, command.sequence, command.command_id];
+    return [timestampSortKey(command.occurred_at), command.device_id, command.sequence, command.command_id];
   }
 
   function compareCommands(left, right) {

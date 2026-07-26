@@ -12,6 +12,8 @@ import pytest
 from zotero_arxiv_daily.viewer.feedback import (
     FeedbackBundle,
     FeedbackCommand,
+    FeedbackStoreState,
+    apply_feedback_commands,
     canonical_feedback_bundle_digest,
 )
 
@@ -455,7 +457,8 @@ async function blobExportAndFileImport() {
 
 async function importPythonPrecisionBundleAndReexport() {
   assert.equal(typeof bundleJson, "string");
-  const dom = createDom(["2401.00001", "hep-th/9901001"]);
+  const expected = JSON.parse(bundleJson);
+  const dom = createDom([...new Set(expected.commands.map((command) => command.paper_id))]);
   const storage = new MemoryStorage();
   const urls = [];
   const URLAdapter = {
@@ -473,24 +476,41 @@ async function importPythonPrecisionBundleAndReexport() {
   dom.importInput.files = [{ text: async () => bundleJson }];
   await dom.importInput.dispatchEvent({ type: "change", target: dom.importInput });
   assert.equal(dom.status.textContent, "反馈备份已导入当前浏览器。");
-  assert.equal(adapter.getState().commands.length, 2);
-  assert.deepEqual(
-    adapter.getState().commands.map((command) => command.occurred_at),
-    ["2026-07-22T18:29:59.123456Z", "2026-07-22T18:30:00.000001Z"],
-  );
+  assert.deepEqual(adapter.getState().commands, expected.commands);
 
   await dom.exportButton.click();
   assert.equal(urls.length, 1);
   const exported = JSON.parse(await urls[0].text());
-  assert.deepEqual(
-    exported.commands.map((command) => command.occurred_at),
-    ["2026-07-22T18:29:59.123456Z", "2026-07-22T18:30:00.000001Z"],
-  );
-  assert.deepEqual(
-    exported.commands.map((command) => command.command_id),
-    ["00000000-0000-4000-8000-000000000101", "00000000-0000-4000-8000-000000000102"],
-  );
+  assert.deepEqual(exported.commands, expected.commands);
   process.stdout.write(JSON.stringify(exported));
+}
+
+async function browserAdapterSameSecondBundle() {
+  const dom = createDom();
+  const storage = new MemoryStorage();
+  const urls = [];
+  const URLAdapter = {
+    createObjectURL: (blob) => { urls.push(blob); return "blob:feedback"; },
+    revokeObjectURL: (url) => { assert.equal(url, "blob:feedback"); },
+  };
+  const moments = [
+    new Date("2026-07-22T18:30:03.100Z"),
+    new Date("2026-07-22T18:30:03.000Z"),
+    new Date("2026-07-22T19:00:00.000Z"),
+  ];
+  const adapter = api.createBrowserAdapter({
+    document: dom.document,
+    storage,
+    URL: URLAdapter,
+    Blob,
+    crypto: deterministicDeps().crypto,
+    now: () => moments.shift(),
+  });
+  adapter.init();
+  await dom.cards[0].buttons.read.click();
+  await dom.cards[0].buttons.read.click();
+  await dom.exportButton.click();
+  process.stdout.write(JSON.stringify(JSON.parse(await urls[0].text())));
 }
 
 const scenarios = {
@@ -502,6 +522,7 @@ const scenarios = {
   import: transactionalImport,
   files: blobExportAndFileImport,
   "cross-language": importPythonPrecisionBundleAndReexport,
+  "adapter-same-second": browserAdapterSameSecondBundle,
 };
 
 scenarios[scenario]().catch((error) => {
@@ -606,6 +627,106 @@ def test_browser_adapter_imports_and_reexports_python_microsecond_backup(
     assert tuple(command.occurred_at for command in reexported.commands) == tuple(
         command.occurred_at for command in commands
     )
+
+
+def test_browser_adapter_imports_python_same_second_commands_in_datetime_order(
+    node_harness: Path,
+) -> None:
+    commands = (
+        FeedbackCommand(
+            command_id=UUID("00000000-0000-4000-8000-000000000202"),
+            paper_id="2401.00001",
+            action="set_read",
+            value=False,
+            occurred_at="2026-07-22T18:30:03Z",
+            device_id="python-device",
+            sequence=2,
+        ),
+        FeedbackCommand(
+            command_id=UUID("00000000-0000-4000-8000-000000000201"),
+            paper_id="2401.00001",
+            action="set_read",
+            value=True,
+            occurred_at="2026-07-22T18:30:03.100000Z",
+            device_id="python-device",
+            sequence=1,
+        ),
+    )
+    bundle_id = UUID("00000000-0000-4000-8000-000000000299")
+    generated_at = datetime.fromisoformat("2026-07-22T19:00:00Z")
+    bundle = FeedbackBundle(
+        bundle_id=bundle_id,
+        generated_at=generated_at,
+        commands=commands,
+        digest=canonical_feedback_bundle_digest(
+            commands, bundle_id=bundle_id, generated_at=generated_at
+        ),
+    )
+
+    completed = _run_node(node_harness, "cross-language", bundle.model_dump_json())
+    reexported = FeedbackBundle.model_validate_json(completed.stdout)
+    python_projection = apply_feedback_commands(FeedbackStoreState(), reexported.commands)
+
+    assert tuple(command.sequence for command in reexported.commands) == (2, 1)
+    assert python_projection.state.records[0].read is True
+
+
+def test_browser_adapter_exports_same_second_commands_in_python_datetime_order(
+    node_harness: Path,
+) -> None:
+    completed = _run_node(node_harness, "adapter-same-second")
+    bundle = FeedbackBundle.model_validate_json(completed.stdout)
+    python_projection = apply_feedback_commands(FeedbackStoreState(), bundle.commands)
+
+    assert tuple(command.sequence for command in bundle.commands) == (2, 1)
+    assert python_projection.state.records[0].read is True
+
+
+@pytest.mark.parametrize(
+    ("source_timestamp", "expected_timestamp"),
+    [
+        ("2026-07-22T18:30:00Z", "2026-07-22T18:30:00Z"),
+        ("2026-07-22T18:30:00.0Z", "2026-07-22T18:30:00Z"),
+        ("2026-07-22T18:30:00.1Z", "2026-07-22T18:30:00.100000Z"),
+        ("2026-07-22T18:30:00.12Z", "2026-07-22T18:30:00.120000Z"),
+        ("2026-07-22T18:30:00.123Z", "2026-07-22T18:30:00.123000Z"),
+        ("2026-07-22T18:30:00.1234Z", "2026-07-22T18:30:00.123400Z"),
+        ("2026-07-22T18:30:00.12345Z", "2026-07-22T18:30:00.123450Z"),
+        ("2026-07-22T18:30:00.123456Z", "2026-07-22T18:30:00.123456Z"),
+        ("2026-07-23T00:00:00.1+05:30", "2026-07-22T18:30:00.100000Z"),
+        ("2026-07-22T23:59:59.12345-04:00", "2026-07-23T03:59:59.123450Z"),
+    ],
+)
+def test_browser_adapter_preserves_python_origin_timestamp_serialization(
+    node_harness: Path,
+    source_timestamp: str,
+    expected_timestamp: str,
+) -> None:
+    command = FeedbackCommand(
+        command_id=UUID("00000000-0000-4000-8000-000000000301"),
+        paper_id="2401.00001",
+        action="set_read",
+        value=True,
+        occurred_at=source_timestamp,
+        device_id="python-device",
+        sequence=1,
+    )
+    bundle_id = UUID("00000000-0000-4000-8000-000000000399")
+    generated_at = datetime.fromisoformat("2026-07-22T19:00:00Z")
+    bundle = FeedbackBundle(
+        bundle_id=bundle_id,
+        generated_at=generated_at,
+        commands=(command,),
+        digest=canonical_feedback_bundle_digest(
+            (command,), bundle_id=bundle_id, generated_at=generated_at
+        ),
+    )
+
+    completed = _run_node(node_harness, "cross-language", bundle.model_dump_json())
+    reexported = FeedbackBundle.model_validate_json(completed.stdout)
+
+    assert command.model_dump(mode="json")["occurred_at"] == expected_timestamp
+    assert reexported.commands[0].occurred_at == command.occurred_at
 
 
 @pytest.mark.parametrize("scenario", ["import", "files"])
