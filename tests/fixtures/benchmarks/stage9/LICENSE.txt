@@ -1,0 +1,4 @@
+SPDX-License-Identifier: CC0-1.0
+
+The synthetic fixture records in this directory are dedicated under CC0-1.0.
+

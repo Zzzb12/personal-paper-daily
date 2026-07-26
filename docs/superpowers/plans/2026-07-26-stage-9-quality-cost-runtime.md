@@ -143,10 +143,10 @@
 - `PROVENANCE.md` states the fixture was independently created for this repository; `LICENSE.txt` contains the approved `SPDX-License-Identifier: CC0-1.0` notice.
 - Fixture audit rejects real-looking authors, titles, abstracts, URLs, prompts, responses, secrets, private paths, and unbounded text.
 
-- [ ] Write RED shape/provenance/license/privacy tests before adding fixture payloads.
-- [ ] Run `uv run pytest tests/benchmarks/test_stage9_fixture.py -q` and confirm missing-fixture RED.
-- [ ] Add the smallest original synthetic records needed to exercise real ranking, validation and viewer paths; use neutral tokens rather than copied paper prose.
-- [ ] Rerun focused fixture and existing schema/validator/viewer tests; commit `test: add original stage 9 benchmark fixture`.
+- [x] Write RED shape/provenance/license/privacy tests before adding fixture payloads.
+- [x] Run `uv run pytest tests/benchmarks/test_stage9_fixture.py -q` and confirm missing-fixture RED.
+- [x] Add the smallest original synthetic records needed to exercise real ranking, validation and viewer paths; use neutral tokens rather than copied paper prose.
+- [x] Rerun focused fixture and existing schema/validator/viewer tests; commit `test: add original stage 9 benchmark fixture`.
 
 ### Task 7: Build the reproducible offline benchmark and budget gate
 

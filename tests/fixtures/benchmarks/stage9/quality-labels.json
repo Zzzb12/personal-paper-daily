@@ -1,0 +1,15 @@
+{
+  "schema_version": "stage9-synthetic-quality-v1",
+  "ranked_ids": [
+    "synthetic-candidate-01","synthetic-candidate-02","synthetic-candidate-03",
+    "synthetic-candidate-04","synthetic-candidate-05","synthetic-candidate-06",
+    "synthetic-candidate-07","synthetic-candidate-08","synthetic-candidate-09",
+    "synthetic-candidate-10","synthetic-candidate-11","synthetic-candidate-12",
+    "synthetic-candidate-13","synthetic-candidate-14","synthetic-candidate-15"
+  ],
+  "analysis_ids": [
+    "synthetic-candidate-01","synthetic-candidate-02","synthetic-candidate-03",
+    "synthetic-candidate-04","synthetic-candidate-05"
+  ]
+}
+
