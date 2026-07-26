@@ -126,7 +126,8 @@ def test_favorite_bonus_is_bounded_clamped_and_ties_by_paper_id():
 
     assert [paper.paper_id for paper in result.candidates] == ["arxiv:2401.00001", "arxiv:2401.00002"]
     assert [record.final_score for record in result.rankings] == [10.0, 10.0]
-    assert all(record.final_score == record.embedding_score for record in result.rankings)
+    assert [record.embedding_score for record in result.rankings] == [10.0, 10.0]
+    assert [record.feedback_adjustment for record in result.rankings] == [0.0, 0.0]
 
 
 def test_favorite_adds_exact_default_delta_before_sorting():
@@ -144,6 +145,8 @@ def test_favorite_adds_exact_default_delta_before_sorting():
     )
 
     assert result.candidates[0].paper_id == favorite.paper_id
+    assert result.rankings[0].embedding_score == pytest.approx(5.99, abs=0.02)
+    assert result.rankings[0].feedback_adjustment == pytest.approx(0.05)
     assert result.rankings[0].final_score == pytest.approx(6.04, abs=0.02)
     assert result.rankings[0].reason == "embedding similarity to the Zotero interest corpus; explicit feedback adjustment applied"
 

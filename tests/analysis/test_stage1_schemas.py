@@ -54,6 +54,19 @@ def ranking(paper_id: str, rank: int, score: float) -> RankingRecord:
     )
 
 
+def test_ranking_record_preserves_auditable_feedback_component() -> None:
+    record = ranking("arxiv:2401.00001", 1, 5.0)
+    payload = record.model_dump()
+    payload["feedback_adjustment"] = 0.05
+    payload["final_score"] = 5.05
+
+    adjusted = RankingRecord.model_validate(payload)
+
+    assert adjusted.embedding_score == 5.0
+    assert adjusted.feedback_adjustment == 0.05
+    assert adjusted.final_score == 5.05
+
+
 def batch(size: int = 2) -> CandidateBatch:
     papers = tuple(candidate(f"2401.{index:05d}") for index in range(1, size + 1))
     rankings = tuple(ranking(paper.paper_id, index, float(size - index + 1)) for index, paper in enumerate(papers, 1))

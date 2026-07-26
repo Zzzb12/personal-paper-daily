@@ -232,7 +232,7 @@ class CachedEmbeddingProvider:
 
 
 class CandidateRanker:
-    SCORER_VERSION = "weighted-cosine-v1"
+    SCORER_VERSION = "weighted-cosine-feedback-v2"
     SCORE_MIN = -10.0
     SCORE_MAX = 10.0
 
@@ -286,25 +286,27 @@ class CandidateRanker:
         )
         interest_vectors = np.asarray(self.provider.encode(tuple(self._text(p) for p in ordered_interests)))
         scores = weighted_similarity_scores(self._cosine(candidate_vectors, interest_vectors))
-        scored = tuple(
-            (
-                paper,
-                min(
-                    self.SCORE_MAX,
-                    max(
-                        self.SCORE_MIN,
-                        float(score)
-                        + (
-                            projection.favorite_delta
-                            if normalize_feedback_paper_id(paper.arxiv_id) in projection.favorite_ids
-                            else 0.0
-                        ),
-                    ),
-                ),
+        scored: list[tuple[CandidatePaper, float, float, float]] = []
+        for paper, score in zip(eligible_candidates, scores, strict=True):
+            embedding_score = float(score)
+            requested_adjustment = (
+                projection.favorite_delta
+                if normalize_feedback_paper_id(paper.arxiv_id) in projection.favorite_ids
+                else 0.0
             )
-            for paper, score in zip(eligible_candidates, scores, strict=True)
-        )
-        ordered = sorted(scored, key=lambda item: (-item[1], item[0].paper_id))
+            final_score = min(
+                self.SCORE_MAX,
+                max(self.SCORE_MIN, embedding_score + requested_adjustment),
+            )
+            scored.append(
+                (
+                    paper,
+                    embedding_score,
+                    final_score - embedding_score,
+                    final_score,
+                )
+            )
+        ordered = sorted(scored, key=lambda item: (-item[3], item[0].paper_id))
         ordered = ordered[: limits.candidate_pool_size]
         versions = RankingModelVersions(
             provider=self.provider.identity.provider,
@@ -317,8 +319,9 @@ class CandidateRanker:
         rankings = tuple(
             RankingRecord(
                 paper_id=paper.paper_id,
-                embedding_score=float(score),
-                final_score=float(score),
+                embedding_score=embedding_score,
+                feedback_adjustment=feedback_adjustment,
+                final_score=final_score,
                 rank=index,
                 reason=(
                     "embedding similarity to the Zotero interest corpus; "
@@ -328,7 +331,12 @@ class CandidateRanker:
                 ),
                 model_versions=versions,
             )
-            for index, (paper, score) in enumerate(ordered, start=1)
+            for index, (
+                paper,
+                embedding_score,
+                feedback_adjustment,
+                final_score,
+            ) in enumerate(ordered, start=1)
         )
         ids = tuple(paper.paper_id for paper in papers)
         return RankedCandidates(

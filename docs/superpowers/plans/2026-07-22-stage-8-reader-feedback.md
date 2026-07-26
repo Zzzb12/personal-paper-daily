@@ -8,7 +8,9 @@
 
 **Tech Stack:** Python 3.13、Pydantic 2、pytest、Node.js 20 离线 JS harness、原生浏览器 DOM/localStorage、现有 Stage 1–7 模块。
 
-**Status:** Approved design committed at `fba672b`; implementation pending.
+**Status:** Completed locally through the first independent whole-branch review on
+2026-07-26. All confirmed findings have failing reproductions and fixes; final
+finding-driven verification and re-review are pending.
 
 ## Global Constraints
 
@@ -33,11 +35,11 @@
 - `FeedbackCommand`, `FeedbackRecord`, `FeedbackBundle`, `FeedbackStoreState`, and `InterestFeedbackProjection` are frozen `extra=forbid` models.
 - `apply_feedback_commands(state, commands) -> FeedbackMergeResult` uses read/preference watermarks and produces deterministic, idempotent results independent of bundle import order.
 
-- [ ] Write RED schema tests for modern/legacy/versioned IDs, URL/path/control/UNC/drive rejection, unknown fields, naive timestamps, invalid UUID/device/sequence, unsafe digest, oversized collections, and canonical ordering.
-- [ ] Write RED state tests for read coexistence, favorite/irrelevant mutual exclusion, clear semantics, duplicate command no-op, stale command handling, bundle-order independence, conflict counts, and immutable inputs.
-- [ ] Run `uv run pytest tests/viewer/test_feedback_schemas.py tests/viewer/test_feedback_state.py -q` and confirm missing-module RED.
-- [ ] Implement the smallest strict models, canonical JSON/digest helpers, two-domain watermarks, deterministic merge, bounded dedupe metadata, and safe fixed result counters.
-- [ ] Rerun focused tests plus `tests/viewer/test_schemas.py -q`; commit `feat: define private feedback state contracts`.
+- [x] Write RED schema tests for modern/legacy/versioned IDs, URL/path/control/UNC/drive rejection, unknown fields, naive timestamps, invalid UUID/device/sequence, unsafe digest, oversized collections, and canonical ordering.
+- [x] Write RED state tests for read coexistence, favorite/irrelevant mutual exclusion, clear semantics, duplicate command no-op, stale command handling, bundle-order independence, conflict counts, and immutable inputs.
+- [x] Run `uv run pytest tests/viewer/test_feedback_schemas.py tests/viewer/test_feedback_state.py -q` and confirm missing-module RED.
+- [x] Implement the smallest strict models, canonical JSON/digest helpers, two-domain watermarks, deterministic merge, bounded dedupe metadata, and safe fixed result counters.
+- [x] Rerun focused tests plus `tests/viewer/test_schemas.py -q`; commit `feat: define private feedback state contracts`.
 
 ### Task 2: Add safe private store and explicit import CLI
 
@@ -53,12 +55,12 @@
 - `FeedbackStore.import_bundle(bundle, *, dry_run) -> FeedbackImportResult` validates fully before one atomic replacement.
 - `python -m zotero_arxiv_daily.viewer.feedback_cli import --bundle PATH --store PATH [--dry-run]` uses `allow_abbrev=False` and prints only fixed status/count fields.
 
-- [ ] Write RED store tests for missing/corrupt/over-size/old migration/new mismatch/identity mismatch, duplicate bundle, stale/partial input, same-directory temp + flush/fsync + atomic replace, injected replace failure cleanup, symlink parents, traversal, relative escape, UNC and foreign Windows drive.
-- [ ] Write RED CLI tests for exact subcommand/options, forbidden abbreviations, explicit paths, dry-run zero writes, missing file fixed error, no dynamic exception/value leakage, repeated bundle idempotency, and output field allowlist.
-- [ ] Run the two focused files and confirm RED before implementation.
-- [ ] Implement bounded reads, checked local boundaries, canonical digest validation, listed v0→v1 migration fixture, injected file operations, atomic writer and safe CLI exit codes.
-- [ ] Add exact private feedback paths/export patterns/migration backups to `.gitignore`; prove them ignored with tests.
-- [ ] Rerun focused tests and commit `feat: add atomic private feedback import`.
+- [x] Write RED store tests for missing/corrupt/over-size/old migration/new mismatch/identity mismatch, duplicate bundle, stale/partial input, same-directory temp + flush/fsync + atomic replace, injected replace failure cleanup, symlink parents, traversal, relative escape, UNC and foreign Windows drive.
+- [x] Write RED CLI tests for exact subcommand/options, forbidden abbreviations, explicit paths, dry-run zero writes, missing file fixed error, no dynamic exception/value leakage, repeated bundle idempotency, and output field allowlist.
+- [x] Run the two focused files and confirm RED before implementation. The initial behavior-level RED evidence was incomplete; the user explicitly accepted that historical process deviation after current coverage and implementation were independently reviewed.
+- [x] Implement bounded reads, checked local boundaries, canonical digest validation, listed v0→v1 migration fixture, injected file operations, atomic writer and safe CLI exit codes.
+- [x] Add exact private feedback paths/export patterns/migration backups to `.gitignore`; prove them ignored with tests.
+- [x] Rerun focused tests and commit `feat: add atomic private feedback import`.
 
 ### Task 3: Add accessible static viewer feedback UI and browser adapter
 
@@ -78,12 +80,12 @@
 - CSP permits only same-origin external scripts and continues to reject inline/eval/remote code.
 - `feedback.js` exposes a small testable pure state API and a DOM adapter; tests execute it in a Node 20 fake DOM/localStorage harness with no network or npm dependency.
 
-- [ ] Write RED renderer/builder tests for canonical IDs, eligible-only controls, external script path, CSP, manifest inclusion, no state embedding, empty viewer and paper-page behavior.
-- [ ] Write RED Node harness tests for refresh persistence, read/favorite/irrelevant transitions, default hiding, unread/favorite/show-irrelevant filters, scoped `r/f/i` keys, input-field exclusion, corrupted/quota-disabled localStorage, deterministic export, valid backup import and transactional rejection.
-- [ ] Run focused viewer tests and observe expected RED.
-- [ ] Implement same-origin static script, safe DOM `textContent`/attributes, namespaced localStorage, Web Crypto digest, blob download/file import, accessible controls and reduced-motion/focus styles.
-- [ ] Rerun all `tests/viewer -q`; generate a fixture viewer and audit HTML/JS/CSP for inline code, remote URLs and embedded feedback state.
-- [ ] Commit `feat: add private reader feedback controls`.
+- [x] Write RED renderer/builder tests for canonical IDs, eligible-only controls, external script path, CSP, manifest inclusion, no state embedding, empty viewer and paper-page behavior.
+- [x] Write RED Node harness tests for refresh persistence, read/favorite/irrelevant transitions, default hiding, unread/favorite/show-irrelevant filters, scoped `r/f/i` keys, input-field exclusion, corrupted/quota-disabled localStorage, deterministic export, valid backup import and transactional rejection.
+- [x] Run focused viewer tests and observe expected RED.
+- [x] Implement same-origin static script, safe DOM `textContent`/attributes, namespaced localStorage, Web Crypto digest, blob download/file import, accessible controls and reduced-motion/focus styles.
+- [x] Rerun all `tests/viewer -q`; generate a fixture viewer and audit HTML/JS/CSP for inline code, remote URLs and embedded feedback state.
+- [x] Commit `feat: add private reader feedback controls`.
 
 ### Task 4: Project feedback into Stage 1 ranking before paid work
 
@@ -104,11 +106,11 @@
 - `CandidateRanker.rank(..., feedback=projection)` removes irrelevant IDs before embedding/provider calls and applies favorite delta before deterministic sort/clamp.
 - Production daily composition accepts an explicit feedback-store config/path; offline/dry-run defaults to an injected empty projection and never scans local files.
 
-- [ ] Write RED adapter/ranking tests for empty projection, read zero effect, favorite `+0.05`, configurable bounds, score clamp, stable tie break, version-normalized match, irrelevant zero embedding/paid calls, and invalid projection rejection.
-- [ ] Write RED pipeline tests proving irrelevant papers never reach document/analysis/validation/viewer/Feishu, Stage 4 remains required, missing store is neutral, corrupt configured store is a safe fixed failure, and manifest/logs contain no feedback content.
-- [ ] Run focused candidates/pipeline tests and confirm RED.
-- [ ] Implement projection loader and narrow ranker/pipeline injection without changing default Stage 1 behavior when projection is empty; include feedback implementation version/config in candidate config hash.
-- [ ] Rerun focused tests plus Stage 4–7 related regressions; commit `feat: apply bounded feedback to candidate ranking`.
+- [x] Write RED adapter/ranking tests for empty projection, read zero effect, favorite `+0.05`, configurable bounds, score clamp, stable tie break, version-normalized match, irrelevant zero embedding/paid calls, and invalid projection rejection.
+- [x] Write RED pipeline tests proving irrelevant papers never reach document/analysis/validation/viewer/Feishu, Stage 4 remains required, missing store is neutral, corrupt configured store is a safe fixed failure, and manifest/logs contain no feedback content.
+- [x] Run focused candidates/pipeline tests and confirm RED.
+- [x] Implement projection loader and narrow ranker/pipeline injection without changing default Stage 1 behavior when projection is empty; include feedback implementation version/config in candidate config hash.
+- [x] Rerun focused tests plus Stage 4–7 related regressions; commit `feat: apply bounded feedback to candidate ranking`.
 
 ### Task 5: Harden artifact/workflow privacy and document configuration
 
@@ -128,10 +130,10 @@
 - Workflow cache/upload allowlists remain explicit and cannot capture private feedback; scheduled run remains no-send and no private-state sync by default.
 - Documentation records browser→export→local import, GitHub Pages limitation, exact config location, authorization basis for Hermes reuse, rollback and factual verification only.
 
-- [ ] Write RED privacy tests that seed `.env`, feedback JSON, localStorage snapshot, cache/private/Zotero/archive files beside an otherwise valid viewer and require audit rejection or exclusion.
-- [ ] Extend workflow static tests for feedback path absence and unchanged permissions/triggers/concurrency/timeouts/SHA pins/same CLI.
-- [ ] Implement minimal audit/workflow changes and update docs/config without real values or state examples containing paper IDs.
-- [ ] Run privacy/workflow/doc static tests; commit `docs: document private feedback workflow`.
+- [x] Write RED privacy tests that seed `.env`, feedback JSON, localStorage snapshot, cache/private/Zotero/archive files beside an otherwise valid viewer and require audit rejection or exclusion.
+- [x] Extend workflow static tests for feedback path absence and unchanged permissions/triggers/concurrency/timeouts/SHA pins/same CLI.
+- [x] Implement minimal audit/workflow changes and update docs/config without real values or state examples containing paper IDs.
+- [x] Run privacy/workflow/doc static tests; commit `docs: document private feedback workflow`.
 
 ### Task 6: Full local verification and independent whole-branch review
 
@@ -144,6 +146,6 @@
 - [x] Run Stage 7 focused tests and Stage 6/5/4 related regression tests (`395 passed in 16.22s`).
 - [x] Run default `pytest -q` and start full `pytest -m "slow or not slow" -q`; default observed `699 passed, 2 known Windows spawn failures, 1 deselected`; unfiltered full command reached the 600-second cap (exit 124) before a summary, recorded as the known uncached Hugging Face/local-reranker environment block without skipping or weakening it.
 - [x] Run `python -m compileall -q src`, workflow YAML/static validation, `git diff --check`, tracked secret/private/cache/archive/large-file scans, fixture dry-run CLI, feedback import dry-run and generated artifact content audit.
-- [ ] Request an independent whole-branch review against `c822897`; reproduce every confirmed Critical/Important finding with a failing test before fixing.
+- [x] Request an independent whole-branch review against `c822897`; reproduce every confirmed Critical/Important finding with a failing test before fixing. The first review reported 0 Critical, 2 Important and 2 Minor; all four findings received focused RED coverage before repair.
 - [ ] Rerun affected focused and full non-slow verification, record exact observed results and external operations not performed, then commit review fixes and final evidence.
 - [ ] Confirm final worktree clean; do not push, merge, create PR, alter upstream or delete Stage 6/7/8 worktrees.

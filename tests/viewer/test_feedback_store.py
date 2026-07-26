@@ -92,6 +92,29 @@ def test_read_rejects_oversize_or_digest_tampering(tmp_path: Path) -> None:
         store.read()
 
 
+@pytest.mark.parametrize("schema_version", ["0.0", "1.0"])
+def test_store_envelope_rejects_unknown_fields(
+    tmp_path: Path, schema_version: str
+) -> None:
+    store = _store(tmp_path)
+    if schema_version == "0.0":
+        payload = {
+            "schema_version": "0.0",
+            "records": [],
+            "applied_command_ids": [],
+            "applied_bundle_ids": [],
+        }
+    else:
+        store.import_bundle(_bundle(), dry_run=False)
+        payload = json.loads(store.path.read_text(encoding="utf-8"))
+    payload["unexpected_private_field"] = "must-not-be-accepted"
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(FeedbackStoreSafetyError, match=r"^feedback store rejected$"):
+        store.read()
+
+
 def test_read_migrates_the_only_supported_v0_fixture_atomically(tmp_path: Path) -> None:
     store = _store(tmp_path)
     store.path.parent.mkdir()

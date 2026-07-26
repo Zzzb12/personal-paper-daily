@@ -560,6 +560,30 @@ async function rejectZeroCommandSequenceButAllowEmptyStateCounter() {
   ));
 }
 
+async function commandCapacityFailureIsControlled() {
+  let full = api.createEmptyState("browser-capacity");
+  for (let index = 1; index <= 500; index += 1) {
+    full = api.appendFeedback(full, "2401.00001", "read", index % 2 === 1, {
+      commandId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      occurredAt: new Date(Date.UTC(2026, 6, 22, 4, 0, index)).toISOString(),
+    });
+  }
+  const storage = new MemoryStorage({ [api.STORAGE_KEY]: api.serializeState(full) });
+  const dom = createDom();
+  const adapter = api.createBrowserAdapter({
+    document: dom.document,
+    storage,
+    ...deterministicDeps(501),
+  });
+  adapter.init();
+
+  await dom.cards[0].buttons.favorite.click();
+
+  assert.equal(adapter.getState().commands.length, 500);
+  assert.equal(storage.setCalls, 0);
+  assert.equal(dom.status.textContent, "反馈容量已满，请先导出备份并清理。");
+}
+
 const scenarios = {
   transitions: transitionsAndRefresh,
   filters: filtersUseInputAndChange,
@@ -572,6 +596,7 @@ const scenarios = {
   "adapter-same-second": browserAdapterSameSecondBundle,
   "sequence-bounds": sequenceBoundsAndPythonMaximumBundle,
   "zero-command": rejectZeroCommandSequenceButAllowEmptyStateCounter,
+  capacity: commandCapacityFailureIsControlled,
 };
 
 scenarios[scenario]().catch((error) => {
@@ -811,6 +836,10 @@ def test_browser_rejects_zero_command_sequence_but_keeps_empty_counter_at_zero(
     node_harness: Path,
 ) -> None:
     _run_node(node_harness, "zero-command")
+
+
+def test_browser_command_capacity_failure_is_controlled(node_harness: Path) -> None:
+    _run_node(node_harness, "capacity")
 
 
 def test_browser_and_python_order_equal_timestamps_by_device_then_sequence_then_uuid(

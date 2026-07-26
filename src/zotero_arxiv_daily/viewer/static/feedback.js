@@ -381,11 +381,19 @@
     function changeFeedback(root, action) {
       const paperId = root.getAttribute("data-paper-id");
       const current = getPaperRecord(state, paperId);
-      const next = appendFeedback(state, paperId, action, !current[action], {
-        commandId: cryptoAdapter.randomUUID(),
-        occurredAt: now().toISOString(),
-      });
-      persist(next);
+      if (state.commands.length >= MAX_COMMANDS || state.sequence >= MAX_FEEDBACK_SEQUENCE) {
+        setStatus("反馈容量已满，请先导出备份并清理。");
+        return;
+      }
+      try {
+        const next = appendFeedback(state, paperId, action, !current[action], {
+          commandId: cryptoAdapter.randomUUID(),
+          occurredAt: now().toISOString(),
+        });
+        persist(next);
+      } catch (error) {
+        setStatus("无法更新浏览器反馈。请导出备份后重试。");
+      }
     }
 
     function setBusy(control, busy, message) {

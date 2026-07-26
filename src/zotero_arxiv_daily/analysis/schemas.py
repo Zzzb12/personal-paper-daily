@@ -167,6 +167,7 @@ class RankingModelVersions(StrictModel):
 class RankingRecord(StrictModel):
     paper_id: str
     embedding_score: float
+    feedback_adjustment: float = Field(default=0.0, ge=0.0, le=0.10)
     llm_score: None = None
     final_score: float
     rank: int = Field(ge=1)
@@ -178,7 +179,7 @@ class RankingRecord(StrictModel):
     def normalize_text(cls, value: str) -> str:
         return _non_empty(value)
 
-    @field_validator("embedding_score", "final_score")
+    @field_validator("embedding_score", "feedback_adjustment", "final_score")
     @classmethod
     def validate_score(cls, value: float) -> float:
         if not math.isfinite(value):
@@ -187,8 +188,15 @@ class RankingRecord(StrictModel):
 
     @model_validator(mode="after")
     def validate_stage_one_score(self) -> Self:
-        if self.final_score != self.embedding_score:
-            raise ValueError("Stage 1 final_score must equal embedding_score")
+        if not math.isclose(
+            self.final_score,
+            self.embedding_score + self.feedback_adjustment,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(
+                "Stage 1 final_score must equal embedding_score plus feedback_adjustment"
+            )
         return self
 
 

@@ -492,16 +492,25 @@ class FeedbackStore:
             raise FeedbackStoreSafetyError()
         version = payload.get("schema_version")
         if version == "0.0":
+            if set(payload) != {
+                "schema_version",
+                "records",
+                "applied_command_ids",
+                "applied_bundle_ids",
+            }:
+                raise FeedbackStoreSafetyError()
             try:
                 state = FeedbackStoreState(
                     records=tuple(payload["records"]),
-                    applied_command_ids=tuple(payload.get("applied_command_ids", ())),
-                    applied_bundle_ids=tuple(payload.get("applied_bundle_ids", ())),
+                    applied_command_ids=tuple(payload["applied_command_ids"]),
+                    applied_bundle_ids=tuple(payload["applied_bundle_ids"]),
                 )
             except (KeyError, TypeError, ValueError) as error:
                 raise FeedbackStoreSafetyError() from error
             return state, True
         if version != FEEDBACK_SCHEMA_VERSION:
+            raise FeedbackStoreSafetyError()
+        if set(payload) != {"schema_version", "state", "digest"}:
             raise FeedbackStoreSafetyError()
         try:
             state_payload = payload["state"]

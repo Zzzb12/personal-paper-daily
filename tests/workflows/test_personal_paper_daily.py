@@ -238,7 +238,10 @@ def test_stage8_privacy_docs_record_only_local_explicit_feedback_flow() -> None:
     stage8_roadmap = roadmap.split("## Stage 8: Read, favorite, and irrelevant feedback", 1)[1].split(
         "## Stage 9:", 1
     )[0]
-    stage8_baseline = baseline.split("## Stage 8 privacy-hardening observations (2026-07-26)", 1)[1]
+    stage8_baseline = baseline.split(
+        "## Stage 8 local implementation and verification notes (2026-07-26; review pending)",
+        1,
+    )[1]
 
     assert "explicit export/import" in architecture
     assert "GitHub Pages never writes to this store or auto-syncs it" in architecture
@@ -246,8 +249,24 @@ def test_stage8_privacy_docs_record_only_local_explicit_feedback_flow() -> None:
     assert "data/private-feedback/" in stage8_roadmap
     assert "Stage 4 remains the only publication" in stage8_roadmap
     assert "eligibility gate" in stage8_roadmap
-    assert "Task 6's complete-suite commands and external operations remain pending" in stage8_baseline
+    assert "Local Task 6 validation" in stage8_baseline
+    assert "independent review and any finding-driven retest remain pending" in stage8_baseline
     assert "project owner has confirmed authorization" in stage8_baseline
     for prohibited in ("2401.", "feedback-v1", "reader-feedback:v1"):
         assert prohibited not in stage8_roadmap
         assert prohibited not in stage8_baseline
+
+
+def test_stage8_executable_plan_records_completed_tasks_and_review() -> None:
+    plan = (
+        ROOT / "docs" / "superpowers" / "plans" / "2026-07-22-stage-8-reader-feedback.md"
+    ).read_text(encoding="utf-8")
+
+    assert "**Status:** Completed locally" in plan
+    assert "implementation pending" not in plan
+    completed_implementation = plan.split(
+        "### Task 1: Define strict feedback contracts and deterministic state machine", 1
+    )[1].split("### Task 6: Full local verification and independent whole-branch review", 1)[0]
+    assert "- [ ]" not in completed_implementation
+    assert "- [x] Request an independent whole-branch review" in plan
+    assert "independent whole-branch review" in plan
