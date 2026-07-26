@@ -80,10 +80,10 @@
 - `_generate_with_bounded_retry` reports unsuccessful and successful attempts while preserving exact existing backoff, exception translation, cache identity, expensive-call count, and response validation.
 - All `processing_seconds` calculations use the injected monotonic function, including fixed-error results.
 
-- [ ] Write RED tests proving deterministic processing time, retry attempt sequence, successful/failed response accounting, cache-hit zero usage, sink failure isolation, and absence of prompt/response in the sink’s serialized result.
-- [ ] Run the three focused files and confirm failures at the missing injection/observer behavior.
-- [ ] Add the narrow protocol/default fields and observational calls; catch sink exceptions at the boundary and expose only a fixed collection-failure flag to `MetricsSession`.
-- [ ] Rerun focused tests and the full `tests/analysis tests/pipeline/test_analysis.py -q`; commit `feat: observe bounded analysis usage`.
+- [x] Write RED tests proving deterministic processing time, retry attempt sequence, successful/failed response accounting, cache-hit zero usage, sink failure isolation, and absence of prompt/response in the sink’s serialized result.
+- [x] Run the three focused files and confirm failures at the missing injection/observer behavior.
+- [x] Add the narrow protocol/default fields and observational calls; catch sink exceptions at the boundary and expose only fixed, aggregate-only data to `MetricsSession`.
+- [x] Rerun focused tests and the full `tests/analysis tests/pipeline/test_analysis.py -q`; commit `feat: observe bounded analysis usage`.
 
 ### Task 4: Integrate metrics sidecar and manifest schema 1.1
 

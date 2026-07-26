@@ -130,6 +130,33 @@ class FakeClient:
         return response
 
 
+class UsageSink:
+    def __init__(self, *, fail=False):
+        self.calls = []
+        self.fail = fail
+
+    def record_attempt(
+        self,
+        request,
+        response,
+        *,
+        model_identity,
+        succeeded,
+        paid,
+    ):
+        if self.fail:
+            raise RuntimeError("PRIVATE SINK FAILURE")
+        self.calls.append(
+            {
+                "request": request,
+                "response": response,
+                "model_identity": model_identity,
+                "succeeded": succeeded,
+                "paid": paid,
+            }
+        )
+
+
 def analyzer_settings(**updates):
     base = AnalysisSettings(
         evidence=evidence_settings(),
@@ -304,6 +331,56 @@ def test_identical_second_analysis_is_cache_hit_with_zero_duplicate_call(tmp_pat
     assert second.cache_hit is True
     assert deps.client.calls == 1
     assert first.analysis == second.analysis
+
+
+def test_analyzer_uses_injected_monotonic_for_success_and_failure(tmp_path):
+    success_times = iter((10.0, 12.5))
+    deps, _ = dependencies(tmp_path, valid_draft().model_dump_json())
+    deps.monotonic = lambda: next(success_times)
+    success = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+    assert success.processing_seconds == 2.5
+
+    failure_times = iter((20.0, 21.25))
+    failed_deps, _ = dependencies(
+        tmp_path / "failed",
+        AnalysisClientError("analysis_auth_failed", retryable=False),
+    )
+    failed_deps.monotonic = lambda: next(failure_times)
+    failed = analyze_paper(
+        candidate(), document_graph(), analyzer_settings(), failed_deps
+    )
+    assert failed.processing_seconds == 1.25
+
+
+def test_analyzer_usage_sink_observes_each_retry_attempt_and_not_cache_hits(tmp_path):
+    transient = AnalysisClientError("analysis_timeout", retryable=True)
+    deps, _ = dependencies(
+        tmp_path,
+        transient,
+        valid_draft().model_dump_json(),
+    )
+    sink = UsageSink()
+    deps.usage_sink = sink
+
+    first = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+    second = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert first.status == second.status == "success"
+    assert [call["succeeded"] for call in sink.calls] == [False, True]
+    assert all(call["paid"] is True for call in sink.calls)
+    assert sink.calls[0]["response"] is None
+    assert sink.calls[1]["response"] == valid_draft().model_dump_json()
+    assert len(sink.calls) == 2
+
+
+def test_analyzer_usage_sink_failure_never_changes_analysis_result(tmp_path):
+    deps, _ = dependencies(tmp_path, valid_draft().model_dump_json())
+    deps.usage_sink = UsageSink(fail=True)
+
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert result.status == "success"
+    assert "PRIVATE SINK FAILURE" not in result.model_dump_json()
 
 
 def test_changed_title_and_links_cannot_reuse_stale_cached_analysis(tmp_path):

@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal, Self
+from typing import Literal, Protocol, Self
 
 from pydantic import Field, ValidationError, model_validator
 
@@ -72,6 +72,20 @@ class AnalysisDependencies:
     cache: AnalysisCache
     clock: Callable[[], datetime]
     sleep: Callable[[float], None]
+    monotonic: Callable[[], float] = time.perf_counter
+    usage_sink: AnalysisUsageSink | None = None
+
+
+class AnalysisUsageSink(Protocol):
+    def record_attempt(
+        self,
+        request: object,
+        response: str | None,
+        *,
+        model_identity: str,
+        succeeded: bool,
+        paid: bool,
+    ) -> None: ...
 
 
 class _AnalysisProtocolError(RuntimeError):
@@ -86,7 +100,7 @@ def analyze_paper(
     settings: AnalysisSettings,
     dependencies: AnalysisDependencies,
 ) -> PaperAnalysisResult:
-    started = time.perf_counter()
+    started = dependencies.monotonic()
     try:
         packet = build_evidence_packet(paper.paper_id, document, settings.evidence)
         if not packet.candidates:
@@ -106,7 +120,7 @@ def analyze_paper(
         if cached is not None:
             cached_result = _analysis_result(
                 cached,
-                processing_seconds=time.perf_counter() - started,
+                processing_seconds=dependencies.monotonic() - started,
                 cache_hit=True,
             )
             if cached_result.status == "success":
@@ -128,18 +142,24 @@ def analyze_paper(
         )
         result = _analysis_result(
             analysis,
-            processing_seconds=time.perf_counter() - started,
+            processing_seconds=dependencies.monotonic() - started,
             cache_hit=False,
         )
         if result.status == "success":
             dependencies.cache.write(identity, analysis)
         return result
     except AnalysisClientError as exc:
-        return _failed_result(paper.paper_id, exc.code, started)
+        return _failed_result(
+            paper.paper_id, exc.code, started, dependencies.monotonic
+        )
     except _AnalysisProtocolError as exc:
-        return _failed_result(paper.paper_id, exc.code, started)
+        return _failed_result(
+            paper.paper_id, exc.code, started, dependencies.monotonic
+        )
     except Exception:
-        return _failed_result(paper.paper_id, "analysis_failed", started)
+        return _failed_result(
+            paper.paper_id, "analysis_failed", started, dependencies.monotonic
+        )
 
 
 def _generate_with_bounded_retry(
@@ -149,8 +169,21 @@ def _generate_with_bounded_retry(
 ) -> str:
     for attempt in range(1, settings.max_attempts + 1):
         try:
-            return dependencies.client.generate(request)
+            response = dependencies.client.generate(request)
+            _notify_usage(
+                dependencies,
+                request,
+                response,
+                succeeded=True,
+            )
+            return response
         except AnalysisClientError as exc:
+            _notify_usage(
+                dependencies,
+                request,
+                None,
+                succeeded=False,
+            )
             if not exc.retryable:
                 raise
             if attempt == settings.max_attempts:
@@ -165,6 +198,28 @@ def _generate_with_bounded_retry(
             delay = min(max(proposed, 0), settings.max_retry_after_seconds)
             dependencies.sleep(delay)
     raise AnalysisClientError("analysis_retry_exhausted", retryable=False)
+
+
+def _notify_usage(
+    dependencies: AnalysisDependencies,
+    request: object,
+    response: str | None,
+    *,
+    succeeded: bool,
+) -> None:
+    sink = dependencies.usage_sink
+    if sink is None:
+        return
+    try:
+        sink.record_attempt(
+            request,
+            response,
+            model_identity=dependencies.client.model_identity,
+            succeeded=succeeded,
+            paid=bool(getattr(dependencies.client, "is_expensive", True)),
+        )
+    except Exception:
+        return
 
 
 def _parse_draft(raw: str) -> PaperAnalysisDraft:
@@ -328,7 +383,10 @@ def _all_referenced_evidence_ids(draft: PaperAnalysisDraft) -> set[str]:
 
 
 def _failed_result(
-    paper_id: str, code: str, started: float
+    paper_id: str,
+    code: str,
+    started: float,
+    monotonic: Callable[[], float],
 ) -> PaperAnalysisResult:
     return PaperAnalysisResult(
         paper_id=paper_id,
@@ -341,7 +399,7 @@ def _failed_result(
                 message="Stage 3 analysis failed within the configured safety policy",
             ),
         ),
-        processing_seconds=time.perf_counter() - started,
+        processing_seconds=monotonic() - started,
     )
 
 

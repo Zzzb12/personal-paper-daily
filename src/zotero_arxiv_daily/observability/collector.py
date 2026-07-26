@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from zotero_arxiv_daily.analysis.client import AnalysisRequest
 from zotero_arxiv_daily.observability.metrics import (
     BudgetEvaluation,
     ModelUsageMetric,
@@ -284,4 +285,29 @@ class MetricsSession:
             model_usage=usage,
             peak_traced_allocation_bytes=peak,
             budget=budget,
+        )
+
+
+class AnalysisMetricsSink:
+    def __init__(self, session: MetricsSession) -> None:
+        self._session = session
+
+    def record_attempt(
+        self,
+        request: object,
+        response: str | None,
+        *,
+        model_identity: str,
+        succeeded: bool,
+        paid: bool,
+    ) -> None:
+        if not isinstance(request, AnalysisRequest):
+            raise MetricsCollectionError("analysis usage request is invalid")
+        self._session.record_model_attempt(
+            model_identity=model_identity,
+            input_texts=(request.system_prompt, request.user_prompt),
+            output_text=response,
+            configured_output_tokens=request.max_output_tokens,
+            succeeded=succeeded,
+            paid=paid,
         )

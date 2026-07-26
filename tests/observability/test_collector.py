@@ -5,11 +5,13 @@ from collections.abc import Iterator
 import pytest
 
 from zotero_arxiv_daily.observability.collector import (
+    AnalysisMetricsSink,
     BoundedTokenEstimator,
     MetricsCollectionError,
     MetricsSession,
 )
 from zotero_arxiv_daily.observability.metrics import PricingPolicy
+from zotero_arxiv_daily.analysis.client import AnalysisRequest
 
 
 HASH = "a" * 64
@@ -128,6 +130,31 @@ def test_offline_fake_success_is_successful_but_never_paid() -> None:
     assert session.model_usage.successful_call_count == 1
     assert session.model_usage.paid_call_count == 0
     assert session.model_usage.attempt_count == 1
+
+
+def test_analysis_sink_adapts_request_transiently_to_integer_usage() -> None:
+    session = _session()
+    sink = AnalysisMetricsSink(session)
+    request = AnalysisRequest(
+        prompt_version="stage3-v1",
+        system_prompt="private system prompt",
+        user_prompt="private paper text",
+        response_schema={"type": "object"},
+        max_output_tokens=8192,
+    )
+
+    sink.record_attempt(
+        request,
+        "private response",
+        model_identity="offline-fake",
+        succeeded=True,
+        paid=False,
+    )
+
+    usage = session.model_usage
+    assert usage.successful_call_count == 1
+    assert usage.configured_output_token_count == 8192
+    assert "private" not in usage.model_dump_json()
 
 
 def test_pricing_is_integer_bounded_and_unconfigured_is_not_zero_cost() -> None:
