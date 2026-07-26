@@ -232,7 +232,7 @@ class CachedEmbeddingProvider:
 
 
 class CandidateRanker:
-    SCORER_VERSION = "weighted-cosine-feedback-v2"
+    SCORER_VERSION = "weighted-cosine-feedback-v3"
     SCORE_MIN = -10.0
     SCORE_MAX = 10.0
 
@@ -288,7 +288,10 @@ class CandidateRanker:
         scores = weighted_similarity_scores(self._cosine(candidate_vectors, interest_vectors))
         scored: list[tuple[CandidatePaper, float, float, float]] = []
         for paper, score in zip(eligible_candidates, scores, strict=True):
-            embedding_score = float(score)
+            embedding_score = min(
+                self.SCORE_MAX,
+                max(self.SCORE_MIN, float(score)),
+            )
             requested_adjustment = (
                 projection.favorite_delta
                 if normalize_feedback_paper_id(paper.arxiv_id) in projection.favorite_ids

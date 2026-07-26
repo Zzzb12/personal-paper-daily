@@ -9,7 +9,7 @@ from zotero_arxiv_daily.viewer.feedback import (
 )
 
 
-FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION = "stage8-feedback-projection-v2"
+FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION = "stage8-feedback-projection-v3"
 
 
 class FeedbackProjectionError(ValueError):

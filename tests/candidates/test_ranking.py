@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
+import zotero_arxiv_daily.candidates.ranking as ranking_module
+
 from zotero_arxiv_daily.analysis.schemas import CandidatePaper, InterestPaper
 from zotero_arxiv_daily.candidates.ranking import (
     CandidateRanker,
@@ -149,6 +151,25 @@ def test_favorite_adds_exact_default_delta_before_sorting():
     assert result.rankings[0].feedback_adjustment == pytest.approx(0.05)
     assert result.rankings[0].final_score == pytest.approx(6.04, abs=0.02)
     assert result.rankings[0].reason == "embedding similarity to the Zotero interest corpus; explicit feedback adjustment applied"
+
+
+def test_floating_point_similarity_above_upper_bound_is_clamped_before_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paper = candidate(1)
+    seed = interest()
+    vectors = {text(seed): [1, 0], text(paper): [1, 0]}
+    monkeypatch.setattr(
+        ranking_module,
+        "weighted_similarity_scores",
+        lambda similarity: np.asarray([10.000000000000002]),
+    )
+
+    result = CandidateRanker(FakeProvider(vectors)).rank((paper,), (seed,))
+
+    assert result.rankings[0].embedding_score == 10.0
+    assert result.rankings[0].feedback_adjustment == 0.0
+    assert result.rankings[0].final_score == 10.0
 
 
 def test_irrelevant_version_match_is_vetoed_before_any_embedding_call():
