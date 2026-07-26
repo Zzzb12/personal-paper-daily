@@ -8,9 +8,9 @@
 
 **Tech Stack:** Python 3.13、Pydantic 2、pytest、Node.js 20 离线 JS harness、原生浏览器 DOM/localStorage、现有 Stage 1–7 模块。
 
-**Status:** Completed locally through the first independent whole-branch review on
-2026-07-26. All confirmed findings have failing reproductions and fixes; final
-finding-driven verification and re-review are pending.
+**Status:** Completed locally on 2026-07-26. All confirmed findings received focused
+RED coverage before repair; final independent re-review reported Spec Compliance
+`PASS`, Code Quality `PASS`, and no remaining Critical/Important/Minor findings.
 
 ## Global Constraints
 
@@ -142,10 +142,10 @@ finding-driven verification and re-review are pending.
 - Finalize: `docs/BASELINE.md`, `docs/IMPLEMENTATION_PLAN.md`, this plan status/checklists.
 
 - [x] Run `uv sync --frozen` using the configured workspace runtime (`Checked 172 packages`).
-- [x] Run Stage 8 focused suites: feedback schema/state/store/CLI/browser/privacy, viewer, candidates feedback/ranking and daily integration (`228 passed in 13.32s`).
-- [x] Run Stage 7 focused tests and Stage 6/5/4 related regression tests (`395 passed in 16.22s`).
-- [x] Run default `pytest -q` and start full `pytest -m "slow or not slow" -q`; default observed `699 passed, 2 known Windows spawn failures, 1 deselected`; unfiltered full command reached the 600-second cap (exit 124) before a summary, recorded as the known uncached Hugging Face/local-reranker environment block without skipping or weakening it.
+- [x] Run Stage 8 focused suites: feedback schema/state/store/CLI/browser/privacy, viewer, candidates feedback/ranking and daily integration (final expanded group: `251 passed in 15.87s`).
+- [x] Run Stage 7 focused tests and Stage 6/5/4 related regression tests (final group: `417 passed in 18.37s`).
+- [x] Run default `pytest -q` and start full `pytest -m "slow or not slow" -q`; final default observed `705 passed, 2 known Windows spawn failures, 1 deselected`; unfiltered full command reached the 600-second cap (exit 124) before a summary, recorded as the known uncached Hugging Face/local-reranker environment block without skipping or weakening it.
 - [x] Run `python -m compileall -q src`, workflow YAML/static validation, `git diff --check`, tracked secret/private/cache/archive/large-file scans, fixture dry-run CLI, feedback import dry-run and generated artifact content audit.
-- [x] Request an independent whole-branch review against `c822897`; reproduce every confirmed Critical/Important finding with a failing test before fixing. The first review reported 0 Critical, 2 Important and 2 Minor; all four findings received focused RED coverage before repair.
-- [ ] Rerun affected focused and full non-slow verification, record exact observed results and external operations not performed, then commit review fixes and final evidence.
-- [ ] Confirm final worktree clean; do not push, merge, create PR, alter upstream or delete Stage 6/7/8 worktrees.
+- [x] Request an independent whole-branch review against `c822897`; reproduce every confirmed Critical/Important finding with a failing test before fixing. The first review reported 0 Critical, 2 Important and 2 Minor; all four findings received focused RED coverage before repair. Re-review found one additional Important floating-point boundary, also repaired after a focused RED; final re-review passed with no findings.
+- [x] Rerun affected focused and full non-slow verification, record exact observed results and external operations not performed, then commit review fixes and final evidence.
+- [x] Confirm final worktree clean after the final evidence commit; do not push, merge, create PR, alter upstream or delete Stage 6/7/8 worktrees.

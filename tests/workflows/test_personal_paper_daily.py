@@ -239,7 +239,7 @@ def test_stage8_privacy_docs_record_only_local_explicit_feedback_flow() -> None:
         "## Stage 9:", 1
     )[0]
     stage8_baseline = baseline.split(
-        "## Stage 8 local implementation and verification notes (2026-07-26; review pending)",
+        "## Stage 8 completion notes (2026-07-26)",
         1,
     )[1]
 
@@ -250,7 +250,8 @@ def test_stage8_privacy_docs_record_only_local_explicit_feedback_flow() -> None:
     assert "Stage 4 remains the only publication" in stage8_roadmap
     assert "eligibility gate" in stage8_roadmap
     assert "Local Task 6 validation" in stage8_baseline
-    assert "independent review and any finding-driven retest remain pending" in stage8_baseline
+    assert "Spec Compliance `PASS`" in stage8_baseline
+    assert "Code Quality `PASS`" in stage8_baseline
     assert "project owner has confirmed authorization" in stage8_baseline
     for prohibited in ("2401.", "feedback-v1", "reader-feedback:v1"):
         assert prohibited not in stage8_roadmap

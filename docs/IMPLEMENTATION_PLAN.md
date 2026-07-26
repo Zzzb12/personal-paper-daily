@@ -581,10 +581,11 @@ Disable the schedule or workflow file, retain manual execution, and redeploy the
 
 ## Stage 8: Read, favorite, and irrelevant feedback
 
-**Status: local/private implementation and local verification completed on
-2026-07-26; independent whole-branch review remains pending.** No real user
-feedback, credentials, Zotero/private-library data, browser snapshot, or external
-operation is used in the implementation record.
+**Status: completed locally on 2026-07-26.** Final independent whole-branch
+re-review reported Spec Compliance `PASS`, Code Quality `PASS`, and no remaining
+Critical/Important/Minor findings. No real user feedback, credentials,
+Zotero/private-library data, browser snapshot, or external operation is used in the
+implementation record.
 
 ### Goal
 
@@ -669,13 +670,13 @@ Actions cache, or Git history as a feedback backup.
 - `feat: add accessible feedback controls`
 - `feat: apply bounded feedback to ranking`
 
-### Local verification (review pending)
+### Completion verification
 
-- Frozen sync checked 172 packages; the all-Stage-8 focused group passed with
-  `228 passed in 13.32s`, and the explicit Stage 7 plus Stage 6/5/4 regression
-  group passed with `395 passed in 16.22s`.
-- Default `pytest -q` produced `699 passed`, `2 failed`, `1 deselected` in
-  `22.41s`; both failures are the unchanged Windows one-second multiprocessing
+- Frozen sync checked 172 packages; the final expanded Stage 8 focused group passed
+  with `251 passed in 15.87s`, and the explicit Stage 7 plus Stage 6/5/4
+  regression group passed with `417 passed in 18.37s`.
+- Final default `pytest -q` produced `705 passed`, `2 failed`, `1 deselected` in
+  `29.05s`; both failures are the unchanged Windows one-second multiprocessing
   spawn tests. The explicit `slow or not slow` command was actually run without
   filters, then hit the 600-second verification cap with exit 124 and no final
   pytest summary, consistent with the known uncached local-reranker/Hugging Face
@@ -684,14 +685,15 @@ Actions cache, or Git history as a feedback backup.
   fixture daily dry-run, synthetic feedback-import dry-run, and generated artifact
   audit passed. The fixture daily run published one item, delivered zero, and its
   six-file viewer audit matched SHA-256
-  `efef6595359f12b3c034bb24baa40e4c8bdaaecd03dcbee2b8c81e1833700659`.
+  `7ca1c753d2ed4828fabe5f29387c97fd3fc55d88c996c2e67ea5aa039cf92a13`.
 - No real GitHub dispatch/Pages deploy, Zotero or LLM access, model/paper download,
   Feishu send, push, PR, merge, or upstream mutation occurred. The user-accepted
   Task 2 historical TDD-evidence deviation remains a process-history note; it does
   not reduce current coverage.
-- A separate independent whole-branch review against exact Stage 7 base
-  `c822897f38573d5fa3b09b19513dc169529854de` remains required before Stage 8 can
-  be marked fully complete.
+- Independent review used exact Stage 7 base
+  `c822897f38573d5fa3b09b19513dc169529854de`. All confirmed findings received
+  focused RED coverage before repair; final re-review reported no
+  Critical/Important/Minor findings and both verdicts `PASS`.
 
 ## Stage 9: Quality, cost, and runtime optimization
 

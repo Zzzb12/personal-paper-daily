@@ -919,67 +919,71 @@ enabled is not a safe rollback. Revoke/rotate any credential exposed outside Git
 credentials previously pasted in chat should be rotated even though Stage 7 never
 prints or commits them.
 
-## Stage 8 local implementation and verification notes (2026-07-26; review pending)
+## Stage 8 completion notes (2026-07-26)
 
-This is a factual implementation/privacy and local-verification record. Independent
-whole-branch review is still pending, so it is not a final Stage 8 completion claim.
-Browser feedback is immediate same-origin `localStorage`; only an explicit export
-and local CLI import can reach the Git-ignored authoritative store under the default
-`data/private-feedback/` root. GitHub Pages cannot write back to that local store,
-and scheduled Actions do not synchronize private feedback by default.
+Stage 8 is complete in the locally authorized scope. Browser feedback is immediate
+same-origin `localStorage`; only an explicit export and local CLI import can reach
+the Git-ignored authoritative store under the default `data/private-feedback/`
+root. GitHub Pages cannot write back to that local store, and scheduled Actions do
+not synchronize private feedback by default.
 
 The optional production store configuration is
 `candidate_pipeline.feedback.store_path` in `config/base.yaml` (tracked default:
 `null`). Its path is removed before configuration hashing; feedback state, paper-ID
 lists, bundles, browser snapshots, migration backups, and credentials are not
-configuration-hash inputs. `favorite_delta` is the only feedback setting retained in
-that hash. The default favorite delta is `0.05`, capped at `0.10`;
-`irrelevant` exact-ID veto occurs before embedding or paid work, `read` has no
-ranking effect, and Stage 4 remains the sole publication eligibility gate.
+configuration-hash inputs. `favorite_delta` is the only feedback setting retained
+in that hash. The default delta is `0.05`, capped at `0.10`; strict
+`feedback_adjustment` preserves the bounded embedding component separately from
+`final_score`. `irrelevant` exact-ID veto occurs before embedding or paid work,
+`read` has no ranking effect, and Stage 4 remains the sole publication eligibility
+gate. Scorer/projection identity is v3 after the reviewed floating-point boundary
+repair.
 
-Observed focused checks on this worktree: the complete Stage 8 focused group passed
-`228` tests in `13.32s`; explicit Stage 7 plus Stage 6/5/4 regressions passed `395`
-tests in `16.22s`. Declared private artifact seeds including
-`.env`, cache/private/Zotero paths, archive, migration backup, feedback store/bundle,
-and browser-state variants were rejected; an explicit empty list remains distinct
-from an absent configuration field; the workflow retained its existing explicit
-cache/upload allowlists, least permissions, triggers, concurrency, timeouts, SHA
-pins, and single CLI while containing no feedback path. The workflow static suite
-passed `11` tests, `compileall` and `git diff --check` passed, and the tracked scan
-found 215 tracked files, none over 5 MiB and no tracked archive/database/PDF/private
-artifact. The only allowed path match was empty `.env.example`; two credential-shaped
-matches are deliberately redaction-testing sentinels in named test files, not values.
+Final finding-driven checks: the expanded Stage 8 focused group passed `251` tests
+in `15.87s`; explicit Stage 7 plus Stage 6/5/4 regressions passed `417` tests in
+`18.37s`. Declared private artifact seeds including `.env`, cache/private/Zotero
+paths, archives, migration backups, feedback stores/bundles, and browser-state
+variants were rejected. The workflow retained explicit cache/upload allowlists,
+least permissions, triggers, concurrency, timeouts, SHA pins, the single CLI, and
+no feedback path. Compilation, workflow static validation, `git diff --check`, and
+the tracked hygiene scan passed. The scan found 215 tracked files, none over 5 MiB,
+and no tracked archive/database/PDF/private artifact; credential-shaped matches
+were limited to deliberate redaction sentinels in tests, and no values were printed.
 
-Default `pytest -q` produced `699 passed`, `2 failed`, `1 deselected` in `22.41s`.
-The two failures are exactly the known Windows one-second multiprocessing spawn tests
-in `tests/retriever/test_arxiv_retriever.py`; no Stage 8 test failed. The complete
-`pytest -m "slow or not slow" -q` command was run without filtering but did not return
-a pytest summary before the 600-second safety cap (exit `124` after `604.516s`). This
-is reported as the existing uncached local-reranker/Hugging Face model/metadata
-environment block, not as a success or a skipped test.
+Final default `pytest -q` produced `705 passed`, `2 failed`, `1 deselected` in
+`29.05s`. Both failures are exactly the known Windows one-second multiprocessing
+spawn tests in `tests/retriever/test_arxiv_retriever.py`; no Stage 8 test failed.
+The unfiltered `pytest -m "slow or not slow" -q` command produced no summary before
+the 600-second safety cap (exit `124` after `604.516s`), recorded as the existing
+uncached local-reranker/Hugging Face environment block rather than a pass or skip.
 
-The artificial fixture daily CLI was run with dry-run/offline/no-send composition and
-returned one published viewer item, zero deliveries, and artifact SHA-256
-`efef6595359f12b3c034bb24baa40e4c8bdaaecd03dcbee2b8c81e1833700659`. ArtifactAuditor
-accepted exactly six files (32,282 bytes): first-party favicon, stylesheet, feedback
-script, build manifest, index, and one fixture paper page. There were no embedded
-`.env`, private store/bundle/state, Zotero, cache, PDF/archive, inline/remote script,
-or `eval` markers; CSP permits only same-origin resources and scripts. A synthetic
-non-real feedback bundle was imported with `--dry-run`; the private store was absent
-both before and after, proving zero write, and both paths are ignored.
+The final artificial fixture daily CLI ran from `aa48d97` with
+dry-run/offline/no-send composition and returned one published viewer item, zero
+deliveries, and artifact SHA-256
+`7ca1c753d2ed4828fabe5f29387c97fd3fc55d88c996c2e67ea5aa039cf92a13`.
+ArtifactAuditor accepted exactly six files (32,608 bytes): first-party favicon,
+stylesheet, feedback script, build manifest, index, and one fixture paper page.
+There were no embedded `.env`, private store/bundle/state, Zotero, cache,
+PDF/archive, inline/remote script, or `eval` markers; CSP permits only same-origin
+resources and scripts. A synthetic non-real feedback bundle import with `--dry-run`
+left the private store absent before and after.
+
+The first independent whole-branch review found 0 Critical, 2 Important and 2 Minor
+issues. Each received a focused failing reproduction before repair. Re-review found
+one additional Important floating-point boundary issue, which likewise received a
+focused RED and versioned repair. Final re-review reported no Critical, Important,
+or Minor findings, with Spec Compliance `PASS` and Code Quality `PASS`.
 
 No real GitHub dispatch/Pages deployment, Zotero/private-library access, paper/model
 download, paid LLM call, Feishu send, push, PR, merge, upstream mutation, or worktree
-deletion occurred. Independent whole-branch review against
-`c822897f38573d5fa3b09b19513dc169529854de` remains pending.
+deletion occurred. The review base remained exact Stage 7
+`c822897f38573d5fa3b09b19513dc169529854de`.
 
 The project owner has confirmed authorization for Hermes reuse/adaptation. No Hermes
-license name, terms, or license file are asserted. Rollback keeps any desired
-explicit private-store export outside Git, then disables/reverts the feedback
-UI/ranking adapter; Pages, Actions cache, manifests, and Git history are not a
-feedback backup.
+license name or terms are asserted here. Rollback keeps any desired explicit
+private-store export outside Git, then disables/reverts the feedback UI/ranking
+adapter; Pages, Actions cache, manifests, and Git history are not a feedback backup.
 
 Task 2's historical behavior-level TDD evidence deviation remains explicitly
-user-accepted and does not indicate missing current coverage. Local Task 6 validation
-is complete to the extent recorded above;
-independent review and any finding-driven retest remain pending.
+user-accepted and does not indicate missing current coverage. Local Task 6 validation,
+finding-driven retest, and independent review are complete as recorded above.
