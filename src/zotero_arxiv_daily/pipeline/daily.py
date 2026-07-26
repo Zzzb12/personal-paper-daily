@@ -31,6 +31,7 @@ from zotero_arxiv_daily.pipeline.artifacts import (
 )
 from zotero_arxiv_daily.pipeline.daily_schemas import (
     FeishuRunResult,
+    MetricsRunResult,
     RunCounts,
     RunManifest,
     STAGE_ORDER,
@@ -38,6 +39,8 @@ from zotero_arxiv_daily.pipeline.daily_schemas import (
     StaticSiteResult,
     Trigger,
 )
+from zotero_arxiv_daily.observability.collector import AnalysisMetricsSink, MetricsSession
+from zotero_arxiv_daily.observability.store import MetricsWriter
 from zotero_arxiv_daily.viewer.schemas import BuildManifest
 
 
@@ -123,6 +126,8 @@ class DailyDependencies:
     delivery_ledger: Ledger
     clock: Callable[[], datetime]
     sleep: Callable[[float], None]
+    metrics_session: MetricsSession | None = None
+    metrics_writer: MetricsWriter | None = None
     close_callbacks: tuple[Callable[[], None], ...] = ()
 
     def close(self) -> None:
@@ -148,7 +153,9 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     counts = RunCounts()
 
     try:
-        candidates = dependencies.candidate_runner()
+        candidates = _observed_call(
+            dependencies, "candidates", dependencies.candidate_runner
+        )
     except FeedbackProjectionError:
         stages.append(_failed_stage("candidates", "feedback_projection_rejected"))
         stages.extend(_skipped_stages(start_at=1))
@@ -216,7 +223,11 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     )
 
     try:
-        documents = dependencies.document_runner(candidates)
+        documents = _observed_call(
+            dependencies,
+            "documents",
+            lambda: dependencies.document_runner(candidates),
+        )
     except Exception:
         stages.append(_failed_stage("documents", "document_stage_failed", counts.selected_count))
         stages.extend(_skipped_stages(start_at=2))
@@ -240,7 +251,11 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     stages.append(document_stage)
 
     try:
-        analysis_output = dependencies.analysis_runner(candidates, documents)
+        analysis_output = _observed_call(
+            dependencies,
+            "analysis",
+            lambda: dependencies.analysis_runner(candidates, documents),
+        )
     except Exception:
         stages.append(_failed_stage("analysis", "analysis_stage_failed", counts.selected_count))
         stages.extend(_skipped_stages(start_at=3))
@@ -269,8 +284,12 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     stages.append(analysis_stage)
 
     try:
-        validation = dependencies.validation_runner(
-            candidates, documents, analysis_output
+        validation = _observed_call(
+            dependencies,
+            "validation",
+            lambda: dependencies.validation_runner(
+                candidates, documents, analysis_output
+            ),
         )
     except Exception:
         stages.append(
@@ -298,7 +317,11 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     publishable_validation = _eligible_validation_batch(validation)
 
     try:
-        build = dependencies.viewer_runner(publishable_validation)
+        build = _observed_call(
+            dependencies,
+            "viewer",
+            lambda: dependencies.viewer_runner(publishable_validation),
+        )
         if build.published_count != eligible_count:
             raise ValueError("viewer publication count differs from Stage 4 eligibility")
         audit = dependencies.artifact_auditor.audit(settings.viewer_output)
@@ -350,7 +373,11 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         )
 
     try:
-        delivery = dependencies.prepare_delivery(publishable_validation)
+        delivery = _observed_call(
+            dependencies,
+            "feishu",
+            lambda: dependencies.prepare_delivery(publishable_validation),
+        )
         if not settings.send_feishu:
             feishu = FeishuRunResult(status="preview")
             stages.append(
@@ -420,6 +447,18 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         feishu,
         status=status,
     )
+
+
+def _observed_call(
+    dependencies: DailyDependencies,
+    name: str,
+    callback: Callable[[], Any],
+) -> Any:
+    session = dependencies.metrics_session
+    if session is None:
+        return callback()
+    with session.stage(name):
+        return callback()
 
 
 def _paper_stage(
@@ -544,6 +583,31 @@ def _finish(
         for code in stage.error_codes:
             if code not in errors:
                 errors.append(code)
+    metrics_result = MetricsRunResult(status="skipped")
+    if dependencies.metrics_session is not None and dependencies.metrics_writer is not None:
+        try:
+            session = dependencies.metrics_session
+            for name in STAGE_ORDER[len(session.stage_metrics) :]:
+                with session.stage(name):
+                    pass
+            session.reconcile_stage_results(tuple(stages))
+            run_metrics = session.finalize(
+                artifact_hash=static_site.artifact_hash,
+                candidate_count=counts.candidate_count,
+                selected_for_llm_count=min(counts.candidate_count, 15),
+                selected_for_analysis_count=counts.selected_count,
+                offline_network_call_count=0,
+                offline_paid_call_count=0,
+            )
+            written = dependencies.metrics_writer.write(run_metrics)
+            metrics_result = MetricsRunResult(
+                status="success", sidecar_hash=written.sha256
+            )
+        except Exception:
+            metrics_result = MetricsRunResult(
+                status="failed",
+                error_codes=("metrics_persistence_failed",),
+            )
     manifest = RunManifest(
         run_id=settings.run_id,
         trigger=settings.trigger,
@@ -560,6 +624,7 @@ def _finish(
         partial_failure_count=sum(stage.partial_failure_count for stage in stages),
         static_site=static_site,
         feishu=feishu,
+        metrics=metrics_result,
         artifact_hash=static_site.artifact_hash,
         error_codes=tuple(errors),
     )
@@ -726,6 +791,19 @@ class _NoWriteValidationCache:
         return None
 
 
+def _new_metrics_boundaries(
+    context: DailyFactoryContext,
+) -> tuple[MetricsSession, MetricsWriter]:
+    return (
+        MetricsSession(
+            run_id=context.settings.run_id,
+            trigger=context.settings.trigger,
+            config_hash=context.settings.config_hash,
+        ),
+        MetricsWriter(context.run_root),
+    )
+
+
 def _feedback_rejected_daily_dependencies(context: DailyFactoryContext) -> DailyDependencies:
     """Return a local-only shell that records a configured feedback-store rejection."""
 
@@ -735,6 +813,7 @@ def _feedback_rejected_daily_dependencies(context: DailyFactoryContext) -> Daily
     def unreachable(*_: Any) -> Any:
         raise AssertionError("feedback-rejected run must stop after candidates")
 
+    metrics_session, metrics_writer = _new_metrics_boundaries(context)
     return DailyDependencies(
         candidate_runner=reject_candidates,
         document_runner=unreachable,
@@ -748,12 +827,15 @@ def _feedback_rejected_daily_dependencies(context: DailyFactoryContext) -> Daily
         delivery_ledger=DeliveryLedger(context.run_root / "delivery-ledger.json"),
         clock=lambda: datetime.now(UTC),
         sleep=lambda _: None,
+        metrics_session=metrics_session,
+        metrics_writer=metrics_writer,
     )
 
 
 def build_offline_daily_dependencies(context: DailyFactoryContext) -> DailyDependencies:
     if context.offline_fixture is None or not context.settings.dry_run:
         raise ValueError("offline daily dependencies require a dry-run fixture")
+    metrics_session, metrics_writer = _new_metrics_boundaries(context)
     fixture_path = context.offline_fixture
     if fixture_path.is_symlink() or not fixture_path.is_file():
         raise ValueError("offline fixture must be a regular file")
@@ -852,12 +934,15 @@ def build_offline_daily_dependencies(context: DailyFactoryContext) -> DailyDepen
         delivery_ledger=DeliveryLedger(context.run_root / "delivery-ledger.json"),
         clock=lambda: next(clock_ticks),
         sleep=lambda _: None,
+        metrics_session=metrics_session,
+        metrics_writer=metrics_writer,
     )
 
 
 def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDependencies:
     if context.settings.dry_run or context.offline_fixture is not None:
         raise ValueError("production daily dependencies require live mode")
+    metrics_session, metrics_writer = _new_metrics_boundaries(context)
 
     from omegaconf import OmegaConf
 
@@ -936,6 +1021,7 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
         analysis_settings, analysis_dependencies = build_production_analysis_pipeline(
             context.config_dir, environ=context.environment
         )
+        analysis_dependencies.usage_sink = AnalysisMetricsSink(metrics_session)
         client_close = getattr(analysis_dependencies.client, "close", None)
         if callable(client_close):
             callbacks.append(client_close)
@@ -1073,6 +1159,8 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
         delivery_ledger=DeliveryLedger(Path("cache/workflow/delivery-ledger.json")),
         clock=lambda: datetime.now(UTC),
         sleep=time.sleep,
+        metrics_session=metrics_session,
+        metrics_writer=metrics_writer,
         close_callbacks=tuple(callbacks),
     )
 

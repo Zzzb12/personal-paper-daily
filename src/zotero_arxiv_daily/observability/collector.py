@@ -114,6 +114,28 @@ class MetricsSession:
     def stage_metrics(self) -> tuple[StageMetric, ...]:
         return tuple(self._stages)
 
+    def reconcile_stage_results(self, results: tuple[object, ...]) -> None:
+        if self._finalized or len(results) != len(self._stages):
+            raise MetricsCollectionError("stage reconciliation is invalid")
+        reconciled: list[StageMetric] = []
+        for metric, result in zip(self._stages, results, strict=True):
+            if getattr(result, "name", None) != metric.name:
+                raise MetricsCollectionError("stage reconciliation order differs")
+            reconciled.append(
+                StageMetric(
+                    name=metric.name,
+                    duration_ns=metric.duration_ns,
+                    input_count=getattr(result, "input_count"),
+                    output_count=getattr(result, "output_count"),
+                    byte_count=metric.byte_count,
+                    cache_hit_count=getattr(result, "cache_hit_count"),
+                    retry_count=getattr(result, "retry_count"),
+                    partial_failure_count=getattr(result, "partial_failure_count"),
+                    error_codes=getattr(result, "error_codes"),
+                )
+            )
+        self._stages = reconciled
+
     @contextmanager
     def stage(self, name: str) -> Iterator[_StageObservation]:
         if self._finalized:

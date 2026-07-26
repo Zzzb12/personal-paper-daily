@@ -15,6 +15,12 @@ from zotero_arxiv_daily.analysis.paper_schemas import AnalysisBatchResult
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationBatchResult
 from zotero_arxiv_daily.delivery.feishu import DigestPolicy
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
+from zotero_arxiv_daily.observability.collector import (
+    BoundedTokenEstimator,
+    MetricsSession,
+)
+from zotero_arxiv_daily.observability.metrics import RunMetrics
+from zotero_arxiv_daily.observability.store import MetricsWriter
 from zotero_arxiv_daily.pipeline.artifacts import ArtifactAuditor, ManifestStore
 from zotero_arxiv_daily.pipeline.daily import (
     AnalysisStageOutput,
@@ -156,6 +162,13 @@ def _dependencies(
         delivery_ledger=ledger or DeliveryLedger(run_root / "delivery-ledger.json"),
         clock=Clock(),
         sleep=lambda _: None,
+        metrics_session=MetricsSession(
+            run_id="run-stage7",
+            trigger="local",
+            config_hash="a" * 64,
+            token_estimator=BoundedTokenEstimator(),
+        ),
+        metrics_writer=MetricsWriter(run_root),
     )
 
 
@@ -182,9 +195,43 @@ def test_complete_success_composes_all_stages_and_writes_safe_manifest(tmp_path:
     assert manifest.feishu.status == "preview"
     assert manifest.artifact_hash is not None
     assert dependencies.manifest_store.output.is_file()
+    assert manifest.metrics.status == "success"
+    assert manifest.metrics.sidecar_hash is not None
+    metrics_path = tmp_path / "run" / "run-metrics.json"
+    assert metrics_path.is_file()
+    metrics = RunMetrics.model_validate_json(metrics_path.read_bytes())
+    assert tuple(stage.name for stage in metrics.stages) == (
+        "candidates",
+        "documents",
+        "analysis",
+        "validation",
+        "viewer",
+        "feishu",
+    )
+    assert metrics.duration_ns == sum(stage.duration_ns for stage in metrics.stages)
+    assert not (tmp_path / "run" / "viewer" / "run-metrics.json").exists()
     serialized = dependencies.manifest_store.output.read_text(encoding="utf-8")
     assert "secret" not in serialized
     assert "prompt" not in serialized
+
+
+def test_metrics_persistence_failure_does_not_change_content_success(
+    tmp_path: Path,
+) -> None:
+    dependencies = _dependencies(tmp_path, _inputs(1))
+
+    class BrokenMetricsWriter:
+        def write(self, metrics):
+            raise OSError("PRIVATE METRICS PATH AND CONTENT")
+
+    dependencies.metrics_writer = BrokenMetricsWriter()
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert manifest.status == "success"
+    assert manifest.static_site.status == "success"
+    assert manifest.metrics.status == "failed"
+    assert manifest.metrics.error_codes == ("metrics_persistence_failed",)
+    assert "PRIVATE" not in dependencies.manifest_store.output.read_text(encoding="utf-8")
 
 
 def test_empty_candidates_stop_without_calling_expensive_or_delivery_stages(tmp_path: Path) -> None:

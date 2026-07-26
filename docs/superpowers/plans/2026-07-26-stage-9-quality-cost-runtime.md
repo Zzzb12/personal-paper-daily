@@ -102,12 +102,12 @@
 - `run_daily` times all six existing stages. `_finish` finalizes/writes metrics first, then writes the manifest; metrics failure leaves content status and viewer intact and records only a fixed result.
 - CLI has no arbitrary metrics path and always uses `<run-root>/run-metrics.json`.
 
-- [ ] Write RED schema tests for success/failure/skipped metrics contracts, wrong digest/status, schema/pipeline version, privacy, and unchanged content-status derivation.
-- [ ] Extend daily tests for complete/empty/partial paths, Stage 4 blocking, viewer success + Feishu failure, viewer failure + Feishu skipped, dry-run, duplicate delivery, metrics collection failure, metrics persistence failure, and exact six-stage timing.
-- [ ] Extend CLI/artifact tests for fixed sidecar path, zero network/paid/send in fixture mode, safe summary, no sidecar in viewer, atomic manifest after sidecar, and sidecar hash agreement.
-- [ ] Run the four focused files and confirm expected RED.
-- [ ] Implement the schema evolution and one common `_finish` collection path; do not duplicate early-return logic or change `_derive_run_status`.
-- [ ] Rerun all `tests/pipeline/test_daily*.py tests/observability -q`; commit `feat: integrate stage 9 run metrics`.
+- [x] Write RED schema tests for success/failure/skipped metrics contracts, wrong digest/status, schema/pipeline version, privacy, and unchanged content-status derivation.
+- [x] Extend daily tests for complete/empty/partial paths, Stage 4 blocking, viewer success + Feishu failure, viewer failure + Feishu skipped, dry-run, duplicate delivery, metrics collection failure, metrics persistence failure, and exact six-stage timing.
+- [x] Extend CLI/artifact tests for fixed sidecar path, zero network/paid/send in fixture mode, safe summary, no sidecar in viewer, atomic manifest after sidecar, and sidecar hash agreement.
+- [x] Run the four focused files and confirm expected RED.
+- [x] Implement the schema evolution and one common `_finish` collection path; do not duplicate early-return logic or change `_derive_run_status`.
+- [x] Rerun all `tests/pipeline/test_daily*.py tests/observability -q`; commit `feat: integrate stage 9 run metrics`.
 
 ### Task 5: Implement deterministic aggregate quality evaluation
 
