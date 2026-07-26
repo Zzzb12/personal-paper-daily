@@ -31,12 +31,55 @@ def test_index_page_is_semantic_escaped_and_has_meaningful_status() -> None:
     assert 'rel="icon" href="assets/favicon.svg"' in html
 
 
+def test_index_exposes_stateless_accessible_feedback_controls_for_eligible_papers() -> None:
+    page = IndexPageModel(
+        batch_label="2026-07-22",
+        valid_count=1,
+        partial_count=0,
+        papers=(
+            PaperPageModel(
+                paper_id="ARXIV:2401.00001v3",
+                relative_path="papers/2401.00001.html",
+                english_title="Feedback-safe paper",
+                chinese_title="反馈安全论文",
+                publication_kind="full",
+            ),
+        ),
+    )
+
+    html = TemplateRenderer(site_title="Paper Daily").render_index(page)
+
+    assert page.papers[0].paper_id == "2401.00001"
+    assert '<article class="paper-card" data-paper-id="2401.00001" tabindex="0">' in html
+    assert html.count('aria-pressed="false"') == 3
+    assert 'data-ai-action="set-read"' in html
+    assert 'data-ai-action="set-favorite"' in html
+    assert 'data-ai-action="set-irrelevant"' in html
+    assert 'data-testid="filter-unread"' in html
+    assert 'data-testid="filter-favorite"' in html
+    assert 'data-testid="filter-show-irrelevant"' in html
+    assert 'data-ai-action="export-feedback"' in html
+    assert 'data-ai-action="import-feedback"' in html
+    assert 'aria-live="polite"' in html
+    assert '<script src="assets/feedback.js" defer></script>' in html
+    assert "script-src 'self'" in html
+    assert "'unsafe-inline'" not in html
+    assert "'unsafe-eval'" not in html
+    assert "https://" not in html
+    assert "localStorage" not in html
+    assert "feedback-v1.json" not in html
+
+
 def test_empty_index_has_a_readable_empty_state() -> None:
     html = TemplateRenderer(site_title="Paper Daily").render_index(
         IndexPageModel(batch_label="2026-07-21", valid_count=0, partial_count=0, papers=())
     )
 
     assert "今日没有可发布的论文" in html
+    assert 'data-ai-action="export-feedback"' in html
+    assert 'data-ai-action="import-feedback"' in html
+    assert 'data-paper-id=' not in html
+    assert 'data-ai-action="set-read"' not in html
 
 
 def test_detail_page_does_not_render_https_link_with_embedded_credentials() -> None:
@@ -73,3 +116,26 @@ def test_detail_page_uses_validated_analysis_in_fixed_reading_order() -> None:
     assert "PDF page" in html and "confidence" in html
     assert "论文未明确提供" in html
     assert 'rel="icon" href="../assets/favicon.svg"' in html
+
+
+def test_detail_page_can_mark_read_without_embedding_private_feedback() -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    assert result.validated is not None
+    analysis = result.validated.analysis.model_copy(update={"paper_id": "arxiv:2401.00001v2"})
+
+    html = TemplateRenderer(site_title="Paper Daily").render_paper(
+        analysis,
+        result.validated.report,
+        publication_kind="full",
+    )
+
+    assert 'data-paper-id="2401.00001"' in html
+    assert 'data-ai-action="set-read"' in html
+    assert html.count('aria-pressed="false"') == 1
+    assert '<script src="../assets/feedback.js" defer></script>' in html
+    assert "script-src 'self'" in html
+    assert "localStorage" not in html
+    assert "feedback-v1.json" not in html

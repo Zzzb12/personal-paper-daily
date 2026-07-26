@@ -59,8 +59,9 @@ class StaticViewerBuilder:
         index = IndexPageModel(batch_label=batch_label, papers=tuple(pages), valid_count=len(pages) - partial_count, partial_count=partial_count)
         output.write_text(PurePosixPath("index.html"), self._renderer.render_index(index))
         output.write_text(PurePosixPath("assets", "site.css"), self._css_source())
+        output.write_text(PurePosixPath("assets", "feedback.js"), self._feedback_source())
         output.write_text(PurePosixPath("assets", "favicon.svg"), self._favicon_source())
-        written.extend(("index.html", "assets/site.css", "assets/favicon.svg"))
+        written.extend(("index.html", "assets/site.css", "assets/feedback.js", "assets/favicon.svg"))
         manifest = BuildManifest(
             build_version=self._settings.build_version,
             template_version=self._settings.template_version,
@@ -83,6 +84,10 @@ class StaticViewerBuilder:
     @staticmethod
     def _favicon_source() -> str:
         return (Path(__file__).parent / "static" / "favicon.svg").read_text(encoding="utf-8")
+
+    @staticmethod
+    def _feedback_source() -> str:
+        return (Path(__file__).parent / "static" / "feedback.js").read_text(encoding="utf-8")
 
     def _publish_evidence_images(self, analysis: PaperAnalysis, *, dry_run: bool) -> dict[str, str]:
         """Publish at most one approved local image per evidence visual."""

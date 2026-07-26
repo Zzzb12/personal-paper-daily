@@ -7,6 +7,7 @@ from pydantic import Field
 from pydantic import field_validator
 from zotero_arxiv_daily.analysis.schemas import StrictModel
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationIssue
+from zotero_arxiv_daily.viewer.feedback import normalize_feedback_paper_id
 
 
 class PublicationDecision(StrictModel):
@@ -33,6 +34,11 @@ class PaperPageModel(StrictModel):
     english_title: str
     chinese_title: str | None
     publication_kind: Literal["full", "partial"]
+
+    @field_validator("paper_id")
+    @classmethod
+    def normalize_paper_id(cls, value: str) -> str:
+        return normalize_feedback_paper_id(value)
 
     @field_validator("relative_path")
     @classmethod

@@ -21,7 +21,33 @@ def test_builder_writes_index_detail_css_and_manifest_from_validated_result(tmp_
     assert (tmp_path / "site" / "index.html").exists()
     assert (tmp_path / "site" / "papers" / "arxiv-2401.00001.html").exists()
     assert (tmp_path / "site" / "assets" / "site.css").exists()
+    assert (tmp_path / "site" / "assets" / "feedback.js").exists()
     assert (tmp_path / "site" / "build-manifest.json").exists()
+    assert "assets/feedback.js" in manifest.written_paths
+
+
+def test_builder_only_emits_feedback_controls_for_publication_eligible_papers(tmp_path: Path) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    eligible = validate_paper(*golden_inputs())
+    excluded = eligible.model_copy(
+        update={
+            "paper_id": "arxiv:2401.00002",
+            "status": "invalid",
+            "validated": None,
+        }
+    )
+
+    StaticViewerBuilder(ViewerSettings(output_root=tmp_path / "site")).build(
+        (eligible, excluded),
+        batch_label="2026-07-22",
+    )
+
+    index = (tmp_path / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'data-paper-id="2401.00001"' in index
+    assert "2401.00002" not in index
+    assert not (tmp_path / "site" / "papers" / "arxiv-2401.00002.html").exists()
 
 
 def test_builder_excludes_invalid_result_and_generates_empty_state(tmp_path: Path) -> None:
