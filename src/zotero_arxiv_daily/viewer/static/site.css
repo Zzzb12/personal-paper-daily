@@ -97,5 +97,5 @@ th { background: rgb(23 74 115 / .1); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
-  .feedback-toolbar { animation: none; }
+  .feedback-toolbar { animation: none; will-change: auto; }
 }

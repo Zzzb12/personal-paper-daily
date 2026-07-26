@@ -11,7 +11,7 @@
   const DEVICE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
   const UUID4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
-  const AWARE_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+  const AWARE_TIMESTAMP_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/;
 
   function fail() {
     throw new Error("feedback data rejected");
@@ -33,11 +33,52 @@
   }
 
   function canonicalUtc(value) {
-    if (typeof value !== "string" && !(value instanceof Date)) fail();
-    if (typeof value === "string" && !AWARE_TIMESTAMP_PATTERN.test(value)) fail();
-    const date = value instanceof Date ? value : new Date(value);
-    if (Number.isNaN(date.getTime())) fail();
-    return date.toISOString().replace(".000Z", "Z");
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) fail();
+      return canonicalUtc(value.toISOString());
+    }
+    if (typeof value !== "string") fail();
+    const match = AWARE_TIMESTAMP_PATTERN.exec(value);
+    if (!match) fail();
+    const [, yearText, monthText, dayText, hourText, minuteText, secondText, fraction = "", zone] = match;
+    const year = Number(yearText);
+    const month = Number(monthText);
+    const day = Number(dayText);
+    const hour = Number(hourText);
+    const minute = Number(minuteText);
+    const second = Number(secondText);
+    if (year < 1 || month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) fail();
+
+    const date = new Date(0);
+    date.setUTCHours(hour, minute, second, 0);
+    date.setUTCFullYear(year, month - 1, day);
+    if (
+      date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day
+    ) fail();
+
+    let offsetMinutes = 0;
+    if (zone !== "Z") {
+      const offsetHours = Number(zone.slice(1, 3));
+      const offsetRemainder = Number(zone.slice(4, 6));
+      if (offsetHours > 23 || offsetRemainder > 59) fail();
+      offsetMinutes = offsetHours * 60 + offsetRemainder;
+      if (zone[0] === "-") offsetMinutes = -offsetMinutes;
+    }
+    date.setUTCMinutes(date.getUTCMinutes() - offsetMinutes);
+    if (date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) fail();
+
+    const utc = [
+      String(date.getUTCFullYear()).padStart(4, "0"),
+      String(date.getUTCMonth() + 1).padStart(2, "0"),
+      String(date.getUTCDate()).padStart(2, "0"),
+    ];
+    const time = [
+      String(date.getUTCHours()).padStart(2, "0"),
+      String(date.getUTCMinutes()).padStart(2, "0"),
+      String(date.getUTCSeconds()).padStart(2, "0"),
+    ];
+    const canonicalFraction = Number(fraction) === 0 ? "" : `.${fraction.padEnd(6, "0")}`;
+    return `${utc.join("-")}T${time.join(":")}${canonicalFraction}Z`;
   }
 
   function validateUuid(value) {

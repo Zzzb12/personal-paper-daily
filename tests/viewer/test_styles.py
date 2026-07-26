@@ -37,3 +37,4 @@ def test_feedback_styles_use_a_restrained_compositor_only_research_desk_entrance
     assert "transform:" in css
     assert "opacity:" in css
     assert "will-change: transform, opacity" in css
+    assert "will-change: auto" in css
