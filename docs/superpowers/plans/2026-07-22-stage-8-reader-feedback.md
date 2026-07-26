@@ -139,11 +139,11 @@
 - Modify only files required by reproduced review findings.
 - Finalize: `docs/BASELINE.md`, `docs/IMPLEMENTATION_PLAN.md`, this plan status/checklists.
 
-- [ ] Run `uv sync --frozen` using the configured workspace runtime.
-- [ ] Run Stage 8 focused suites: feedback schema/state/store/CLI/browser/privacy, viewer, candidates feedback/ranking and daily integration.
-- [ ] Run Stage 7 focused tests and Stage 6/5/4 related regression tests.
-- [ ] Run default `pytest -q` and full `pytest -m "slow or not slow" -q`; distinguish the known Windows spawn and uncached Hugging Face failures without skipping or weakening them.
-- [ ] Run `python -m compileall -q src`, workflow YAML/static validation, `git diff --check`, tracked secret/private/cache/archive/large-file scans, fixture dry-run CLI, feedback import dry-run and generated artifact content audit.
+- [x] Run `uv sync --frozen` using the configured workspace runtime (`Checked 172 packages`).
+- [x] Run Stage 8 focused suites: feedback schema/state/store/CLI/browser/privacy, viewer, candidates feedback/ranking and daily integration (`228 passed in 13.32s`).
+- [x] Run Stage 7 focused tests and Stage 6/5/4 related regression tests (`395 passed in 16.22s`).
+- [x] Run default `pytest -q` and start full `pytest -m "slow or not slow" -q`; default observed `699 passed, 2 known Windows spawn failures, 1 deselected`; unfiltered full command reached the 600-second cap (exit 124) before a summary, recorded as the known uncached Hugging Face/local-reranker environment block without skipping or weakening it.
+- [x] Run `python -m compileall -q src`, workflow YAML/static validation, `git diff --check`, tracked secret/private/cache/archive/large-file scans, fixture dry-run CLI, feedback import dry-run and generated artifact content audit.
 - [ ] Request an independent whole-branch review against `c822897`; reproduce every confirmed Critical/Important finding with a failing test before fixing.
 - [ ] Rerun affected focused and full non-slow verification, record exact observed results and external operations not performed, then commit review fixes and final evidence.
 - [ ] Confirm final worktree clean; do not push, merge, create PR, alter upstream or delete Stage 6/7/8 worktrees.

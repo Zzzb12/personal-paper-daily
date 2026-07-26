@@ -919,9 +919,10 @@ enabled is not a safe rollback. Revoke/rotate any credential exposed outside Git
 credentials previously pasted in chat should be rotated even though Stage 7 never
 prints or commits them.
 
-## Stage 8 privacy-hardening observations (2026-07-26)
+## Stage 8 local implementation and verification notes (2026-07-26; review pending)
 
-This is a factual privacy/configuration record, not a Stage 8 completion claim.
+This is a factual implementation/privacy and local-verification record. Independent
+whole-branch review is still pending, so it is not a final Stage 8 completion claim.
 Browser feedback is immediate same-origin `localStorage`; only an explicit export
 and local CLI import can reach the Git-ignored authoritative store under the default
 `data/private-feedback/` root. GitHub Pages cannot write back to that local store,
@@ -936,13 +937,41 @@ that hash. The default favorite delta is `0.05`, capped at `0.10`;
 `irrelevant` exact-ID veto occurs before embedding or paid work, `read` has no
 ranking effect, and Stage 4 remains the sole publication eligibility gate.
 
-Observed focused checks on this worktree: declared private artifact seeds including
+Observed focused checks on this worktree: the complete Stage 8 focused group passed
+`228` tests in `13.32s`; explicit Stage 7 plus Stage 6/5/4 regressions passed `395`
+tests in `16.22s`. Declared private artifact seeds including
 `.env`, cache/private/Zotero paths, archive, migration backup, feedback store/bundle,
 and browser-state variants were rejected; an explicit empty list remains distinct
 from an absent configuration field; the workflow retained its existing explicit
 cache/upload allowlists, least permissions, triggers, concurrency, timeouts, SHA
-pins, and single CLI while containing no feedback path. No real state, browser
-export, credential, or external operation was used.
+pins, and single CLI while containing no feedback path. The workflow static suite
+passed `11` tests, `compileall` and `git diff --check` passed, and the tracked scan
+found 215 tracked files, none over 5 MiB and no tracked archive/database/PDF/private
+artifact. The only allowed path match was empty `.env.example`; two credential-shaped
+matches are deliberately redaction-testing sentinels in named test files, not values.
+
+Default `pytest -q` produced `699 passed`, `2 failed`, `1 deselected` in `22.41s`.
+The two failures are exactly the known Windows one-second multiprocessing spawn tests
+in `tests/retriever/test_arxiv_retriever.py`; no Stage 8 test failed. The complete
+`pytest -m "slow or not slow" -q` command was run without filtering but did not return
+a pytest summary before the 600-second safety cap (exit `124` after `604.516s`). This
+is reported as the existing uncached local-reranker/Hugging Face model/metadata
+environment block, not as a success or a skipped test.
+
+The artificial fixture daily CLI was run with dry-run/offline/no-send composition and
+returned one published viewer item, zero deliveries, and artifact SHA-256
+`efef6595359f12b3c034bb24baa40e4c8bdaaecd03dcbee2b8c81e1833700659`. ArtifactAuditor
+accepted exactly six files (32,282 bytes): first-party favicon, stylesheet, feedback
+script, build manifest, index, and one fixture paper page. There were no embedded
+`.env`, private store/bundle/state, Zotero, cache, PDF/archive, inline/remote script,
+or `eval` markers; CSP permits only same-origin resources and scripts. A synthetic
+non-real feedback bundle was imported with `--dry-run`; the private store was absent
+both before and after, proving zero write, and both paths are ignored.
+
+No real GitHub dispatch/Pages deployment, Zotero/private-library access, paper/model
+download, paid LLM call, Feishu send, push, PR, merge, upstream mutation, or worktree
+deletion occurred. Independent whole-branch review against
+`c822897f38573d5fa3b09b19513dc169529854de` remains pending.
 
 The project owner has confirmed authorization for Hermes reuse/adaptation. No Hermes
 license name, terms, or license file are asserted. Rollback keeps any desired
@@ -950,7 +979,7 @@ explicit private-store export outside Git, then disables/reverts the feedback
 UI/ranking adapter; Pages, Actions cache, manifests, and Git history are not a
 feedback backup.
 
-Task 2's historical behavior-level TDD evidence deviation remains an explicitly
-user-accepted process-history note; it does not indicate missing current coverage.
-Task 6's complete-suite commands and external operations remain pending and are not
-reported as successful here.
+Task 2's historical behavior-level TDD evidence deviation remains explicitly
+user-accepted and does not indicate missing current coverage. Local Task 6 validation
+is complete to the extent recorded above;
+independent review and any finding-driven retest remain pending.

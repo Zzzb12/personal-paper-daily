@@ -581,9 +581,10 @@ Disable the schedule or workflow file, retain manual execution, and redeploy the
 
 ## Stage 8: Read, favorite, and irrelevant feedback
 
-**Implementation boundary: local/private only; final full-stage verification remains
-pending.** No real feedback, credentials, paper IDs, browser snapshots, or external
-operations are used in the implementation record.
+**Status: local/private implementation and local verification completed on
+2026-07-26; independent whole-branch review remains pending.** No real user
+feedback, credentials, Zotero/private-library data, browser snapshot, or external
+operation is used in the implementation record.
 
 ### Goal
 
@@ -667,6 +668,30 @@ Actions cache, or Git history as a feedback backup.
 - `feat: persist read favorite and irrelevant state`
 - `feat: add accessible feedback controls`
 - `feat: apply bounded feedback to ranking`
+
+### Local verification (review pending)
+
+- Frozen sync checked 172 packages; the all-Stage-8 focused group passed with
+  `228 passed in 13.32s`, and the explicit Stage 7 plus Stage 6/5/4 regression
+  group passed with `395 passed in 16.22s`.
+- Default `pytest -q` produced `699 passed`, `2 failed`, `1 deselected` in
+  `22.41s`; both failures are the unchanged Windows one-second multiprocessing
+  spawn tests. The explicit `slow or not slow` command was actually run without
+  filters, then hit the 600-second verification cap with exit 124 and no final
+  pytest summary, consistent with the known uncached local-reranker/Hugging Face
+  environment block. It is not recorded as a pass or silently skipped.
+- Compilation, diff, workflow static validation (11 passed), tracked hygiene,
+  fixture daily dry-run, synthetic feedback-import dry-run, and generated artifact
+  audit passed. The fixture daily run published one item, delivered zero, and its
+  six-file viewer audit matched SHA-256
+  `efef6595359f12b3c034bb24baa40e4c8bdaaecd03dcbee2b8c81e1833700659`.
+- No real GitHub dispatch/Pages deploy, Zotero or LLM access, model/paper download,
+  Feishu send, push, PR, merge, or upstream mutation occurred. The user-accepted
+  Task 2 historical TDD-evidence deviation remains a process-history note; it does
+  not reduce current coverage.
+- A separate independent whole-branch review against exact Stage 7 base
+  `c822897f38573d5fa3b09b19513dc169529854de` remains required before Stage 8 can
+  be marked fully complete.
 
 ## Stage 9: Quality, cost, and runtime optimization
 
