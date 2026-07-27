@@ -361,7 +361,7 @@ def test_analysis_attempts_beyond_result_count_are_reported_as_retries(
 
     def analysis(candidates, documents):
         assert dependencies.metrics_session is not None
-        for succeeded in (False, True):
+        for index, succeeded in enumerate((False, True)):
             dependencies.metrics_session.record_model_attempt(
                 model_identity="offline-fake",
                 input_texts=(),
@@ -369,6 +369,7 @@ def test_analysis_attempts_beyond_result_count_are_reported_as_retries(
                 configured_output_tokens=0,
                 succeeded=succeeded,
                 paid=False,
+                retry=index > 0,
             )
         return original_analysis(candidates, documents)
 
@@ -409,7 +410,7 @@ def test_analysis_retry_count_ignores_skipped_and_cached_results(
 
     def analysis(candidates, documents):
         assert dependencies.metrics_session is not None
-        for succeeded in (False, True):
+        for index, succeeded in enumerate((False, True)):
             dependencies.metrics_session.record_model_attempt(
                 model_identity="offline-fake",
                 input_texts=(),
@@ -417,6 +418,7 @@ def test_analysis_retry_count_ignores_skipped_and_cached_results(
                 configured_output_tokens=0,
                 succeeded=succeeded,
                 paid=False,
+                retry=index > 0,
             )
         return original_analysis(candidates, documents)
 

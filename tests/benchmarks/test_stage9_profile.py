@@ -206,16 +206,16 @@ def test_tracked_baseline_is_privacy_safe_and_records_measured_target() -> None:
     assert payload["benchmark"]["budget_passed"] is True
     assert payload["profile"] == {
         "profile_version": "stage9-profile-v2",
-        "total_time_ns": 2444571700,
+        "total_time_ns": 2443789600,
         "project_row_count": 319,
-        "excluded_count": 150,
+        "excluded_count": 149,
         "eligible_count": 2,
         "symbol": "zotero_arxiv_daily.viewer.builder:build:19",
         "relative_path": "src/zotero_arxiv_daily/viewer/builder.py",
-        "self_time_ns": 9131400,
-        "cumulative_time_ns": 646214900,
+        "self_time_ns": 9726900,
+        "cumulative_time_ns": 650283000,
         "allocation_bytes": 0,
-        "time_share_ppm": 264347,
+        "time_share_ppm": 266096,
         "allocation_share_ppm": 0,
     }
     serialized = json.dumps(payload, sort_keys=True).casefold()

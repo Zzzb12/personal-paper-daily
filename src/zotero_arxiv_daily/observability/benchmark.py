@@ -499,25 +499,17 @@ def _platform_family() -> str:
 
 def _benchmark_code_paths(source_root: Path) -> tuple[Path, ...]:
     root = Path(source_root)
-    return (
-        root / "analysis" / "document_schemas.py",
-        root / "analysis" / "paper_schemas.py",
-        root / "analysis" / "validation_schemas.py",
-        root / "analysis" / "validator.py",
-        root / "candidates" / "ranking.py",
-        root / "observability" / "benchmark.py",
-        root / "observability" / "collector.py",
-        root / "observability" / "metrics.py",
-        root / "observability" / "quality.py",
-        root / "observability" / "store.py",
-        root / "pipeline" / "artifacts.py",
-        root / "pipeline" / "daily.py",
-        root / "pipeline" / "daily_schemas.py",
-        root / "pipeline" / "validation.py",
-        root / "viewer" / "builder.py",
-        root / "viewer" / "filesystem.py",
-        root / "viewer" / "renderer.py",
+    if root.name != "zotero_arxiv_daily" or not root.is_dir():
+        raise ValueError("benchmark source root is invalid")
+    paths = tuple(
+        sorted(
+            (path for path in root.rglob("*.py") if "__pycache__" not in path.parts),
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
     )
+    if not paths:
+        raise ValueError("benchmark source identity is empty")
+    return paths
 
 
 class _NoWriteCache:

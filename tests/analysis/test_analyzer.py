@@ -143,6 +143,7 @@ class UsageSink:
         model_identity,
         succeeded,
         paid,
+        retry=False,
     ):
         if self.fail:
             raise RuntimeError("PRIVATE SINK FAILURE")
@@ -153,6 +154,7 @@ class UsageSink:
                 "model_identity": model_identity,
                 "succeeded": succeeded,
                 "paid": paid,
+                "retry": retry,
             }
         )
 
@@ -367,6 +369,7 @@ def test_analyzer_usage_sink_observes_each_retry_attempt_and_not_cache_hits(tmp_
 
     assert first.status == second.status == "success"
     assert [call["succeeded"] for call in sink.calls] == [False, True]
+    assert [call["retry"] for call in sink.calls] == [False, True]
     assert all(call["paid"] is True for call in sink.calls)
     assert sink.calls[0]["response"] is None
     assert sink.calls[1]["response"] == valid_draft().model_dump_json()

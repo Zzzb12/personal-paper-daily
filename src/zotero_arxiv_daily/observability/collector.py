@@ -109,6 +109,7 @@ class MetricsSession:
         self._input_tokens = 0
         self._output_tokens = 0
         self._configured_output_tokens = 0
+        self._analysis_retry_count = 0
         self._collection_failed = False
 
     @property
@@ -121,6 +122,10 @@ class MetricsSession:
 
     def mark_collection_failed(self) -> None:
         self._collection_failed = True
+
+    @property
+    def analysis_retry_count(self) -> int:
+        return self._analysis_retry_count
 
     def observe(self, name: str, callback: Callable[[], object]) -> object:
         """Run content even when the observational boundary itself fails."""
@@ -240,6 +245,7 @@ class MetricsSession:
         configured_output_tokens: int,
         succeeded: bool,
         paid: bool,
+        retry: bool = False,
     ) -> None:
         if self._finalized:
             raise MetricsCollectionError("metrics session is finalized")
@@ -251,6 +257,8 @@ class MetricsSession:
             or configured_output_tokens < 0
         ):
             raise MetricsCollectionError("configured output token count is invalid")
+        if not isinstance(retry, bool):
+            raise MetricsCollectionError("analysis retry flag is invalid")
         self._model_identity_hash = digest
         input_tokens = sum(self._token_estimator.estimate(text) for text in input_texts)
         output_tokens = (
@@ -259,6 +267,7 @@ class MetricsSession:
             else 0
         )
         self._attempts += 1
+        self._analysis_retry_count += int(retry)
         self._paid_calls += int(paid)
         self._successful_calls += int(succeeded)
         self._input_tokens += input_tokens
@@ -386,6 +395,7 @@ class AnalysisMetricsSink:
         model_identity: str,
         succeeded: bool,
         paid: bool,
+        retry: bool = False,
     ) -> None:
         try:
             if not isinstance(request, AnalysisRequest):
@@ -397,6 +407,7 @@ class AnalysisMetricsSink:
                 configured_output_tokens=request.max_output_tokens,
                 succeeded=succeeded,
                 paid=paid,
+                retry=retry,
             )
         except Exception:
             self._session.mark_collection_failed()

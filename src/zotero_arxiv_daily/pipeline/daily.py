@@ -286,11 +286,7 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         analysis_stage = analysis_stage.model_copy(
             update={
                 "retry_count": max(
-                    dependencies.metrics_session.model_usage.attempt_count
-                    - sum(
-                        result.status != "skipped" and not result.cache_hit
-                        for result in analyses.results
-                    ),
+                    dependencies.metrics_session.analysis_retry_count,
                     0,
                 )
             }

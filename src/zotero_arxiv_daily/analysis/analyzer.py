@@ -85,6 +85,7 @@ class AnalysisUsageSink(Protocol):
         model_identity: str,
         succeeded: bool,
         paid: bool,
+        retry: bool = False,
     ) -> None: ...
 
 
@@ -175,6 +176,7 @@ def _generate_with_bounded_retry(
                 request,
                 response,
                 succeeded=True,
+                retry=attempt > 1,
             )
             return response
         except AnalysisClientError as exc:
@@ -183,6 +185,7 @@ def _generate_with_bounded_retry(
                 request,
                 None,
                 succeeded=False,
+                retry=attempt > 1,
             )
             if not exc.retryable:
                 raise
@@ -206,6 +209,7 @@ def _notify_usage(
     response: str | None,
     *,
     succeeded: bool,
+    retry: bool,
 ) -> None:
     sink = dependencies.usage_sink
     if sink is None:
@@ -217,6 +221,7 @@ def _notify_usage(
             model_identity=dependencies.client.model_identity,
             succeeded=succeeded,
             paid=bool(getattr(dependencies.client, "is_expensive", True)),
+            retry=retry,
         )
     except Exception:
         return
