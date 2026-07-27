@@ -40,6 +40,7 @@ from zotero_arxiv_daily.pipeline.daily_schemas import (
     Trigger,
 )
 from zotero_arxiv_daily.observability.collector import AnalysisMetricsSink, MetricsSession
+from zotero_arxiv_daily.observability.metrics import PricingPolicy
 from zotero_arxiv_daily.observability.store import MetricsWriter
 from zotero_arxiv_daily.viewer.schemas import BuildManifest
 
@@ -825,14 +826,44 @@ class _NoWriteValidationCache:
 def _new_metrics_boundaries(
     context: DailyFactoryContext,
 ) -> tuple[MetricsSession, MetricsWriter]:
+    pricing_policy = _pricing_policy_from_config(context.config_dir)
     return (
         MetricsSession(
             run_id=context.settings.run_id,
             trigger=context.settings.trigger,
             config_hash=context.settings.config_hash,
+            pricing_policy=pricing_policy,
         ),
         MetricsWriter(context.run_root),
     )
+
+
+def _pricing_policy_from_config(config_dir: Path) -> PricingPolicy | None:
+    from omegaconf import OmegaConf
+
+    base = OmegaConf.load(Path(config_dir) / "base.yaml")
+    custom_path = Path(config_dir) / "custom.yaml"
+    merged = OmegaConf.merge(
+        base,
+        OmegaConf.load(custom_path) if custom_path.exists() else {},
+    )
+    pricing = OmegaConf.select(merged, "observability.pricing")
+    if pricing is None:
+        return None
+    values = OmegaConf.to_container(pricing, resolve=True)
+    if not isinstance(values, dict):
+        raise ValueError("observability pricing configuration must be a mapping")
+    names = (
+        "input_micro_usd_per_million_tokens",
+        "output_micro_usd_per_million_tokens",
+        "maximum_batch_cost_micro_usd",
+    )
+    configured = tuple(values.get(name) is not None for name in names)
+    if not any(configured):
+        return None
+    if not all(configured):
+        raise ValueError("observability pricing fields must be configured together")
+    return PricingPolicy.model_validate({name: values[name] for name in names})
 
 
 def _feedback_rejected_daily_dependencies(context: DailyFactoryContext) -> DailyDependencies:

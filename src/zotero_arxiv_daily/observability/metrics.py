@@ -226,6 +226,8 @@ class BudgetEvaluation(StrictModel):
     offline_network_call_count: int = Field(ge=0)
     offline_paid_call_count: int = Field(ge=0)
     peak_traced_allocation_bytes: int = Field(ge=0)
+    estimated_cost_micro_usd: int | None = Field(default=None, ge=0)
+    maximum_batch_cost_micro_usd: int | None = Field(default=None, ge=0)
 
     @field_validator(
         "candidate_count",
@@ -237,11 +239,13 @@ class BudgetEvaluation(StrictModel):
         "offline_network_call_count",
         "offline_paid_call_count",
         "peak_traced_allocation_bytes",
+        "estimated_cost_micro_usd",
+        "maximum_batch_cost_micro_usd",
         mode="before",
     )
     @classmethod
     def reject_boolean_counts(cls, value: object) -> object:
-        return _reject_boolean(value)
+        return _reject_boolean(value) if value is not None else value
 
     @model_validator(mode="after")
     def validate_verdict(self) -> Self:
@@ -259,7 +263,19 @@ class BudgetEvaluation(StrictModel):
             and self.offline_paid_call_count <= limits.offline_paid_call_limit
             and self.peak_traced_allocation_bytes
             <= limits.peak_traced_allocation_limit_bytes
+            and (
+                self.maximum_batch_cost_micro_usd is None
+                or (
+                    self.estimated_cost_micro_usd is not None
+                    and self.estimated_cost_micro_usd
+                    <= self.maximum_batch_cost_micro_usd
+                )
+            )
         )
+        if (self.estimated_cost_micro_usd is None) != (
+            self.maximum_batch_cost_micro_usd is None
+        ):
+            raise ValueError("pricing budget fields must be configured together")
         if self.passed != expected:
             raise ValueError(f"passed must be {expected}")
         return self

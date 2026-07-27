@@ -9,7 +9,7 @@ import pytest
 
 from zotero_arxiv_daily.pipeline import daily
 from zotero_arxiv_daily.pipeline import candidates
-from zotero_arxiv_daily.pipeline.daily import DailyFactoryContext
+from zotero_arxiv_daily.pipeline.daily import DailyFactoryContext, DailySettings
 from tests.pipeline.test_daily import _dependencies
 from tests.pipeline.test_validation import _inputs
 
@@ -36,6 +36,44 @@ def _arguments(tmp_path: Path, *, trigger: str = "local") -> list[str]:
         "--manifest-output",
         str(run_root / "run-manifest.json"),
     ]
+
+
+def test_metrics_pricing_policy_is_reachable_from_daily_configuration(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    shutil.copy(Path("config/base.yaml"), config_dir / "base.yaml")
+    (config_dir / "custom.yaml").write_text(
+        "observability:\n"
+        "  pricing:\n"
+        "    input_micro_usd_per_million_tokens: 2000000\n"
+        "    output_micro_usd_per_million_tokens: 8000000\n"
+        "    maximum_batch_cost_micro_usd: 100000\n",
+        encoding="utf-8",
+    )
+    run_root = tmp_path / "run"
+    run_root.mkdir()
+    settings = DailySettings(
+        run_id="stage9-pricing",
+        trigger="local",
+        config_hash="a" * 64,
+        viewer_output=run_root / "viewer",
+    )
+    context = DailyFactoryContext(
+        settings=settings,
+        config_dir=config_dir,
+        run_root=run_root,
+        manifest_output=run_root / "run-manifest.json",
+        offline_fixture=FIXTURE,
+        environment={},
+    )
+
+    session, _ = daily._new_metrics_boundaries(context)
+
+    assert session.model_usage.pricing_status == "configured"
+    assert session.model_usage.estimated_cost_micro_usd == 0
+    assert session.model_usage.pricing_policy_hash is not None
 
 
 @pytest.mark.parametrize("trigger", ("scheduled", "manual", "local"))

@@ -104,3 +104,9 @@ viewer_pipeline:
   max_image_bytes: 10485760
   build_version: stage5-v1
   template_version: stage5-v1
+
+observability:
+  pricing:
+    input_micro_usd_per_million_tokens: null
+    output_micro_usd_per_million_tokens: null
+    maximum_batch_cost_micro_usd: null

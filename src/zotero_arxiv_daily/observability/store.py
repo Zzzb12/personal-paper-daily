@@ -32,6 +32,7 @@ class MetricsWriter:
         *,
         max_bytes: int = 2 * 1024 * 1024,
         replace: Callable[[Path, Path], Any] = os.replace,
+        directory_sync: Callable[[Path], None] | None = None,
     ) -> None:
         if isinstance(max_bytes, bool) or max_bytes < 1:
             raise ValueError("max_bytes must be a positive integer")
@@ -50,6 +51,7 @@ class MetricsWriter:
         self._output = output
         self._max_bytes = max_bytes
         self._replace = replace
+        self._directory_sync = directory_sync
 
     @property
     def output(self) -> Path:
@@ -59,6 +61,8 @@ class MetricsWriter:
         if self._output.exists():
             if _is_link_or_junction(self._output):
                 raise MetricsStoreError("metrics destination is a symbolic link")
+            if self._output.stat().st_size > self._max_bytes:
+                raise MetricsStoreError("existing metrics exceeds the size limit")
             try:
                 existing = RunMetrics.model_validate_json(
                     self._output.read_bytes()
@@ -76,7 +80,12 @@ class MetricsWriter:
         try:
             if RunMetrics.model_validate_json(payload) != metrics:
                 raise MetricsStoreError("metrics canonical validation failed")
-            atomic_write_bytes(self._output, payload, replace=self._replace)
+            atomic_write_bytes(
+                self._output,
+                payload,
+                replace=self._replace,
+                directory_sync=self._directory_sync,
+            )
         except MetricsStoreError:
             raise
         except Exception:

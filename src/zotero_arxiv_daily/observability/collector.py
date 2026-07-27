@@ -326,6 +326,12 @@ class MetricsSession:
             "offline_network_call_count": offline_network_call_count,
             "offline_paid_call_count": offline_paid_call_count,
             "peak_traced_allocation_bytes": peak,
+            "estimated_cost_micro_usd": usage.estimated_cost_micro_usd,
+            "maximum_batch_cost_micro_usd": (
+                self._pricing_policy.maximum_batch_cost_micro_usd
+                if self._pricing_policy is not None
+                else None
+            ),
         }
         passed = (
             candidate_count <= 30
@@ -337,6 +343,14 @@ class MetricsSession:
             and offline_network_call_count == 0
             and offline_paid_call_count == 0
             and peak <= 256 * 1024 * 1024
+            and (
+                self._pricing_policy is None
+                or (
+                    usage.estimated_cost_micro_usd is not None
+                    and usage.estimated_cost_micro_usd
+                    <= self._pricing_policy.maximum_batch_cost_micro_usd
+                )
+            )
         )
         budget = BudgetEvaluation(passed=passed, **budget_values)
         self._finalized = True

@@ -71,6 +71,20 @@ def test_writer_rejects_oversize_and_invalid_existing_destination(tmp_path: Path
     assert destination.read_text(encoding="utf-8") == "{private corruption"
 
 
+def test_writer_rejects_oversize_existing_destination_before_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "run-metrics.json"
+    destination.write_bytes(b"x" * 100)
+
+    def forbidden_read(*args, **kwargs):
+        raise AssertionError("oversize destination must not be read")
+
+    monkeypatch.setattr(Path, "read_bytes", forbidden_read)
+    with pytest.raises(MetricsStoreError, match="size"):
+        MetricsWriter(tmp_path, max_bytes=10).write(_metrics())
+
+
 def test_writer_rejects_existing_identity_mismatch(tmp_path: Path) -> None:
     destination = tmp_path / "run-metrics.json"
     payload = _metrics().model_copy(update={"run_id": "another-run"}).to_canonical_json()
@@ -96,6 +110,15 @@ def test_writer_uses_atomic_replace_and_cleans_failed_temporary(
     assert not list(tmp_path.glob("*.tmp"))
 
 
+def test_writer_syncs_parent_directory_after_atomic_replace(tmp_path: Path) -> None:
+    directory_sync = Mock()
+    writer = MetricsWriter(tmp_path, directory_sync=directory_sync)
+
+    writer.write(_metrics())
+
+    directory_sync.assert_called_once_with(tmp_path.resolve())
+
+
 def test_writer_rejects_symlinked_root_or_destination(tmp_path: Path) -> None:
     target = tmp_path / "target"
     target.mkdir()
@@ -113,6 +136,21 @@ def test_writer_rejects_symlinked_root_or_destination(tmp_path: Path) -> None:
     destination.symlink_to(destination_target)
     with pytest.raises(MetricsStoreError, match="link"):
         MetricsWriter(target).write(_metrics())
+
+
+def test_writer_rejects_symlinked_ancestor_of_root(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    linked = tmp_path / "linked"
+    try:
+        linked.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are unavailable")
+    nested = linked / "nested"
+    nested.mkdir()
+
+    with pytest.raises(MetricsStoreError, match="link"):
+        MetricsWriter(nested)
 
 
 @pytest.mark.parametrize("unsafe", [r"\\server\share", r"Z:\foreign"])

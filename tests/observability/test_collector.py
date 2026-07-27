@@ -181,6 +181,35 @@ def test_pricing_is_integer_bounded_and_unconfigured_is_not_zero_cost() -> None:
     assert unconfigured.model_usage.estimated_cost_micro_usd is None
 
 
+def test_pricing_maximum_batch_cost_is_enforced_by_budget() -> None:
+    policy = PricingPolicy(
+        input_micro_usd_per_million_tokens=1_000_000,
+        output_micro_usd_per_million_tokens=0,
+        maximum_batch_cost_micro_usd=0,
+    )
+    session = _session(pricing=policy)
+    session.record_model_attempt(
+        model_identity="provider:model",
+        input_texts=("abcd",),
+        output_text=None,
+        configured_output_tokens=0,
+        succeeded=True,
+        paid=True,
+    )
+    _record_all_stages(session)
+
+    metrics = session.finalize(
+        artifact_hash=None,
+        candidate_count=1,
+        selected_for_llm_count=1,
+        selected_for_analysis_count=1,
+        offline_network_call_count=0,
+    )
+
+    assert metrics.model_usage.estimated_cost_micro_usd == 1
+    assert metrics.budget.passed is False
+
+
 def test_estimator_is_deterministic_bounded_and_rejects_oversize_input() -> None:
     estimator = BoundedTokenEstimator(max_input_bytes=8)
 

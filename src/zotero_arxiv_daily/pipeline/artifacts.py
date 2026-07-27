@@ -90,6 +90,13 @@ def _is_link_or_junction(path: Path) -> bool:
     )
 
 
+def _reject_link_ancestors(path: Path) -> None:
+    lexical = Path(os.path.abspath(path))
+    for component in (*reversed(lexical.parents), lexical):
+        if component.exists() and _is_link_or_junction(component):
+            raise ValueError("path must not traverse a symbolic link or junction")
+
+
 def _contains_private_artifact_token(path: PurePosixPath) -> bool:
     tokens = tuple(
         token.casefold()
@@ -108,8 +115,7 @@ def _contains_private_artifact_token(path: PurePosixPath) -> bool:
 
 def resolve_within(run_root: Path, candidate: Path) -> Path:
     supplied_root = Path(run_root)
-    if _is_link_or_junction(supplied_root):
-        raise ValueError("run root must not be a symbolic link or junction")
+    _reject_link_ancestors(supplied_root)
     root = supplied_root.resolve()
     path = Path(candidate)
     kind, drive = _windows_path_kind(path)
@@ -146,6 +152,7 @@ def atomic_write_bytes(
     payload: bytes,
     *,
     replace: Callable[[Path, Path], Any] = os.replace,
+    directory_sync: Callable[[Path], None] | None = None,
 ) -> Path:
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -163,11 +170,26 @@ def atomic_write_bytes(
             temporary_file.flush()
             os.fsync(temporary_file.fileno())
         replace(temporary_path, destination)
+        (directory_sync or _sync_directory)(destination.parent)
         return destination
     except Exception:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         raise
+
+
+def _sync_directory(directory: Path) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    try:
+        descriptor = os.open(directory, flags)
+    except OSError:
+        if os.name == "nt":
+            return
+        raise
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 class ManifestStore:
