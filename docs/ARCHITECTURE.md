@@ -433,7 +433,21 @@ under `outputs/stage9/`; only privacy-audited aggregates are tracked under
 
 The reproducible profile extractor rejects impossible shares and classifies
 inclusive orchestration, benchmark-only, generated and artifact-audit security
-frames before the 20% gate. Stage 9B may optimize only the measured
-`zotero_arxiv_daily.viewer.builder:build:19` path. Frontend Design, GSAP Core and
-GSAP Performance constraints were checked because this path builds the viewer; no
-UI, DOM, CSS, JavaScript or animation change is authorized.
+frames before the 20% gate. Profile report schema v3 can explicitly record
+`no_eligible_target` after an optimization without weakening that gate.
+
+Stage 9B optimizes only the measured
+`zotero_arxiv_daily.viewer.builder:build:19` path. `AtomicOutputRoot` validates the
+complete ordered batch before creating an injected, bounded executor; each worker
+retains the existing same-directory temporary, flush, fsync, atomic-replace and
+cleanup boundary. `StaticViewerBuilder` renders all content first, writes independent
+non-manifest files with at most eight workers, then writes `build-manifest.json`
+last and performs stale cleanup only after success. The sequential implementation
+remains available to the paired benchmark as a semantic reference.
+
+The versioned paired runner uses fresh roots and alternating AB/BA order, excludes
+cProfile from timed regions, applies allocation tracing identically, and rejects
+quality, ranking, metrics, cost, cache, artifact or viewer identity differences
+before calculating a verdict. Frontend Design, GSAP Core and GSAP Performance
+constraints were checked because this path builds the viewer; HTML, DOM, CSS,
+JavaScript, CSP and animation behavior are unchanged, so no GSAP runtime was added.

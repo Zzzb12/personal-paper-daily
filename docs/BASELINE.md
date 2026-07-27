@@ -988,7 +988,7 @@ Task 2's historical behavior-level TDD evidence deviation remains explicitly
 user-accepted and does not indicate missing current coverage. Local Task 6 validation,
 finding-driven retest, and independent review are complete as recorded above.
 
-## Stage 9A measurement foundation notes (2026-07-26)
+## Stage 9 quality, cost and runtime notes (2026-07-26)
 
 Stage 9A is complete locally through the committed baseline/profile decision.
 RunManifest is schema `1.1` with pipeline identity `stage9-v1`; its strict metrics
@@ -1032,11 +1032,35 @@ Python package allowlist. The final repair is committed before Stage 9B changes.
 
 No real GitHub dispatch/Pages deployment, Zotero/private-library access, PDF/model
 download, paid LLM call, Feishu send, push, PR, merge, upstream mutation or worktree
-deletion occurred. Stage 9B remains incomplete until one paired optimization meets
-the 10% median and 105% p95 gates with identical output/quality/privacy semantics.
+deletion occurred.
 
-Rollback removes the Stage 9 CI step and private sidecar upload, reverts manifest
+Stage 9B implemented one measured change only: independent viewer text files are
+written through a prevalidated, bounded atomic batch with eight workers, while
+`build-manifest.json` remains the final write. Sequential and parallel modes produce
+byte-for-byte identical viewer directories, build counts and artifact hashes; a
+worker failure cannot publish the manifest or trigger stale cleanup.
+
+The reviewed comparison is
+`docs/benchmarks/2026-07-26-stage9-parallel-viewer-writes.{json,md}`. A preliminary
+15-pair CLI run improved median time by only `80,858 ppm` and was retained as a
+failed observation. The unchanged design was then expanded to 31 alternating AB/BA
+pairs: sequential median/p95 were `197,259,800/223,178,000 ns`; parallel median/p95
+were `173,691,300/190,794,900 ns`. Median improvement was `119,479 ppm` and the p95
+ratio was `854,900 ppm`, passing both hard gates. Peak traced allocation decreased
+from `1,806,314` to `1,768,730` bytes. The shared equivalence hash was identical.
+
+The post-optimization offline audit retained exact 30/15/5 selection, five reviewed
+viewer publications, all quality budgets, zero network calls and zero paid calls.
+Profile schema v3 reported `no_eligible_target`: no remaining project row crossed
+the unchanged 20% threshold. The Frontend Design, GSAP Core and GSAP Performance
+boundary review found no visual or motion change; no GSAP dependency was introduced.
+Final full-suite/security verification and whole-branch review are recorded after
+they execute.
+
+Rollback of Stage 9B reverts commits `a3e6c51`, `3c1c257`, `c1fcb8c` and `c3ee32e`
+in reverse order, restoring sequential writes without changing rendered content.
+Rollback of Stage 9A removes the Stage 9 CI step and private sidecar upload, reverts manifest
 identity to the prior version, and disables metrics construction without changing
 Stages 1–8 content behavior. Raw ignored benchmark outputs may be removed after
-retaining reviewed aggregate reports. Reverting Stage 9B must not alter viewer
-content, Stage 4 eligibility or private feedback state.
+retaining reviewed aggregate reports. Neither rollback may alter Stage 4 eligibility
+or private feedback state.

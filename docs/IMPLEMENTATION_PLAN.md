@@ -697,8 +697,8 @@ Actions cache, or Git history as a feedback backup.
 
 ## Stage 9: Quality, cost, and runtime optimization
 
-**Status: Stage 9A measurement foundation completed locally on 2026-07-26;
-Stage 9B measured optimization in progress.**
+**Status: Stage 9A measurement foundation and Stage 9B measured optimization
+completed locally on 2026-07-26; final verification/review in progress.**
 
 ### Goal
 
@@ -751,6 +751,24 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   266,096 ppm of steady-state profiler time after wrapper/security exclusions.
   Stage 9B is limited to one measured parallel viewer
   write scheduling optimization with byte/hash equivalence and a 10% paired median gate.
+
+### Stage 9B measured status
+
+- `AtomicOutputRoot.write_many_text` prevalidates the complete batch and preserves
+  same-directory temporary, flush, fsync, atomic-replace and cleanup guarantees.
+- `StaticViewerBuilder` writes independent non-manifest content with eight bounded
+  workers, then writes the build manifest last. Sequential reference mode produces
+  byte-for-byte identical output and is used by the paired benchmark.
+- The formal 31-pair alternating AB/BA comparison measured `197,259,800 ns`
+  sequential versus `173,691,300 ns` parallel median (`119,479 ppm` improvement);
+  optimized p95 was `854,900 ppm` of baseline and traced peak allocation decreased.
+- The runner rejects semantic identity differences before timing is accepted. The
+  audited fixture retained 30/15/5, five publications, all quality budgets, and zero
+  network/paid calls.
+- Optimized profile schema v3 recorded `no_eligible_target`; the 20% selection gate
+  remains unchanged.
+- Frontend Design, GSAP Core and GSAP Performance were applied as boundary checks.
+  No rendered frontend or animation behavior changed and no GSAP runtime was added.
 
 ### Acceptance criteria
 

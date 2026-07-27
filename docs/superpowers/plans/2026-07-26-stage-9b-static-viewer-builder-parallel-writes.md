@@ -33,11 +33,11 @@
 - `entries` is an ordered tuple of `(PurePosixPath, str)`; returned paths preserve input order.
 - `write_text` and batch workers share one `_write_target_atomic(target, content)` implementation.
 
-- [ ] Write RED tests for exact ordered outputs, one/many/empty input, duplicate target, traversal/UNC/drive/link targets, max worker bounds, prevalidation before executor creation, executor injection, and byte equality with sequential `write_text`.
-- [ ] Write RED failure tests proving all submitted futures are joined, no manifest-like last entry is partially published by the caller, every temporary is cleaned, and dynamic worker exceptions are not serialized.
-- [ ] Run `uv run pytest tests/viewer/test_filesystem.py -q` and confirm missing batch API RED.
-- [ ] Implement prevalidation and bounded concurrent scheduling while preserving the existing per-file atomic primitive unchanged.
-- [ ] Rerun filesystem tests plus `tests/viewer/test_builder.py -q`; commit `perf: batch independent atomic viewer writes`.
+- [x] Write RED tests for exact ordered outputs, one/many/empty input, duplicate target, traversal/UNC/drive/link targets, max worker bounds, prevalidation before executor creation, executor injection, and byte equality with sequential `write_text`.
+- [x] Write RED failure tests proving all submitted futures are joined, no manifest-like last entry is partially published by the caller, every temporary is cleaned, and dynamic worker exceptions are not serialized.
+- [x] Run `uv run pytest tests/viewer/test_filesystem.py -q` and confirm missing batch API RED.
+- [x] Implement prevalidation and bounded concurrent scheduling while preserving the existing per-file atomic primitive unchanged.
+- [x] Rerun filesystem tests plus `tests/viewer/test_builder.py -q`; commit `perf: batch independent atomic viewer writes`.
 
 ### Task 2: Batch non-manifest viewer writes with a sequential reference
 
@@ -52,12 +52,12 @@
 - Builder renders all page/index/static strings first, calls one batch write for non-manifest text, then writes `build-manifest.json` last.
 - `parallel_writes=False` loops through the same ordered entries with `write_text` and is used only as the paired reference.
 
-- [ ] Write RED tests that capture call order and prove manifest-last, no manifest after a failed batch, bounded worker propagation, empty viewer behavior, stale cleanup after success only, and sequential/parallel byte-for-byte directory equality.
-- [ ] Extend renderer/browser/static tests to assert HTML/CSS/JS and CSP remain identical and no GSAP dependency/script is introduced.
-- [ ] Extend artifact tests to require identical `BuildManifest`, file count, byte count and artifact hash for both modes.
-- [ ] Run the focused viewer/artifact group and observe RED.
-- [ ] Implement one ordered render batch and the narrow scheduling flag without changing any rendered string or public schema.
-- [ ] Rerun all `tests/viewer tests/pipeline/test_daily_artifacts.py -q`; commit `perf: parallelize viewer publication writes`.
+- [x] Write RED tests that capture call order and prove manifest-last, no manifest after a failed batch, bounded worker propagation, empty viewer behavior, stale cleanup after success only, and sequential/parallel byte-for-byte directory equality.
+- [x] Extend renderer/browser/static tests to assert HTML/CSS/JS and CSP remain identical and no GSAP dependency/script is introduced.
+- [x] Extend artifact tests to require identical `BuildManifest`, file count, byte count and artifact hash for both modes.
+- [x] Run the focused viewer/artifact group and observe RED.
+- [x] Implement one ordered render batch and the narrow scheduling flag without changing any rendered string or public schema.
+- [x] Rerun all `tests/viewer tests/pipeline/test_daily_artifacts.py -q`; commit `perf: parallelize viewer publication writes`.
 
 ### Task 3: Add deterministic paired comparison contracts
 
@@ -71,12 +71,12 @@
 - `run_stage9_paired_comparison(..., pairs=9)` alternates baseline-first and optimized-first, uses fresh roots, and verifies every pair’s viewer bytes/structure, quality, metrics, cost and artifact hash before accepting timing.
 - CLI subcommand/flag writes a canonical ignored comparison and exits nonzero unless median improvement ≥100,000 ppm and optimized p95 ratio ≤1,050,000 ppm.
 
-- [ ] Write RED math tests for exactly nine pairs, sorting, half-up ppm, 9.9999% failure, 10% pass, p95 105% pass/one-unit failure, and invalid/mismatched observations.
-- [ ] Write RED fake-clock ordering tests for AB/BA alternation and fresh roots.
-- [ ] Write RED equivalence tests that reject any HTML/JS/CSS/build-manifest/artifact/quality/cost/cache/privacy difference before computing a performance verdict.
-- [ ] Run the focused optimization file and confirm missing comparison API RED.
-- [ ] Implement the strict comparison model, paired runner and safe CLI output without adding the relative gate to hosted CI.
-- [ ] Rerun all benchmark/observability tests; commit `test: gate measured viewer optimization`.
+- [x] Write RED math tests for exactly nine pairs, sorting, half-up ppm, 9.9999% failure, 10% pass, p95 105% pass/one-unit failure, and invalid/mismatched observations.
+- [x] Write RED fake-clock ordering tests for AB/BA alternation and fresh roots.
+- [x] Write RED equivalence tests that reject any HTML/JS/CSS/build-manifest/artifact/quality/cost/cache/privacy difference before computing a performance verdict.
+- [x] Run the focused optimization file and confirm missing comparison API RED.
+- [x] Implement the strict comparison model, paired runner and safe CLI output without adding the relative gate to hosted CI.
+- [x] Rerun all benchmark/observability tests; commit `test: gate measured viewer optimization`.
 
 ### Task 4: Measure the single optimization and record evidence
 
@@ -85,12 +85,12 @@
 - Create after measurement: `docs/benchmarks/2026-07-26-stage9-parallel-viewer-writes.md`
 - Modify: `tests/benchmarks/test_stage9_optimization.py`
 
-- [ ] Run at least nine warm alternating pairs with cProfile disabled during timed regions and tracemalloc applied identically to both modes.
-- [ ] Audit raw comparison for exact 30/15/5, zero network/paid/send, identical quality/cache/metrics/viewer bytes and hashes, and absence of private/dynamic fields.
-- [ ] Require median improvement ≥10% and optimized p95 ≤105%; if either fails, do not mark this plan complete and record the failed candidate before selecting the next eligible target.
-- [ ] Profile optimized steady state outside timed paired runs and confirm no new project hotspot or allocation regression invalidates the change.
-- [ ] Copy only reviewed aggregate evidence into tracked JSON/Markdown; add a static privacy/identity test.
-- [ ] Commit `perf: record parallel viewer write improvement`.
+- [x] Run at least nine warm alternating pairs with cProfile disabled during timed regions and tracemalloc applied identically to both modes.
+- [x] Audit raw comparison for exact 30/15/5, zero network/paid/send, identical quality/cache/metrics/viewer bytes and hashes, and absence of private/dynamic fields.
+- [x] Require median improvement ≥10% and optimized p95 ≤105%; retain the failed 15-pair observation and use the unchanged 31-pair expansion for the final verdict.
+- [x] Profile optimized steady state outside timed paired runs and confirm no new project hotspot or allocation regression invalidates the change.
+- [x] Copy only reviewed aggregate evidence into tracked JSON/Markdown; add a static privacy/identity test.
+- [x] Commit `perf: record parallel viewer write improvement`.
 
 ### Task 5: Full verification, independent review, and documentation
 
