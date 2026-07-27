@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Callable
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
@@ -14,6 +16,46 @@ class AtomicOutputRoot:
         target = self._target(relative)
         if self._dry_run:
             return target
+        return self._write_target_atomic(target, content)
+
+    def write_many_text(
+        self,
+        entries: tuple[tuple[PurePosixPath, str], ...],
+        *,
+        max_workers: int = 4,
+        executor_factory: Callable[..., object] = ThreadPoolExecutor,
+    ) -> tuple[Path, ...]:
+        if isinstance(max_workers, bool) or not 1 <= max_workers <= 8:
+            raise ValueError("max_workers must be between one and eight")
+        targets: list[Path] = []
+        for relative, content in entries:
+            if not isinstance(content, str):
+                raise ValueError("batch content must be text")
+            targets.append(self._target(relative))
+        if len(targets) != len(set(targets)):
+            raise ValueError("batch output targets must not contain duplicates")
+        if not targets or self._dry_run:
+            return tuple(targets)
+        for parent in dict.fromkeys(target.parent for target in targets):
+            parent.mkdir(parents=True, exist_ok=True)
+        futures: list[object] = []
+        with executor_factory(max_workers=min(max_workers, len(targets))) as executor:
+            for target, (_, content) in zip(targets, entries, strict=True):
+                futures.append(
+                    executor.submit(self._write_target_atomic, target, content)
+                )
+            failed = False
+            for future in futures:
+                try:
+                    future.result()
+                except Exception:
+                    failed = True
+        if failed:
+            raise RuntimeError("batch write failed")
+        return tuple(targets)
+
+    @staticmethod
+    def _write_target_atomic(target: Path, content: str) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary: Path | None = None
         try:

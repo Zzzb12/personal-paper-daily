@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from unittest.mock import Mock
 
 import pytest
 
@@ -47,3 +48,129 @@ def test_rejects_windows_absolute_or_drive_qualified_output_component(
 
     with pytest.raises(ValueError, match="Windows path"):
         output.write_text(PurePosixPath("papers", unsafe_name), "unsafe")
+
+
+def test_batch_write_preserves_order_and_matches_sequential_bytes(
+    tmp_path: Path,
+) -> None:
+    entries = (
+        (PurePosixPath("papers", "one.html"), "一\n"),
+        (PurePosixPath("papers", "two.html"), "two\n"),
+        (PurePosixPath("assets", "site.css"), "body{}\n"),
+    )
+    sequential = AtomicOutputRoot(tmp_path / "sequential")
+    for relative, content in entries:
+        sequential.write_text(relative, content)
+
+    written = AtomicOutputRoot(tmp_path / "parallel").write_many_text(
+        entries,
+        max_workers=2,
+    )
+
+    assert written == tuple(
+        tmp_path / "parallel" / Path(*relative.parts) for relative, _ in entries
+    )
+    for relative, _ in entries:
+        assert (tmp_path / "parallel" / Path(*relative.parts)).read_bytes() == (
+            tmp_path / "sequential" / Path(*relative.parts)
+        ).read_bytes()
+
+
+def test_batch_prevalidates_every_target_before_creating_executor(
+    tmp_path: Path,
+) -> None:
+    executor_factory = Mock(side_effect=AssertionError("must not construct"))
+    output = AtomicOutputRoot(tmp_path / "site")
+
+    with pytest.raises(ValueError, match="duplicate"):
+        output.write_many_text(
+            (
+                (PurePosixPath("index.html"), "one"),
+                (PurePosixPath("index.html"), "two"),
+            ),
+            executor_factory=executor_factory,
+        )
+    with pytest.raises(ValueError, match="relative"):
+        output.write_many_text(
+            (
+                (PurePosixPath("index.html"), "one"),
+                (PurePosixPath("..", "escape.html"), "two"),
+            ),
+            executor_factory=executor_factory,
+        )
+
+    executor_factory.assert_not_called()
+    assert not (tmp_path / "site").exists()
+
+
+@pytest.mark.parametrize("workers", (0, 9, True))
+def test_batch_rejects_unbounded_worker_counts(
+    tmp_path: Path, workers: object
+) -> None:
+    with pytest.raises(ValueError, match="max_workers"):
+        AtomicOutputRoot(tmp_path / "site").write_many_text(
+            ((PurePosixPath("index.html"), "x"),),
+            max_workers=workers,
+        )
+
+
+def test_batch_joins_all_submitted_futures_and_raises_fixed_error(
+    tmp_path: Path,
+) -> None:
+    joined: list[str] = []
+
+    class Future:
+        def __init__(self, label: str, *, fail: bool = False) -> None:
+            self.label = label
+            self.fail = fail
+
+        def result(self):
+            joined.append(self.label)
+            if self.fail:
+                raise RuntimeError("PRIVATE WORKER DETAIL")
+            return tmp_path / self.label
+
+    class Executor:
+        def __init__(self, *, max_workers: int) -> None:
+            assert max_workers == 2
+            self.calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def submit(self, callback, target, content):
+            self.calls += 1
+            return Future(target.name, fail=self.calls == 1)
+
+    with pytest.raises(RuntimeError, match="batch write failed") as captured:
+        AtomicOutputRoot(tmp_path / "site").write_many_text(
+            (
+                (PurePosixPath("one.html"), "one"),
+                (PurePosixPath("two.html"), "two"),
+            ),
+            max_workers=2,
+            executor_factory=Executor,
+        )
+
+    assert joined == ["one.html", "two.html"]
+    assert "PRIVATE" not in str(captured.value)
+
+
+def test_empty_and_dry_run_batch_create_no_executor_or_output(
+    tmp_path: Path,
+) -> None:
+    executor_factory = Mock(side_effect=AssertionError("must not construct"))
+    output = AtomicOutputRoot(tmp_path / "site", dry_run=True)
+
+    assert output.write_many_text((), executor_factory=executor_factory) == ()
+    paths = output.write_many_text(
+        ((PurePosixPath("index.html"), "x"),),
+        executor_factory=executor_factory,
+    )
+
+    assert paths == (tmp_path / "site" / "index.html",)
+    assert not (tmp_path / "site").exists()
+    executor_factory.assert_not_called()
