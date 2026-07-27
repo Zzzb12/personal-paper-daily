@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,12 @@ ROOT = Path(__file__).parents[2]
 FIXTURE = ROOT / "tests" / "fixtures" / "benchmarks" / "stage9"
 DAILY_FIXTURE = ROOT / "tests" / "fixtures" / "evidence" / "stage4_golden.json"
 HASH = "a" * 64
+TRACKED_JSON = (
+    ROOT / "docs" / "benchmarks" / "2026-07-26-stage9-parallel-viewer-writes.json"
+)
+TRACKED_MD = (
+    ROOT / "docs" / "benchmarks" / "2026-07-26-stage9-parallel-viewer-writes.md"
+)
 
 
 def test_comparison_math_enforces_exact_median_and_p95_gates() -> None:
@@ -258,3 +265,59 @@ def test_paired_runner_stops_only_tracing_it_started(
     assert calls.count("start") == 1
     assert calls.count("stop") == 1
     assert tracing is False
+
+
+def test_tracked_optimization_evidence_is_identity_and_privacy_safe() -> None:
+    payload = json.loads(TRACKED_JSON.read_text(encoding="utf-8"))
+    markdown = TRACKED_MD.read_text(encoding="utf-8")
+    assert set(payload) == {
+        "candidate",
+        "comparison",
+        "evidence_version",
+        "optimized_profile",
+        "preliminary_observation",
+        "semantic_audit",
+    }
+    comparison = OptimizationComparison.model_validate(payload["comparison"])
+    assert comparison.pair_count == 31
+    assert comparison.improvement_ppm >= 100_000
+    assert comparison.p95_ratio_ppm <= 1_050_000
+    assert comparison.passed is True
+    assert payload["candidate"] == {
+        "frontend_assets_changed": False,
+        "max_write_workers": 8,
+        "name": "bounded_parallel_atomic_viewer_writes",
+    }
+    assert payload["preliminary_observation"]["passed"] is False
+    assert payload["semantic_audit"] == {
+        "candidate_count": 30,
+        "network_call_count": 0,
+        "paid_call_count": 0,
+        "quality_budget_passed": True,
+        "selected_for_analysis_count": 5,
+        "selected_for_llm_count": 15,
+        "selection_labels_matched": True,
+        "viewer_published_count": 5,
+    }
+    assert payload["optimized_profile"]["target_status"] == "no_eligible_target"
+
+    serialized = json.dumps(payload, sort_keys=True).casefold() + markdown.casefold()
+    for forbidden in (
+        "hostname",
+        "username",
+        "\\users\\",
+        "/home/",
+        "api_key",
+        "zotero_key",
+        "app_secret",
+        "prompt",
+        "response",
+        "synthetic-candidate",
+        "arxiv:",
+        "zotero:",
+    ):
+        assert forbidden not in serialized
+    assert "31 对" in markdown
+    assert "15 对" in markdown
+    assert "frontend design" in markdown.casefold()
+    assert "gsap" in markdown.casefold()
