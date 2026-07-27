@@ -1,10 +1,10 @@
 {
   "schema_version": "stage9-synthetic-analyses-v1",
   "records": [
-    {"synthetic_id":"synthetic-candidate-01","expected_evidence_count":2,"accepted_evidence_count":2,"supported_claim_count":2,"accepted_claim_count":2,"required_field_count":3,"present_required_field_count":3},
-    {"synthetic_id":"synthetic-candidate-02","expected_evidence_count":2,"accepted_evidence_count":2,"supported_claim_count":2,"accepted_claim_count":2,"required_field_count":3,"present_required_field_count":3},
-    {"synthetic_id":"synthetic-candidate-03","expected_evidence_count":2,"accepted_evidence_count":2,"supported_claim_count":2,"accepted_claim_count":2,"required_field_count":3,"present_required_field_count":3},
-    {"synthetic_id":"synthetic-candidate-04","expected_evidence_count":2,"accepted_evidence_count":2,"supported_claim_count":2,"accepted_claim_count":2,"required_field_count":3,"present_required_field_count":3},
-    {"synthetic_id":"synthetic-candidate-05","expected_evidence_count":2,"accepted_evidence_count":2,"supported_claim_count":2,"accepted_claim_count":2,"required_field_count":3,"present_required_field_count":3}
+    {"synthetic_id":"synthetic-candidate-01","expected_evidence_count":2,"expected_claim_kinds":["insight","support","method","method","parameter","ablation"],"required_fields":["english_title","insights","method_overview"]},
+    {"synthetic_id":"synthetic-candidate-02","expected_evidence_count":2,"expected_claim_kinds":["insight","support","method","method","parameter","ablation"],"required_fields":["english_title","insights","method_overview"]},
+    {"synthetic_id":"synthetic-candidate-03","expected_evidence_count":2,"expected_claim_kinds":["insight","support","method","method","parameter","ablation"],"required_fields":["english_title","insights","method_overview"]},
+    {"synthetic_id":"synthetic-candidate-04","expected_evidence_count":2,"expected_claim_kinds":["insight","support","method","method","parameter","ablation"],"required_fields":["english_title","insights","method_overview"]},
+    {"synthetic_id":"synthetic-candidate-05","expected_evidence_count":2,"expected_claim_kinds":["insight","support","method","method","parameter","ablation"],"required_fields":["english_title","insights","method_overview"]}
   ]
 }

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
 from zotero_arxiv_daily.observability.benchmark import (
     ProfileRow,
+    extract_profile_rows,
     select_optimization_target,
 )
 
@@ -96,6 +98,68 @@ def test_selector_rejects_no_eligible_target_and_duplicate_symbol() -> None:
         )
 
 
+def test_selector_rejects_impossible_share_and_ignores_inclusive_wrappers() -> None:
+    decision = select_optimization_target(
+        (
+            _row("pipeline.run_daily", time_ns=900).model_copy(
+                update={
+                    "eligible": False,
+                    "exclusion_code": "inclusive_wrapper",
+                }
+            ),
+            _row("viewer.build", time_ns=300),
+        ),
+        total_time_ns=1000,
+        total_allocation_bytes=0,
+    )
+    assert decision.symbol == "viewer.build"
+
+    with pytest.raises(ValueError, match="exceeds"):
+        select_optimization_target(
+            (_row("viewer.impossible", time_ns=1001),),
+            total_time_ns=1000,
+            total_allocation_bytes=0,
+        )
+
+
+def test_raw_profile_extraction_is_reproducible_and_classifies_boundaries(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repository"
+    daily = root / "src/zotero_arxiv_daily/pipeline/daily.py"
+    auditor = root / "src/zotero_arxiv_daily/pipeline/artifacts.py"
+    viewer = root / "src/zotero_arxiv_daily/viewer/builder.py"
+    benchmark = root / "src/zotero_arxiv_daily/observability/benchmark.py"
+    for path in (daily, auditor, viewer, benchmark):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    stats = SimpleNamespace(
+        stats={
+            (str(daily), 148, "run_daily"): (1, 1, 0.01, 0.80, {}),
+            (str(auditor), 180, "audit"): (1, 1, 0.02, 0.40, {}),
+            (str(viewer), 19, "build"): (1, 1, 0.10, 0.30, {}),
+            (str(benchmark), 1, "_fixture_execution"): (1, 1, 0.1, 0.9, {}),
+            (str(tmp_path / "outside.py"), 1, "outside"): (1, 1, 1.0, 1.0, {}),
+        }
+    )
+
+    rows = extract_profile_rows(stats, repository_root=root)
+    by_symbol = {row.symbol: row for row in rows}
+
+    assert tuple(row.symbol for row in rows) == tuple(sorted(by_symbol))
+    assert len(rows) == 3
+    assert by_symbol[
+        "zotero_arxiv_daily.pipeline.daily:run_daily:148"
+    ].exclusion_code == "inclusive_wrapper"
+    assert by_symbol[
+        "zotero_arxiv_daily.pipeline.artifacts:audit:180"
+    ].exclusion_code == "security_invariant"
+    build = by_symbol["zotero_arxiv_daily.viewer.builder:build:19"]
+    assert build.eligible is True
+    assert build.self_time_ns == 100_000_000
+    assert build.cumulative_time_ns == 300_000_000
+
+
 @pytest.mark.parametrize(
     ("path", "symbol"),
     [
@@ -136,15 +200,17 @@ def test_tracked_baseline_is_privacy_safe_and_records_measured_target() -> None:
     assert payload["benchmark"]["repetition_count"] == 9
     assert payload["benchmark"]["budget_passed"] is True
     assert payload["profile"] == {
-        "profile_version": "stage9-profile-v1",
-        "total_time_ns": 1403841400,
-        "project_row_count": 426,
-        "eligible_count": 7,
-        "symbol": "zotero_arxiv_daily.pipeline.daily:run_daily:148",
-        "relative_path": "src/zotero_arxiv_daily/pipeline/daily.py",
-        "cumulative_time_ns": 1124229500,
+        "profile_version": "stage9-profile-v2",
+        "total_time_ns": 2079131100,
+        "project_row_count": 207,
+        "excluded_count": 92,
+        "eligible_count": 2,
+        "symbol": "zotero_arxiv_daily.viewer.builder:build:19",
+        "relative_path": "src/zotero_arxiv_daily/viewer/builder.py",
+        "self_time_ns": 9422200,
+        "cumulative_time_ns": 665420900,
         "allocation_bytes": 0,
-        "time_share_ppm": 800824,
+        "time_share_ppm": 320048,
         "allocation_share_ppm": 0,
     }
     serialized = json.dumps(payload, sort_keys=True).casefold()
@@ -162,6 +228,6 @@ def test_tracked_baseline_is_privacy_safe_and_records_measured_target() -> None:
     ):
         assert forbidden not in serialized
     assert "nine warm steady-state repetitions" in markdown
-    assert "run_daily" in markdown
+    assert "viewer.builder:build" in markdown
     assert "does not predict real PDF or hosted Actions performance" in markdown
     assert "No network, paid model, Zotero, or Feishu call was performed" in markdown

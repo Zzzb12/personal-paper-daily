@@ -78,17 +78,11 @@ def test_candidate_and_analysis_records_have_exact_allowlisted_fields() -> None:
         == {
             "synthetic_id",
             "expected_evidence_count",
-            "accepted_evidence_count",
-            "supported_claim_count",
-            "accepted_claim_count",
-            "required_field_count",
-            "present_required_field_count",
+            "expected_claim_kinds",
+            "required_fields",
         }
         for item in analyses
     )
-    assert all(
-        isinstance(value, (int, bool))
-        for item in (*candidates, *analyses)
-        for key, value in item.items()
-        if key != "synthetic_id"
-    )
+    assert all(item["expected_evidence_count"] == 2 for item in analyses)
+    assert all(len(item["expected_claim_kinds"]) == 6 for item in analyses)
+    assert all(len(item["required_fields"]) == 3 for item in analyses)

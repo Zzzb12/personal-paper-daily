@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 
 import pytest
 
 from tools.benchmarks.run_stage9_benchmark import main
 from zotero_arxiv_daily.observability.benchmark import (
+    BenchmarkBoundaryCounts,
     BenchmarkReport,
+    ProfileReport,
     percentile_nearest_rank,
     run_stage9_benchmark,
 )
@@ -67,7 +70,8 @@ def test_offline_benchmark_exercises_exact_shape_and_passes_budgets(
     assert report.paid_call_count == 0
     assert report.quality.budget_passed is True
     assert report.budget_passed is True
-    assert report.viewer_published_count == 1
+    assert report.viewer_published_count == 5
+    assert report.selection_labels_matched is True
     assert len(report.viewer_artifact_hash) == 64
 
 
@@ -94,6 +98,30 @@ def test_profiler_boundary_wraps_only_steady_state_repetitions(
         steady_state_profiler=profiler,
     )
     assert profiler.calls == ["enable", "disable"]
+
+
+def test_benchmark_reads_selection_labels_and_observed_boundary_counts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _forbid_network_and_paid_calls(monkeypatch)
+    fixture = tmp_path / "fixture"
+    shutil.copytree(FIXTURE, fixture)
+    labels_path = fixture / "quality-labels.json"
+    labels = json.loads(labels_path.read_text(encoding="utf-8"))
+    labels["ranked_ids"] = list(reversed(labels["ranked_ids"]))
+    labels_path.write_text(json.dumps(labels), encoding="utf-8")
+
+    report = run_stage9_benchmark(
+        fixture_root=fixture,
+        daily_fixture=DAILY_FIXTURE,
+        work_root=tmp_path / "work",
+        repetitions=9,
+        boundary_counts=BenchmarkBoundaryCounts(network_call_count=1),
+    )
+
+    assert report.selection_labels_matched is False
+    assert report.network_call_count == 1
+    assert report.budget_passed is False
 
 
 def test_report_is_strict_reproducible_and_privacy_safe(
@@ -146,6 +174,7 @@ def test_cli_writes_canonical_report_and_returns_nonzero_on_budget_failure(
 ) -> None:
     _forbid_network_and_paid_calls(monkeypatch)
     output = tmp_path / "baseline.json"
+    profile_output = tmp_path / "profile.json"
     assert main(
         [
             "--fixture-root",
@@ -156,12 +185,17 @@ def test_cli_writes_canonical_report_and_returns_nonzero_on_budget_failure(
             str(tmp_path / "work"),
             "--output",
             str(output),
+            "--profile-output",
+            str(profile_output),
             "--repetitions",
             "9",
         ]
     ) == 0
     parsed = BenchmarkReport.model_validate_json(output.read_bytes())
+    profile = ProfileReport.model_validate_json(profile_output.read_bytes())
     assert output.read_text(encoding="utf-8") == parsed.to_canonical_json()
+    assert profile.relative_path.startswith("src/zotero_arxiv_daily/")
+    assert profile.symbol != "zotero_arxiv_daily.pipeline.daily:run_daily:148"
     summary = capsys.readouterr().out
     assert "status=passed" in summary
     assert str(tmp_path) not in summary
