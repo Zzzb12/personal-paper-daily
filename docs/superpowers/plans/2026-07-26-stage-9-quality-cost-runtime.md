@@ -225,7 +225,7 @@
 - One optimization only, its implementation identity/version impact, rollback commit boundary, and full final verification.
 
 - [x] Run Stage 9A focused tests, Stage 4–8 regressions, default pytest, compileall, workflow validation, diff check, and tracked secret/private/cache/archive/large-file scans.
-- [ ] Run fixture daily dry-run, audit viewer plus the exact manifest/metrics artifacts, and confirm zero network/paid/send.
+- [x] Run fixture daily dry-run, audit viewer plus the exact manifest/metrics artifacts, and confirm zero network/paid/send.
 - [x] Request an independent whole-branch Stage 9A review against `d00b9ab`; reproduce every confirmed Critical/Important finding with a failing focused test before repair.
 - [x] Update architecture/baseline/implementation docs with only observed results, known Windows/slow-suite limitations, rollback, and external operations not performed.
 - [x] Write and self-review the target-specific Stage 9B plan against the committed baseline; require exact files/symbols/commands, measured target selection, and no semantic shortcut.
@@ -233,16 +233,16 @@
 
 ## Stage 9 final verification (executed after Stage 9B)
 
-- [ ] `uv sync --frozen`
-- [ ] Stage 9 focused schema/collector/store/quality/benchmark/profile/optimization tests
-- [ ] Stage 8/7/6/5/4 related regressions
-- [ ] Default `pytest -q`
-- [ ] Explicit `pytest -m "slow or not slow" -q` under a recorded bounded timeout
-- [ ] `python -m compileall -q src`
-- [ ] Workflow YAML/static safety validation
-- [ ] `git diff --check`
-- [ ] Tracked secret/private/cache/archive/large-file scan
-- [ ] Dry-run fixture daily CLI and exact sidecar hash audit
-- [ ] Generated viewer/run artifact content audit
-- [ ] Benchmark privacy/budget audit and paired before/after verification
-- [ ] Independent whole-branch final review, focused RED repairs for confirmed findings, and clean-worktree confirmation
+- [x] `uv sync --frozen`
+- [x] Stage 9 focused schema/collector/store/quality/benchmark/profile/optimization tests
+- [x] Stage 8/7/6/5/4 related regressions
+- [x] Default `pytest -q`; only the two unchanged Windows one-second spawn failures remain
+- [x] Execute `pytest -m "slow or not slow" -q` under a 300-second bound; record timeout/no verdict without weakening the slow test
+- [x] `python -m compileall -q src`
+- [x] Workflow YAML/static safety validation
+- [x] `git diff --check`
+- [x] Tracked secret/private/cache/archive/large-file scan
+- [x] Dry-run fixture daily CLI and exact sidecar hash audit
+- [x] Generated viewer/run artifact content audit
+- [x] Benchmark privacy/budget audit and predeclared 99-pair confirmation
+- [x] Independent whole-branch final review, focused RED repairs for confirmed findings, and clean-worktree confirmation

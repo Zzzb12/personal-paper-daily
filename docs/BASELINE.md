@@ -1061,8 +1061,35 @@ the unchanged 20% threshold. The Frontend Design, GSAP Core and GSAP Performance
 boundary review found no visual or motion change; no GSAP dependency was introduced.
 Final review repairs enforce stale-cleanup-before-manifest, preserve caller
 tracemalloc state, reject root ancestor symlink/junction/reparse points and include
-relative source paths in code identity. Final full-suite/security verification and
-rereview are recorded after they execute.
+relative source paths in code identity.
+
+Final verification after all review repairs observed:
+
+- Frozen uv sync checked 172 packages.
+- Stage 9/viewer/daily/workflow focused integration: `337 passed, 2 skipped`.
+- Stage 4–8 broad regression group: `545 passed`.
+- Default suite: `810 passed, 2 failed, 2 skipped, 1 deselected` in `59.05s`.
+  The only failures are the unchanged Windows one-second multiprocessing spawn tests
+  in `tests/retriever/test_arxiv_retriever.py`.
+- Explicit `slow or not slow` execution reached its recorded 300-second process
+  bound without completing and was terminated. No result is claimed; this is the
+  known uncached local-reranker/Hugging Face environment limitation, and no test was
+  removed, skipped or weakened.
+- Workflow static safety: `14 passed`; compileall and branch-level
+  `git diff --check` passed.
+- Tracked scan covered 248 files with zero prohibited path, archive/cache/private,
+  file-over-5-MiB or high-confidence secret hits. `.env` and `outputs/` remained
+  ignored.
+- Final fixture daily CLI returned success with one publication, zero deliveries,
+  a six-file/32,606-byte viewer, matching manifest/artifact hash
+  `b5a5d34221c814aa958de3a365464361a2e4da03825d07e3d8a914b91cc17efa`,
+  matching metrics sidecar SHA-256, and zero forbidden viewer-content hits.
+
+The independent final rereview found the initial 4 Important and 2 Minor issues
+closed and reported no remaining findings. It independently verified protocol
+ancestry, exactly one 99-pair result, 99+99 fresh measurement roots, two warmups,
+raw result hash, recomputed distributions/gates, semantic equivalence, privacy,
+compileall and branch diff hygiene.
 
 Rollback of Stage 9B reverts commits `a3e6c51`, `3c1c257`, `c1fcb8c` and `c3ee32e`
 in reverse order, restoring sequential writes without changing rendered content.

@@ -104,8 +104,8 @@
 - Modify: `docs/superpowers/plans/2026-07-26-stage-9-quality-cost-runtime.md`
 - Modify: this plan status/checklists.
 
-- [ ] Run frozen sync, all Stage 9 tests, Stage 4–8 regressions, default pytest, and bounded explicit slow/non-slow suite without weakening known failures.
-- [ ] Run compileall, YAML/workflow safety tests, diff check, tracked secret/private/cache/archive/large-file scan, fixture daily dry-run, run sidecar hash audit, viewer artifact audit, and benchmark privacy/budget audit.
-- [ ] Request independent whole-branch review against `d00b9ab`; reproduce every confirmed Critical/Important finding with a focused failing test before repair.
-- [ ] Document actual before/after distributions, Frontend Design/GSAP boundary decision, known Windows/slow-suite limitations, rollback and external operations not performed.
-- [ ] Commit review fixes and final evidence in separate logical commits; confirm clean worktree and do not push, merge, create PR, alter upstream or delete any worktree.
+- [x] Run frozen sync, all Stage 9 tests, Stage 4–8 regressions, default pytest, and bounded explicit slow/non-slow suite without weakening known failures.
+- [x] Run compileall, YAML/workflow safety tests, diff check, tracked secret/private/cache/archive/large-file scan, fixture daily dry-run, run sidecar hash audit, viewer artifact audit, and benchmark privacy/budget audit.
+- [x] Request independent whole-branch review against `d00b9ab`; reproduce every confirmed Critical/Important finding with a focused failing test before repair.
+- [x] Document actual before/after distributions, Frontend Design/GSAP boundary decision, known Windows/slow-suite limitations, rollback and external operations not performed.
+- [x] Commit review fixes and final evidence in separate logical commits; confirm clean worktree and do not push, merge, create PR, alter upstream or delete any worktree.

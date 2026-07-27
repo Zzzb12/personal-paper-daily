@@ -80,6 +80,6 @@
 - [x] If and only if all confirmation gates pass, replace tracked performance verdict fields with the 99-pair result while retaining both earlier observations as historical non-verdict evidence.
 - [x] Evaluate the predeclared failure branch; it is not applicable because both confirmation gates and semantic identity passed.
 - [x] Update the static evidence test to require `confirmation_protocol_version`, `pair_count == 99`, exact gates and the historical 15/31 classifications.
-- [ ] Run benchmark/viewer focused suites, compileall, privacy scan and `git diff --check`.
-- [ ] Request independent rereview of the protocol ancestry, single-result provenance and verdict.
-- [ ] Commit the observed verdict and evidence without rewriting or deleting the protocol commit.
+- [x] Run benchmark/viewer focused suites, compileall, privacy scan and `git diff --check`.
+- [x] Request independent rereview of the protocol ancestry, single-result provenance and verdict.
+- [x] Commit the observed verdict and evidence without rewriting or deleting the protocol commit.
