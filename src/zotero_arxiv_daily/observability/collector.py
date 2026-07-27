@@ -119,6 +119,9 @@ class MetricsSession:
     def collection_failed(self) -> bool:
         return self._collection_failed
 
+    def mark_collection_failed(self) -> None:
+        self._collection_failed = True
+
     def observe(self, name: str, callback: Callable[[], object]) -> object:
         """Run content even when the observational boundary itself fails."""
         if self._collection_failed:
@@ -384,13 +387,16 @@ class AnalysisMetricsSink:
         succeeded: bool,
         paid: bool,
     ) -> None:
-        if not isinstance(request, AnalysisRequest):
-            raise MetricsCollectionError("analysis usage request is invalid")
-        self._session.record_model_attempt(
-            model_identity=model_identity,
-            input_texts=(request.system_prompt, request.user_prompt),
-            output_text=response,
-            configured_output_tokens=request.max_output_tokens,
-            succeeded=succeeded,
-            paid=paid,
-        )
+        try:
+            if not isinstance(request, AnalysisRequest):
+                raise MetricsCollectionError("analysis usage request is invalid")
+            self._session.record_model_attempt(
+                model_identity=model_identity,
+                input_texts=(request.system_prompt, request.user_prompt),
+                output_text=response,
+                configured_output_tokens=request.max_output_tokens,
+                succeeded=succeeded,
+                paid=paid,
+            )
+        except Exception:
+            self._session.mark_collection_failed()

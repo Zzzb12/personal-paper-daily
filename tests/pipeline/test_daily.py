@@ -12,11 +12,16 @@ from zotero_arxiv_daily.analysis.document_schemas import (
     DocumentIssue,
     PaperDocumentResult,
 )
-from zotero_arxiv_daily.analysis.paper_schemas import AnalysisBatchResult
+from zotero_arxiv_daily.analysis.client import AnalysisRequest
+from zotero_arxiv_daily.analysis.paper_schemas import (
+    AnalysisBatchResult,
+    PaperAnalysisResult,
+)
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationBatchResult
 from zotero_arxiv_daily.delivery.feishu import DigestPolicy
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
 from zotero_arxiv_daily.observability.collector import (
+    AnalysisMetricsSink,
     BoundedTokenEstimator,
     MetricsSession,
 )
@@ -377,6 +382,85 @@ def test_analysis_attempts_beyond_result_count_are_reported_as_retries(
     assert manifest.retry_count == 1
     assert metrics.stages[2].retry_count == 1
     assert metrics.retry_count == 1
+
+
+def test_analysis_retry_count_ignores_skipped_and_cached_results(
+    tmp_path: Path,
+) -> None:
+    items = _inputs(2)
+    base = _analysis_batch(items)
+    mixed = base.model_copy(
+        update={
+            "results": (
+                base.results[0],
+                PaperAnalysisResult(
+                    paper_id=base.results[1].paper_id,
+                    status="skipped",
+                    analysis=None,
+                    issues=(),
+                    processing_seconds=0,
+                    cache_hit=False,
+                ),
+            )
+        }
+    )
+    dependencies = _dependencies(tmp_path, items, analysis_batch=mixed)
+    original_analysis = dependencies.analysis_runner
+
+    def analysis(candidates, documents):
+        assert dependencies.metrics_session is not None
+        for succeeded in (False, True):
+            dependencies.metrics_session.record_model_attempt(
+                model_identity="offline-fake",
+                input_texts=(),
+                output_text=None,
+                configured_output_tokens=0,
+                succeeded=succeeded,
+                paid=False,
+            )
+        return original_analysis(candidates, documents)
+
+    dependencies.analysis_runner = analysis
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert manifest.stages[2].retry_count == 1
+
+
+def test_analysis_usage_collection_failure_marks_metrics_without_failing_content(
+    tmp_path: Path,
+) -> None:
+    dependencies = _dependencies(tmp_path, _inputs(1))
+    dependencies.metrics_session = MetricsSession(
+        run_id="run-stage7",
+        trigger="local",
+        config_hash="a" * 64,
+        token_estimator=BoundedTokenEstimator(max_input_bytes=1),
+    )
+    original_analysis = dependencies.analysis_runner
+
+    def analysis(candidates, documents):
+        assert dependencies.metrics_session is not None
+        AnalysisMetricsSink(dependencies.metrics_session).record_attempt(
+            AnalysisRequest(
+                prompt_version="stage3-v1",
+                system_prompt="oversize private prompt",
+                user_prompt="oversize private full text",
+                response_schema={"type": "object"},
+                max_output_tokens=1,
+            ),
+            "oversize private response",
+            model_identity="offline-fake",
+            succeeded=True,
+            paid=False,
+        )
+        return original_analysis(candidates, documents)
+
+    dependencies.analysis_runner = analysis
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert manifest.status == "success"
+    assert manifest.metrics.status == "failed"
+    assert manifest.metrics.error_codes == ("metrics_collection_failed",)
 
 
 def test_empty_candidates_stop_without_calling_expensive_or_delivery_stages(tmp_path: Path) -> None:

@@ -8,9 +8,9 @@ import re
 import time
 import tracemalloc
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 import numpy as np
 from pydantic import Field, field_validator, model_validator
@@ -33,6 +33,9 @@ from zotero_arxiv_daily.candidates.ranking import (
     EmbeddingIdentity,
     RankingLimits,
 )
+from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
+from zotero_arxiv_daily.observability.collector import MetricsSession
+from zotero_arxiv_daily.observability.metrics import RunMetrics
 from zotero_arxiv_daily.observability.quality import (
     ClaimLabel,
     EvidenceLabel,
@@ -41,7 +44,15 @@ from zotero_arxiv_daily.observability.quality import (
     RequiredFieldLabel,
     evaluate_quality,
 )
-from zotero_arxiv_daily.pipeline.artifacts import ArtifactAuditor
+from zotero_arxiv_daily.observability.store import MetricsWriter
+from zotero_arxiv_daily.pipeline.artifacts import ArtifactAuditor, ManifestStore
+from zotero_arxiv_daily.pipeline.daily import (
+    AnalysisStageOutput,
+    DailyDependencies,
+    DailySettings,
+    PreparedDelivery,
+    run_daily,
+)
 from zotero_arxiv_daily.pipeline.validation import (
     ValidationDependencies,
     ValidationSettings,
@@ -324,6 +335,12 @@ def _profile_exclusion(
     if relative_path == "src/zotero_arxiv_daily/pipeline/daily.py":
         return "inclusive_wrapper"
     if (
+        relative_path
+        == "src/zotero_arxiv_daily/observability/collector.py"
+        and function_name == "observe"
+    ):
+        return "inclusive_wrapper"
+    if (
         relative_path == "src/zotero_arxiv_daily/pipeline/artifacts.py"
         and function_name == "audit"
     ):
@@ -480,6 +497,29 @@ def _platform_family() -> str:
     )
 
 
+def _benchmark_code_paths(source_root: Path) -> tuple[Path, ...]:
+    root = Path(source_root)
+    return (
+        root / "analysis" / "document_schemas.py",
+        root / "analysis" / "paper_schemas.py",
+        root / "analysis" / "validation_schemas.py",
+        root / "analysis" / "validator.py",
+        root / "candidates" / "ranking.py",
+        root / "observability" / "benchmark.py",
+        root / "observability" / "collector.py",
+        root / "observability" / "metrics.py",
+        root / "observability" / "quality.py",
+        root / "observability" / "store.py",
+        root / "pipeline" / "artifacts.py",
+        root / "pipeline" / "daily.py",
+        root / "pipeline" / "daily_schemas.py",
+        root / "pipeline" / "validation.py",
+        root / "viewer" / "builder.py",
+        root / "viewer" / "filesystem.py",
+        root / "viewer" / "renderer.py",
+    )
+
+
 class _NoWriteCache:
     def read(self, identity):
         return None
@@ -575,7 +615,10 @@ def _prepare_fixture(fixture_root: Path, daily_fixture: Path) -> _PreparedFixtur
             record["synthetic_id"]: record for record in analyses_payload["records"]
         },
         fixture_identity_hash=_sha256_files(
-            tuple(path for path in fixture_root.iterdir() if path.is_file())
+            (
+                *tuple(path for path in fixture_root.iterdir() if path.is_file()),
+                Path(daily_fixture),
+            )
         ),
         config_hash=hashlib.sha256(Path(daily_fixture).read_bytes()).hexdigest(),
     )
@@ -587,8 +630,7 @@ def _fixture_execution(
 ) -> tuple[
     QualityEvaluation,
     object,
-    int,
-    int,
+    RunMetrics,
     int,
     str,
     bool,
@@ -668,16 +710,90 @@ def _fixture_execution(
         expensive_call_count=0,
         cache_hit_count=0,
     )
-    validation = build_validation_batch(
-        candidate_batch,
-        document_batch,
-        packets,
-        analysis_batch,
-        ValidationSettings(),
-        ValidationDependencies(cache=_NoWriteCache(), clock=lambda: prepared.now),
+    run_root.mkdir(parents=True, exist_ok=True)
+    viewer_root = run_root / "viewer"
+    validation_holder: list[Any] = []
+
+    def validation_runner(candidates, documents, output):
+        validated = build_validation_batch(
+            candidates,
+            documents,
+            output.packets,
+            output.batch,
+            ValidationSettings(),
+            ValidationDependencies(
+                cache=_NoWriteCache(),
+                clock=lambda: prepared.now,
+            ),
+        )
+        validation_holder.append(validated)
+        return validated
+
+    viewer = StaticViewerBuilder(
+        ViewerSettings(
+            output_root=viewer_root,
+            evidence_roots=(),
+            max_papers=5,
+        )
     )
+    settings = DailySettings(
+        run_id="stage9-benchmark",
+        trigger="local",
+        config_hash=prepared.config_hash,
+        dry_run=True,
+        send_feishu=False,
+        viewer_output=viewer_root,
+    )
+    clock_values = iter(
+        prepared.now + timedelta(seconds=index) for index in range(100)
+    )
+    metrics_session = MetricsSession(
+        run_id=settings.run_id,
+        trigger=settings.trigger,
+        config_hash=settings.config_hash,
+    )
+    dependencies = DailyDependencies(
+        candidate_runner=lambda: candidate_batch,
+        document_runner=lambda _: document_batch,
+        analysis_runner=lambda _candidates, _documents: AnalysisStageOutput(
+            batch=analysis_batch,
+            packets=packets,
+        ),
+        validation_runner=validation_runner,
+        viewer_runner=lambda batch: viewer.build(
+            batch.results,
+            batch_label="stage9-benchmark",
+        ),
+        prepare_delivery=lambda batch: PreparedDelivery(
+            idempotency_key=hashlib.sha256(b"stage9-benchmark-preview").hexdigest(),
+            paper_count=len(batch.results),
+        ),
+        send_delivery=lambda _delivery: (_ for _ in ()).throw(
+            AssertionError("benchmark send is forbidden")
+        ),
+        manifest_store=ManifestStore(run_root, run_root / "run-manifest.json"),
+        artifact_auditor=ArtifactAuditor(run_root),
+        delivery_ledger=DeliveryLedger(run_root / "delivery-ledger.json"),
+        clock=lambda: next(clock_values),
+        sleep=lambda _seconds: None,
+        metrics_session=metrics_session,
+        metrics_writer=MetricsWriter(run_root),
+    )
+    manifest = run_daily(settings, dependencies)
+    if len(validation_holder) != 1:
+        raise RuntimeError("benchmark validation path was not executed exactly once")
+    validation = validation_holder[0]
     if len(validation.results) != 5:
         raise RuntimeError("benchmark validation count differs from selection")
+    metrics_path = run_root / "run-metrics.json"
+    metrics = RunMetrics.model_validate_json(metrics_path.read_bytes())
+    if (
+        manifest.metrics.status != "success"
+        or manifest.metrics.sidecar_hash
+        != hashlib.sha256(metrics_path.read_bytes()).hexdigest()
+        or manifest.artifact_hash is None
+    ):
+        raise RuntimeError("benchmark metrics or manifest path is incomplete")
 
     evidence: list[EvidenceLabel] = []
     claims: list[ClaimLabel] = []
@@ -752,28 +868,12 @@ def _fixture_execution(
         required_fields=tuple(fields),
         fixture_identity_hash=prepared.fixture_identity_hash,
     )
-    run_root.mkdir(parents=True, exist_ok=True)
-    viewer_root = run_root / "viewer"
-    build = StaticViewerBuilder(
-        ViewerSettings(
-            output_root=viewer_root,
-            evidence_roots=(),
-            max_papers=5,
-        )
-    ).build(
-        validation.results,
-        batch_label="stage9-benchmark",
-    )
-    audit = ArtifactAuditor(run_root).audit(viewer_root)
-    if build != audit.build_manifest:
-        raise RuntimeError("benchmark viewer audit differs from build")
     return (
         quality,
         ranked,
-        analysis_batch.expensive_call_count,
-        0,
-        build.published_count,
-        audit.artifact_hash,
+        metrics,
+        manifest.counts.published_count,
+        manifest.artifact_hash,
         selection_labels_matched,
     )
 
@@ -828,20 +928,18 @@ def run_stage9_benchmark(
     (
         quality,
         ranked,
-        successful_calls,
-        configured_output_tokens,
+        run_metrics,
         viewer_published_count,
         viewer_artifact_hash,
         selection_labels_matched,
     ) = last_execution
     ordered = tuple(sorted(observations))
     source_root = Path(__file__).parents[1]
-    code_hash = _sha256_files(
-        (
-            source_root / "candidates" / "ranking.py",
-            source_root / "observability" / "quality.py",
-            source_root / "pipeline" / "daily.py",
-        )
+    code_hash = _sha256_files(_benchmark_code_paths(source_root))
+    successful_calls = run_metrics.model_usage.successful_call_count
+    analysis_attempts = run_metrics.model_usage.attempt_count
+    configured_output_tokens = (
+        run_metrics.model_usage.configured_output_token_count
     )
     budget_passed = (
         len(ordered) >= 9
@@ -849,7 +947,10 @@ def run_stage9_benchmark(
         and len(ranked.selected_for_llm) == 15
         and len(ranked.selected_for_full_analysis) == 5
         and successful_calls <= 5
+        and analysis_attempts <= 15
         and configured_output_tokens <= 40_960
+        and run_metrics.budget.offline_network_call_count == 0
+        and run_metrics.budget.offline_paid_call_count == 0
         and observed_boundaries.network_call_count == 0
         and observed_boundaries.paid_call_count == 0
         and percentile_nearest_rank(ordered, 50) <= 2_000_000_000
@@ -874,7 +975,7 @@ def run_stage9_benchmark(
         selected_for_llm_count=len(ranked.selected_for_llm),
         selected_for_analysis_count=len(ranked.selected_for_full_analysis),
         successful_analysis_call_count=successful_calls,
-        analysis_attempt_count=successful_calls,
+        analysis_attempt_count=analysis_attempts,
         configured_output_token_count=configured_output_tokens,
         network_call_count=observed_boundaries.network_call_count,
         paid_call_count=observed_boundaries.paid_call_count,

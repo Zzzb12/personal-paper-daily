@@ -287,7 +287,10 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
             update={
                 "retry_count": max(
                     dependencies.metrics_session.model_usage.attempt_count
-                    - len(analyses.results),
+                    - sum(
+                        result.status != "skipped" and not result.cache_hit
+                        for result in analyses.results
+                    ),
                     0,
                 )
             }

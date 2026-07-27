@@ -129,8 +129,9 @@ def test_raw_profile_extraction_is_reproducible_and_classifies_boundaries(
     daily = root / "src/zotero_arxiv_daily/pipeline/daily.py"
     auditor = root / "src/zotero_arxiv_daily/pipeline/artifacts.py"
     viewer = root / "src/zotero_arxiv_daily/viewer/builder.py"
+    collector = root / "src/zotero_arxiv_daily/observability/collector.py"
     benchmark = root / "src/zotero_arxiv_daily/observability/benchmark.py"
-    for path in (daily, auditor, viewer, benchmark):
+    for path in (daily, auditor, viewer, collector, benchmark):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
     stats = SimpleNamespace(
@@ -138,6 +139,7 @@ def test_raw_profile_extraction_is_reproducible_and_classifies_boundaries(
             (str(daily), 148, "run_daily"): (1, 1, 0.01, 0.80, {}),
             (str(auditor), 180, "audit"): (1, 1, 0.02, 0.40, {}),
             (str(viewer), 19, "build"): (1, 1, 0.10, 0.30, {}),
+            (str(collector), 125, "observe"): (1, 1, 0.01, 0.70, {}),
             (str(benchmark), 1, "_fixture_execution"): (1, 1, 0.1, 0.9, {}),
             (str(tmp_path / "outside.py"), 1, "outside"): (1, 1, 1.0, 1.0, {}),
         }
@@ -147,7 +149,7 @@ def test_raw_profile_extraction_is_reproducible_and_classifies_boundaries(
     by_symbol = {row.symbol: row for row in rows}
 
     assert tuple(row.symbol for row in rows) == tuple(sorted(by_symbol))
-    assert len(rows) == 3
+    assert len(rows) == 4
     assert by_symbol[
         "zotero_arxiv_daily.pipeline.daily:run_daily:148"
     ].exclusion_code == "inclusive_wrapper"
@@ -158,6 +160,9 @@ def test_raw_profile_extraction_is_reproducible_and_classifies_boundaries(
     assert build.eligible is True
     assert build.self_time_ns == 100_000_000
     assert build.cumulative_time_ns == 300_000_000
+    assert by_symbol[
+        "zotero_arxiv_daily.observability.collector:observe:125"
+    ].exclusion_code == "inclusive_wrapper"
 
 
 @pytest.mark.parametrize(
@@ -201,16 +206,16 @@ def test_tracked_baseline_is_privacy_safe_and_records_measured_target() -> None:
     assert payload["benchmark"]["budget_passed"] is True
     assert payload["profile"] == {
         "profile_version": "stage9-profile-v2",
-        "total_time_ns": 2079131100,
-        "project_row_count": 207,
-        "excluded_count": 92,
+        "total_time_ns": 2444571700,
+        "project_row_count": 319,
+        "excluded_count": 150,
         "eligible_count": 2,
         "symbol": "zotero_arxiv_daily.viewer.builder:build:19",
         "relative_path": "src/zotero_arxiv_daily/viewer/builder.py",
-        "self_time_ns": 9422200,
-        "cumulative_time_ns": 665420900,
+        "self_time_ns": 9131400,
+        "cumulative_time_ns": 646214900,
         "allocation_bytes": 0,
-        "time_share_ppm": 320048,
+        "time_share_ppm": 264347,
         "allocation_share_ppm": 0,
     }
     serialized = json.dumps(payload, sort_keys=True).casefold()

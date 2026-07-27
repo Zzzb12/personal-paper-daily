@@ -11,6 +11,8 @@ from zotero_arxiv_daily.observability.benchmark import (
     BenchmarkBoundaryCounts,
     BenchmarkReport,
     ProfileReport,
+    _benchmark_code_paths,
+    _prepare_fixture,
     percentile_nearest_rank,
     run_stage9_benchmark,
 )
@@ -44,6 +46,41 @@ def test_percentiles_use_sorted_integer_nearest_rank() -> None:
         percentile_nearest_rank((), 50)
 
 
+def test_benchmark_identity_covers_executed_code_and_stage4_fixture(
+    tmp_path: Path,
+) -> None:
+    source_root = ROOT / "src" / "zotero_arxiv_daily"
+    relative_paths = {
+        path.relative_to(source_root).as_posix()
+        for path in _benchmark_code_paths(source_root)
+    }
+    assert {
+        "observability/benchmark.py",
+        "observability/collector.py",
+        "observability/metrics.py",
+        "observability/store.py",
+        "pipeline/artifacts.py",
+        "pipeline/daily.py",
+        "pipeline/validation.py",
+        "viewer/builder.py",
+        "viewer/filesystem.py",
+        "viewer/renderer.py",
+        "analysis/validator.py",
+        "candidates/ranking.py",
+    }.issubset(relative_paths)
+    assert all(path.is_file() for path in _benchmark_code_paths(source_root))
+
+    changed_fixture = tmp_path / "stage4.json"
+    payload = json.loads(DAILY_FIXTURE.read_text(encoding="utf-8"))
+    payload["content_fingerprint"] = "c" * 64
+    changed_fixture.write_text(json.dumps(payload), encoding="utf-8")
+    original = _prepare_fixture(FIXTURE, DAILY_FIXTURE)
+    changed = _prepare_fixture(FIXTURE, changed_fixture)
+
+    assert original.fixture_identity_hash != changed.fixture_identity_hash
+    assert original.config_hash != changed.config_hash
+
+
 def test_offline_benchmark_exercises_exact_shape_and_passes_budgets(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -73,6 +110,8 @@ def test_offline_benchmark_exercises_exact_shape_and_passes_budgets(
     assert report.viewer_published_count == 5
     assert report.selection_labels_matched is True
     assert len(report.viewer_artifact_hash) == 64
+    assert (tmp_path / "relative-work" / "run-09" / "run-manifest.json").is_file()
+    assert (tmp_path / "relative-work" / "run-09" / "run-metrics.json").is_file()
 
 
 def test_profiler_boundary_wraps_only_steady_state_repetitions(

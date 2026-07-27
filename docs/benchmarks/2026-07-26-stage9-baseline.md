@@ -23,11 +23,11 @@ itself were excluded from target selection.
 ## Observed baseline
 
 - Shape: 30 candidates, 15 ranking selections, 5 analysis selections.
-- Sorted durations: 204,763,500; 224,085,200; 224,539,100; 229,312,400;
-  230,709,200; 236,022,100; 238,118,400; 245,694,500; 249,439,200 ns.
-- Median: 230,709,200 ns.
-- p95: 249,439,200 ns.
-- Peak traced Python allocation: 1,548,968 bytes.
+- Sorted durations: 248,735,500; 258,610,700; 265,940,300; 269,206,500;
+  272,165,800; 278,866,900; 282,616,300; 284,043,800; 288,333,700 ns.
+- Median: 272,165,800 ns.
+- p95: 288,333,700 ns.
+- Peak traced Python allocation: 1,594,470 bytes.
 - Network calls: 0. Paid calls: 0. Analysis attempts: 0.
 - Viewer result: five Stage 4-eligible publications with a reviewed artifact hash.
 - Precision@5, recall@15, NDCG@5, evidence precision, and evidence recall:
@@ -45,8 +45,8 @@ The selected target is
 `zotero_arxiv_daily.viewer.builder:build:19` in
 `src/zotero_arxiv_daily/viewer/builder.py`.
 
-Its cumulative time was 665,420,900 ns of 2,079,131,100 ns measured profiler
-time, or 320,048 ppm. Its self time was 9,422,200 ns; the measured cost is
+Its cumulative time was 646,214,900 ns of 2,444,571,700 ns measured profiler
+time, or 264,347 ppm. Its self time was 9,131,400 ns; the measured cost is
 therefore primarily its viewer-writing descendants. Stage 9B may optimize only
 this measured viewer build path while preserving Stage 4 eligibility and
 artifact audit semantics.
