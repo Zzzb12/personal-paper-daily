@@ -987,3 +987,56 @@ adapter; Pages, Actions cache, manifests, and Git history are not a feedback bac
 Task 2's historical behavior-level TDD evidence deviation remains explicitly
 user-accepted and does not indicate missing current coverage. Local Task 6 validation,
 finding-driven retest, and independent review are complete as recorded above.
+
+## Stage 9A measurement foundation notes (2026-07-26)
+
+Stage 9A is complete locally through the committed baseline/profile decision.
+RunManifest is schema `1.1` with pipeline identity `stage9-v1`; its strict metrics
+result references the SHA-256 of a private, atomic `run-metrics.json` sidecar.
+Sidecar failure is isolated from content status, viewer retention and Feishu status.
+Workflow upload paths remain explicit: manifest plus metrics for the private run
+artifact, viewer only for Pages.
+
+The original synthetic fixture has exact 30/15/5 shape, CC0-1.0 SPDX provenance,
+and no real identifier, title, author, abstract, URL, prompt or model response.
+The reviewed nine-repetition steady-state report is
+`docs/benchmarks/2026-07-26-stage9-baseline.{json,md}`. It observed median
+`274,318,900 ns`, p95 `285,067,900 ns`, peak traced allocation `1,595,224` bytes,
+zero network/paid calls, perfect golden quality ppm values and zero unsupported or
+missing-field rates. All configured absolute and structural budgets passed.
+
+The steady-state-only profile excluded startup, imports, warm-up, pytest, external
+frames, fixture construction, benchmark code, inclusive wrappers and the artifact
+audit security boundary. Two eligible project rows crossed the 20% gate. The
+deterministic winner was `zotero_arxiv_daily.viewer.builder:build:19` with cumulative
+`650,283,000 ns` of `2,443,789,600 ns` profiler time (`266,096 ppm`).
+The exact Stage 9B plan is
+`docs/superpowers/plans/2026-07-26-stage-9b-static-viewer-builder-parallel-writes.md`.
+
+Post-review-repair verification observed focused Stage 9/daily/workflow tests
+`180 passed, 2 skipped`; broad Stage 4–8 analysis/viewer/delivery/pipeline/workflow
+regressions `533 passed`; and default pytest `784 passed, 2 failed, 2 skipped,
+1 deselected`. The two failures are the unchanged Windows one-second multiprocessing
+spawn baseline. The skips are platform-permission symlink tests. Compileall and
+`git diff --check` passed; no Stage 9 test failed. Frozen sync, explicit slow suite
+and final security/artifact audits are repeated after Stage 9B.
+
+The first independent Stage 9A review found metrics isolation, timing boundary,
+benchmark evidence, profile selection, pricing reachability and sidecar durability
+gaps. Each confirmed finding was reproduced with focused failing tests and repaired
+in commits `da8a913`, `638a559`, and `eb7bcad`. Two independent rereview passes then
+found usage/retry attribution and benchmark metrics/identity gaps; focused RED
+repairs now record retry at the real attempt boundary, execute the real
+metrics/manifest path, include the Stage 4 fixture identity, and hash the complete
+Python package allowlist. The final repair is committed before Stage 9B changes.
+
+No real GitHub dispatch/Pages deployment, Zotero/private-library access, PDF/model
+download, paid LLM call, Feishu send, push, PR, merge, upstream mutation or worktree
+deletion occurred. Stage 9B remains incomplete until one paired optimization meets
+the 10% median and 105% p95 gates with identical output/quality/privacy semantics.
+
+Rollback removes the Stage 9 CI step and private sidecar upload, reverts manifest
+identity to the prior version, and disables metrics construction without changing
+Stages 1–8 content behavior. Raw ignored benchmark outputs may be removed after
+retaining reviewed aggregate reports. Reverting Stage 9B must not alter viewer
+content, Stage 4 eligibility or private feedback state.

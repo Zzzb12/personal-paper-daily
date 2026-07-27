@@ -405,3 +405,35 @@ Cache reads always validate schema version and content identity. A cache miss de
 - Data build/deduplication concepts.
 
 Sample paper JSON, generated summaries, downloaded PDFs, and local state from the archive are data fixtures for inspection only and are not copied into the product repository.
+## Stage 9 local observability and benchmark boundary
+
+Stage 9 adds no remote telemetry service. `MetricsSession` observes the six existing
+daily callback boundaries with injected monotonic clock, peak-memory sampler and
+token estimator interfaces. Persisted `RunMetrics` contains only versions, hashes,
+fixed enums and integer aggregates. Prompt/response text is handled transiently by
+the Stage 3 usage adapter and is never retained, logged or serialized.
+
+`run-metrics.json` is atomically written beside `run-manifest.json` inside the
+checked run root. It is a private run record, not a viewer member: Pages continues
+to upload only `outputs/daily/viewer`, while the private Actions artifact explicitly
+allowlists the manifest and metrics sidecar. A metrics failure records a fixed
+manifest result without changing Stage 4 eligibility, static-site success or Feishu
+status.
+
+The offline benchmark combines an original CC0 synthetic 30/15/5 label fixture with
+fake providers and the real ranker, five actual Stage 4 validations, quality
+evaluation, five-paper viewer, and artifact audit. Selection expectations are read
+from the fixture and compared with actual ranking output; claim, evidence and field
+quality labels are derived from validation inputs and outputs. Every repetition
+also executes the real daily orchestration, `MetricsSession`, atomic metrics writer,
+manifest writer and sidecar-hash check. It uses no real
+private library, network, paid model or send. Raw profile/run files remain ignored
+under `outputs/stage9/`; only privacy-audited aggregates are tracked under
+`docs/benchmarks/`.
+
+The reproducible profile extractor rejects impossible shares and classifies
+inclusive orchestration, benchmark-only, generated and artifact-audit security
+frames before the 20% gate. Stage 9B may optimize only the measured
+`zotero_arxiv_daily.viewer.builder:build:19` path. Frontend Design, GSAP Core and
+GSAP Performance constraints were checked because this path builds the viewer; no
+UI, DOM, CSS, JavaScript or animation change is authorized.

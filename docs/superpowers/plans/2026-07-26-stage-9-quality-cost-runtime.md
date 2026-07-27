@@ -224,12 +224,12 @@
 - Explicit prohibitions on model/provider/prompt/schema/parser/validator/renderer/cache/privacy semantic changes.
 - One optimization only, its implementation identity/version impact, rollback commit boundary, and full final verification.
 
-- [ ] Run Stage 9A focused tests, Stage 4–8 regressions, default pytest, compileall, workflow validation, diff check, and tracked secret/private/cache/archive/large-file scans.
+- [x] Run Stage 9A focused tests, Stage 4–8 regressions, default pytest, compileall, workflow validation, diff check, and tracked secret/private/cache/archive/large-file scans.
 - [ ] Run fixture daily dry-run, audit viewer plus the exact manifest/metrics artifacts, and confirm zero network/paid/send.
-- [ ] Request an independent whole-branch Stage 9A review against `d00b9ab`; reproduce every confirmed Critical/Important finding with a failing focused test before repair.
-- [ ] Update architecture/baseline/implementation docs with only observed results, known Windows/slow-suite limitations, rollback, and external operations not performed.
-- [ ] Write and self-review the target-specific Stage 9B plan against the committed baseline; require exact files/symbols/commands, measured target selection, and no semantic shortcut.
-- [ ] Commit Stage 9A review/documentation and the Stage 9B plan as separate logical commits, confirm a clean worktree, then execute Stage 9B directly under `superpowers:executing-plans`.
+- [x] Request an independent whole-branch Stage 9A review against `d00b9ab`; reproduce every confirmed Critical/Important finding with a failing focused test before repair.
+- [x] Update architecture/baseline/implementation docs with only observed results, known Windows/slow-suite limitations, rollback, and external operations not performed.
+- [x] Write and self-review the target-specific Stage 9B plan against the committed baseline; require exact files/symbols/commands, measured target selection, and no semantic shortcut.
+- [x] Commit Stage 9A review/documentation and the Stage 9B plan as separate logical commits, confirm a clean worktree, then execute Stage 9B directly under `superpowers:executing-plans`.
 
 ## Stage 9 final verification (executed after Stage 9B)
 

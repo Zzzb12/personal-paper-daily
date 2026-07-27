@@ -697,6 +697,9 @@ Actions cache, or Git history as a feedback backup.
 
 ## Stage 9: Quality, cost, and runtime optimization
 
+**Status: Stage 9A measurement foundation completed locally on 2026-07-26;
+Stage 9B measured optimization in progress.**
+
 ### Goal
 
 Measure and improve recommendation quality, evidence integrity, API/model cost, cache effectiveness, and daily runtime without changing product semantics silently.
@@ -711,7 +714,8 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
 ### Files
 
 - Create `src/zotero_arxiv_daily/observability/metrics.py`.
-- Create benchmark/evaluation tools under `tools/benchmarks/` with small licensed fixtures.
+- Create benchmark/evaluation tools under `tools/benchmarks/` with small original
+  synthetic fixtures and explicit provenance.
 - Add quality/cost/performance tests under `tests/benchmarks/` and regression budgets to CI where stable.
 - Tune cache/concurrency/config modules identified by profiling.
 - Update `docs/BASELINE.md` or a versioned benchmark report with before/after evidence.
@@ -731,6 +735,22 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
 5. Add a failing performance/regression test for that bottleneck.
 6. Implement one bounded optimization, rerun correctness and benchmark suites, and compare confidence intervals or repeated-run distributions.
 7. Repeat only for independently justified bottlenecks; document trade-offs and provider/model changes.
+
+### Stage 9A measured status
+
+- Run manifest schema `1.1` / pipeline `stage9-v1` references a strict, private
+  `run-metrics.json` sidecar; collection/persistence failures do not change content
+  success or remove the viewer.
+- The deterministic offline 30/15/5 benchmark passed all quality, structural cost,
+  runtime, allocation, network and paid-call budgets over nine warm repetitions.
+- Baseline median was `274,318,900 ns`, p95 `285,067,900 ns`, and peak traced Python
+  allocation `1,595,224` bytes on Python 3.13/Windows.
+- Quality was 1,000,000 ppm for precision@5, recall@15, NDCG@5 and evidence
+  precision/recall; unsupported-claim and missing-required-field rates were 0 ppm.
+- The reproducible profile selected `zotero_arxiv_daily.viewer.builder:build:19` at
+  266,096 ppm of steady-state profiler time after wrapper/security exclusions.
+  Stage 9B is limited to one measured parallel viewer
+  write scheduling optimization with byte/hash equivalence and a 10% paired median gate.
 
 ### Acceptance criteria
 
