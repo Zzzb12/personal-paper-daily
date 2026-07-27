@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 
 from zotero_arxiv_daily.analysis.paper_schemas import PaperAnalysis
@@ -12,9 +14,19 @@ from zotero_arxiv_daily.viewer.schemas import BuildManifest, IndexPageModel, Pap
 
 
 class StaticViewerBuilder:
-    def __init__(self, settings: ViewerSettings) -> None:
+    def __init__(
+        self,
+        settings: ViewerSettings,
+        *,
+        parallel_writes: bool = True,
+        max_write_workers: int = 4,
+        executor_factory: Callable[..., object] = ThreadPoolExecutor,
+    ) -> None:
         self._settings = settings
         self._renderer = TemplateRenderer(site_title=settings.site_title)
+        self._parallel_writes = parallel_writes
+        self._max_write_workers = max_write_workers
+        self._executor_factory = executor_factory
 
     def build(
         self,
@@ -27,6 +39,7 @@ class StaticViewerBuilder:
         policy = PublicationPolicy(allow_partial=self._settings.allow_partial)
         pages: list[PaperPageModel] = []
         written: list[str] = []
+        entries: list[tuple[PurePosixPath, str]] = []
         partial_count = 0
         for result in results:
             decision = policy.decide(result)
@@ -44,23 +57,29 @@ class StaticViewerBuilder:
                 chinese_title=analysis.chinese_title.text_zh if analysis.chinese_title else None,
                 publication_kind=decision.kind,
             )
-            output.write_text(
-                relative,
-                self._renderer.render_paper(
+            entries.append(
+                (
+                    relative,
+                    self._renderer.render_paper(
                     analysis,
                     result.report,
                     publication_kind=decision.kind,
                     evidence_image_urls=self._publish_evidence_images(analysis, dry_run=dry_run),
-                ),
+                    ),
+                )
             )
             pages.append(page)
             written.append(relative.as_posix())
             partial_count += decision.kind == "partial"
         index = IndexPageModel(batch_label=batch_label, papers=tuple(pages), valid_count=len(pages) - partial_count, partial_count=partial_count)
-        output.write_text(PurePosixPath("index.html"), self._renderer.render_index(index))
-        output.write_text(PurePosixPath("assets", "site.css"), self._css_source())
-        output.write_text(PurePosixPath("assets", "feedback.js"), self._feedback_source())
-        output.write_text(PurePosixPath("assets", "favicon.svg"), self._favicon_source())
+        entries.extend(
+            (
+                (PurePosixPath("index.html"), self._renderer.render_index(index)),
+                (PurePosixPath("assets", "site.css"), self._css_source()),
+                (PurePosixPath("assets", "feedback.js"), self._feedback_source()),
+                (PurePosixPath("assets", "favicon.svg"), self._favicon_source()),
+            )
+        )
         written.extend(("index.html", "assets/site.css", "assets/feedback.js", "assets/favicon.svg"))
         manifest = BuildManifest(
             build_version=self._settings.build_version,
@@ -69,7 +88,19 @@ class StaticViewerBuilder:
             partial_count=partial_count,
             written_paths=tuple(sorted(written + ["build-manifest.json"])),
         )
-        output.write_text(PurePosixPath("build-manifest.json"), manifest.model_dump_json(indent=2) + "\n")
+        if self._parallel_writes:
+            output.write_many_text(
+                tuple(entries),
+                max_workers=self._max_write_workers,
+                executor_factory=self._executor_factory,
+            )
+        else:
+            for relative, content in entries:
+                output.write_text(relative, content)
+        output.write_text(
+            PurePosixPath("build-manifest.json"),
+            manifest.model_dump_json(indent=2) + "\n",
+        )
         output.remove_stale_files(
             PurePosixPath("papers"),
             suffix=".html",

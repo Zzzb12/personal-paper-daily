@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-
 from PIL import Image
+import pytest
+
+from zotero_arxiv_daily.pipeline.artifacts import ArtifactAuditor
 from zotero_arxiv_daily.viewer.builder import StaticViewerBuilder
+from zotero_arxiv_daily.viewer.filesystem import AtomicOutputRoot
 from zotero_arxiv_daily.viewer.schemas import ViewerSettings
 
 
@@ -127,3 +130,97 @@ def test_builder_enforces_configured_page_limit(tmp_path: Path) -> None:
 
     assert manifest.published_count == 1
     assert not (tmp_path / "site" / "papers" / "arxiv-2401.00002.html").exists()
+
+
+def test_parallel_and_sequential_builds_are_byte_and_artifact_equivalent(
+    tmp_path: Path,
+) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    sequential_root = tmp_path / "sequential"
+    parallel_root = tmp_path / "parallel"
+    sequential = StaticViewerBuilder(
+        ViewerSettings(output_root=sequential_root),
+        parallel_writes=False,
+    ).build((result,), batch_label="stage9")
+    parallel = StaticViewerBuilder(
+        ViewerSettings(output_root=parallel_root),
+        parallel_writes=True,
+        max_write_workers=2,
+    ).build((result,), batch_label="stage9")
+
+    assert sequential == parallel
+    for relative in sequential.written_paths:
+        assert (sequential_root / relative).read_bytes() == (
+            parallel_root / relative
+        ).read_bytes()
+    sequential_audit = ArtifactAuditor(tmp_path).audit(sequential_root)
+    parallel_audit = ArtifactAuditor(tmp_path).audit(parallel_root)
+    assert sequential_audit.file_count == parallel_audit.file_count
+    assert sequential_audit.byte_count == parallel_audit.byte_count
+    assert sequential_audit.artifact_hash == parallel_audit.artifact_hash
+
+
+def test_parallel_builder_writes_manifest_last_and_not_after_batch_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    calls: list[str] = []
+    original_write = AtomicOutputRoot.write_text
+    original_batch = AtomicOutputRoot.write_many_text
+
+    def batch(self, entries, **kwargs):
+        calls.append("batch")
+        assert all(relative.name != "build-manifest.json" for relative, _ in entries)
+        return original_batch(self, entries, **kwargs)
+
+    def single(self, relative, content):
+        calls.append(relative.name)
+        return original_write(self, relative, content)
+
+    monkeypatch.setattr(AtomicOutputRoot, "write_many_text", batch)
+    monkeypatch.setattr(AtomicOutputRoot, "write_text", single)
+    StaticViewerBuilder(
+        ViewerSettings(output_root=tmp_path / "success")
+    ).build((result,), batch_label="stage9")
+
+    assert calls == ["batch", "build-manifest.json"]
+
+    def fail_batch(self, entries, **kwargs):
+        raise RuntimeError("PRIVATE BATCH FAILURE")
+
+    monkeypatch.setattr(AtomicOutputRoot, "write_many_text", fail_batch)
+    failed_root = tmp_path / "failed"
+    with pytest.raises(RuntimeError, match="PRIVATE BATCH FAILURE"):
+        StaticViewerBuilder(ViewerSettings(output_root=failed_root)).build(
+            (result,),
+            batch_label="stage9",
+        )
+    assert not (failed_root / "build-manifest.json").exists()
+
+
+def test_viewer_build_does_not_introduce_gsap_or_change_static_frontend_contract(
+    tmp_path: Path,
+) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    root = tmp_path / "site"
+    StaticViewerBuilder(ViewerSettings(output_root=root)).build(
+        (result,),
+        batch_label="stage9",
+    )
+
+    frontend = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in root.rglob("*")
+        if path.suffix in {".html", ".css", ".js"}
+    ).casefold()
+    assert "gsap" not in frontend
