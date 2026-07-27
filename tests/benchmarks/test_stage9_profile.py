@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from zotero_arxiv_daily.observability.benchmark import (
     ProfileRow,
+    build_profile_report,
     extract_profile_rows,
     select_optimization_target,
 )
@@ -96,6 +97,24 @@ def test_selector_rejects_no_eligible_target_and_duplicate_symbol() -> None:
             total_time_ns=100,
             total_allocation_bytes=0,
         )
+
+
+def test_profile_report_records_no_remaining_twenty_percent_target() -> None:
+    source = ROOT / "src" / "zotero_arxiv_daily" / "viewer" / "builder.py"
+
+    class Stats:
+        total_tt = 1.0
+        stats = {
+            (str(source), 19, "build"): (1, 1, 0.01, 0.199),
+        }
+
+    report = build_profile_report(Stats(), repository_root=ROOT)
+
+    assert report.profile_version == "stage9-profile-v3"
+    assert report.target_status == "no_eligible_target"
+    assert report.eligible_count == 0
+    assert report.symbol is None
+    assert report.relative_path is None
 
 
 def test_selector_rejects_impossible_share_and_ignores_inclusive_wrappers() -> None:

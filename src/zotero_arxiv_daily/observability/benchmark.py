@@ -7,6 +7,7 @@ import platform
 import re
 import time
 import tracemalloc
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -34,7 +35,10 @@ from zotero_arxiv_daily.candidates.ranking import (
     RankingLimits,
 )
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
-from zotero_arxiv_daily.observability.collector import MetricsSession
+from zotero_arxiv_daily.observability.collector import (
+    MetricsSession,
+    default_peak_memory_sampler,
+)
 from zotero_arxiv_daily.observability.metrics import RunMetrics
 from zotero_arxiv_daily.observability.quality import (
     ClaimLabel,
@@ -72,6 +76,131 @@ _PROFILE_SYMBOL_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:<>\[\]-]{0,255}$")
 class BenchmarkBoundaryCounts:
     network_call_count: int = 0
     paid_call_count: int = 0
+
+
+class OptimizationComparison(StrictModel):
+    comparison_version: Literal["stage9-optimization-v1"] = (
+        "stage9-optimization-v1"
+    )
+    pair_count: int = Field(ge=9, le=99)
+    baseline_observations_ns: tuple[int, ...]
+    optimized_observations_ns: tuple[int, ...]
+    baseline_median_ns: int = Field(gt=0)
+    optimized_median_ns: int = Field(gt=0)
+    baseline_p95_ns: int = Field(gt=0)
+    optimized_p95_ns: int = Field(gt=0)
+    improvement_ppm: int
+    p95_ratio_ppm: int = Field(ge=0)
+    baseline_peak_bytes: int = Field(ge=0)
+    optimized_peak_bytes: int = Field(ge=0)
+    equivalence_hash: str
+    passed: bool
+
+    @field_validator("equivalence_hash")
+    @classmethod
+    def validate_equivalence_hash(cls, value: str) -> str:
+        if len(value) != 64 or any(character not in _SHA256 for character in value):
+            raise ValueError("equivalence identity must be a SHA-256 digest")
+        return value
+
+    @model_validator(mode="after")
+    def validate_comparison(self) -> Self:
+        baseline = self.baseline_observations_ns
+        optimized = self.optimized_observations_ns
+        if any(value <= 0 for value in (*baseline, *optimized)):
+            raise ValueError("comparison observations must be positive")
+        if (
+            len(baseline) != self.pair_count
+            or len(optimized) != self.pair_count
+            or baseline != tuple(sorted(baseline))
+            or optimized != tuple(sorted(optimized))
+        ):
+            raise ValueError("comparison observations must be sorted paired samples")
+        expected_values = (
+            percentile_nearest_rank(baseline, 50),
+            percentile_nearest_rank(optimized, 50),
+            percentile_nearest_rank(baseline, 95),
+            percentile_nearest_rank(optimized, 95),
+        )
+        if expected_values != (
+            self.baseline_median_ns,
+            self.optimized_median_ns,
+            self.baseline_p95_ns,
+            self.optimized_p95_ns,
+        ):
+            raise ValueError("comparison summary differs from observations")
+        expected_improvement = _signed_improvement_ppm(
+            self.baseline_median_ns,
+            self.optimized_median_ns,
+        )
+        expected_ratio = _share_ppm(
+            self.optimized_p95_ns,
+            self.baseline_p95_ns,
+        )
+        if (
+            self.improvement_ppm != expected_improvement
+            or self.p95_ratio_ppm != expected_ratio
+        ):
+            raise ValueError("comparison ratios differ from observations")
+        expected_passed = expected_improvement >= 100_000 and expected_ratio <= 1_050_000
+        if self.passed != expected_passed:
+            raise ValueError(f"comparison passed must be {expected_passed}")
+        return self
+
+    def to_canonical_json(self) -> str:
+        return (
+            json.dumps(
+                self.model_dump(mode="json"),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        )
+
+
+def _signed_improvement_ppm(baseline: int, optimized: int) -> int:
+    difference = baseline - optimized
+    magnitude = (abs(difference) * 1_000_000 + baseline // 2) // baseline
+    return magnitude if difference >= 0 else -magnitude
+
+
+def build_optimization_comparison(
+    *,
+    baseline_observations_ns: tuple[int, ...],
+    optimized_observations_ns: tuple[int, ...],
+    baseline_peak_bytes: int,
+    optimized_peak_bytes: int,
+    equivalence_hash: str,
+) -> OptimizationComparison:
+    if (
+        len(baseline_observations_ns) != len(optimized_observations_ns)
+        or len(baseline_observations_ns) < 9
+    ):
+        raise ValueError("comparison requires at least nine paired observations")
+    baseline = tuple(sorted(baseline_observations_ns))
+    optimized = tuple(sorted(optimized_observations_ns))
+    baseline_median = percentile_nearest_rank(baseline, 50)
+    optimized_median = percentile_nearest_rank(optimized, 50)
+    baseline_p95 = percentile_nearest_rank(baseline, 95)
+    optimized_p95 = percentile_nearest_rank(optimized, 95)
+    improvement = _signed_improvement_ppm(baseline_median, optimized_median)
+    ratio = _share_ppm(optimized_p95, baseline_p95)
+    return OptimizationComparison(
+        pair_count=len(baseline),
+        baseline_observations_ns=baseline,
+        optimized_observations_ns=optimized,
+        baseline_median_ns=baseline_median,
+        optimized_median_ns=optimized_median,
+        baseline_p95_ns=baseline_p95,
+        optimized_p95_ns=optimized_p95,
+        improvement_ppm=improvement,
+        p95_ratio_ppm=ratio,
+        baseline_peak_bytes=baseline_peak_bytes,
+        optimized_peak_bytes=optimized_peak_bytes,
+        equivalence_hash=equivalence_hash,
+        passed=improvement >= 100_000 and ratio <= 1_050_000,
+    )
 
 
 class ProfileRow(StrictModel):
@@ -138,21 +267,48 @@ class ProfileTargetDecision(StrictModel):
 
 
 class ProfileReport(StrictModel):
-    profile_version: Literal["stage9-profile-v2"] = "stage9-profile-v2"
+    profile_version: Literal["stage9-profile-v3"] = "stage9-profile-v3"
     total_time_ns: int = Field(gt=0)
     project_row_count: int = Field(ge=1)
     excluded_count: int = Field(ge=0)
-    eligible_count: int = Field(ge=1)
-    symbol: str
-    relative_path: str
-    self_time_ns: int = Field(ge=0)
-    cumulative_time_ns: int = Field(ge=0)
-    allocation_bytes: int = Field(ge=0)
-    time_share_ppm: int = Field(ge=200_000, le=1_000_000)
-    allocation_share_ppm: int = Field(ge=0, le=1_000_000)
+    target_status: Literal["selected", "no_eligible_target"]
+    eligible_count: int = Field(ge=0)
+    symbol: str | None = None
+    relative_path: str | None = None
+    self_time_ns: int | None = Field(default=None, ge=0)
+    cumulative_time_ns: int | None = Field(default=None, ge=0)
+    allocation_bytes: int | None = Field(default=None, ge=0)
+    time_share_ppm: int | None = Field(default=None, ge=0, le=1_000_000)
+    allocation_share_ppm: int | None = Field(default=None, ge=0, le=1_000_000)
 
     @model_validator(mode="after")
     def validate_profile(self) -> Self:
+        if self.excluded_count >= self.project_row_count:
+            raise ValueError("profile must retain eligible project rows")
+        target_fields = (
+            self.symbol,
+            self.relative_path,
+            self.self_time_ns,
+            self.cumulative_time_ns,
+            self.allocation_bytes,
+            self.time_share_ppm,
+            self.allocation_share_ppm,
+        )
+        if self.target_status == "no_eligible_target":
+            if self.eligible_count != 0 or any(
+                value is not None for value in target_fields
+            ):
+                raise ValueError("empty profile target must not contain target fields")
+            return self
+        if self.eligible_count < 1 or any(value is None for value in target_fields):
+            raise ValueError("selected profile target is incomplete")
+        assert self.symbol is not None
+        assert self.relative_path is not None
+        assert self.self_time_ns is not None
+        assert self.cumulative_time_ns is not None
+        assert self.allocation_bytes is not None
+        assert self.time_share_ppm is not None
+        assert self.allocation_share_ppm is not None
         ProfileRow(
             symbol=self.symbol,
             relative_path=self.relative_path,
@@ -160,10 +316,10 @@ class ProfileReport(StrictModel):
             cumulative_time_ns=self.cumulative_time_ns,
             allocation_bytes=self.allocation_bytes,
         )
-        if self.excluded_count >= self.project_row_count:
-            raise ValueError("profile must retain eligible project rows")
         if self.cumulative_time_ns > self.total_time_ns:
             raise ValueError("profile target exceeds total time")
+        if max(self.time_share_ppm, self.allocation_share_ppm) < 200_000:
+            raise ValueError("selected profile target is below the threshold")
         return self
 
     def to_canonical_json(self) -> str:
@@ -305,16 +461,28 @@ def build_profile_report(
         raise ValueError("profile total time is unavailable")
     total_time_ns = round(float(total_seconds) * 1_000_000_000)
     rows = extract_profile_rows(profile_stats, repository_root=repository_root)
-    decision = select_optimization_target(
-        rows,
-        total_time_ns=total_time_ns,
-        total_allocation_bytes=0,
-    )
+    try:
+        decision = select_optimization_target(
+            rows,
+            total_time_ns=total_time_ns,
+            total_allocation_bytes=0,
+        )
+    except ValueError as error:
+        if str(error) != "profile contains no eligible optimization target":
+            raise
+        return ProfileReport(
+            total_time_ns=total_time_ns,
+            project_row_count=len(rows),
+            excluded_count=sum(not row.eligible for row in rows),
+            target_status="no_eligible_target",
+            eligible_count=0,
+        )
     selected = next(row for row in rows if row.symbol == decision.symbol)
     return ProfileReport(
         total_time_ns=total_time_ns,
         project_row_count=len(rows),
         excluded_count=sum(not row.eligible for row in rows),
+        target_status="selected",
         eligible_count=decision.eligible_count,
         symbol=decision.symbol,
         relative_path=decision.relative_path,
@@ -619,6 +787,8 @@ def _prepare_fixture(fixture_root: Path, daily_fixture: Path) -> _PreparedFixtur
 def _fixture_execution(
     prepared: _PreparedFixture,
     run_root: Path,
+    *,
+    parallel_writes: bool = True,
 ) -> tuple[
     QualityEvaluation,
     object,
@@ -726,7 +896,8 @@ def _fixture_execution(
             output_root=viewer_root,
             evidence_roots=(),
             max_papers=5,
-        )
+        ),
+        parallel_writes=parallel_writes,
     )
     settings = DailySettings(
         run_id="stage9-benchmark",
@@ -868,6 +1039,145 @@ def _fixture_execution(
         manifest.artifact_hash,
         selection_labels_matched,
     )
+
+
+def _execution_equivalence_hash(execution: tuple[object, ...]) -> str:
+    (
+        quality,
+        ranked,
+        metrics,
+        viewer_published_count,
+        viewer_artifact_hash,
+        selection_labels_matched,
+    ) = execution
+    metric_payload = {
+        "artifact_hash": metrics.artifact_hash,
+        "stages": [
+            stage.model_dump(mode="json", exclude={"duration_ns"})
+            for stage in metrics.stages
+        ],
+        "byte_count": metrics.byte_count,
+        "cache_hit_count": metrics.cache_hit_count,
+        "retry_count": metrics.retry_count,
+        "partial_failure_count": metrics.partial_failure_count,
+        "model_usage": metrics.model_usage.model_dump(mode="json"),
+        "budget": metrics.budget.model_dump(
+            mode="json",
+            exclude={"peak_traced_allocation_bytes"},
+        ),
+    }
+    payload = {
+        "quality": quality.model_dump(mode="json"),
+        "ranked": [paper.paper_id for paper in ranked.candidates],
+        "selected_for_llm": list(ranked.selected_for_llm),
+        "selected_for_analysis": list(ranked.selected_for_full_analysis),
+        "metrics": metric_payload,
+        "viewer_published_count": viewer_published_count,
+        "viewer_artifact_hash": viewer_artifact_hash,
+        "selection_labels_matched": selection_labels_matched,
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def run_stage9_paired_comparison(
+    *,
+    fixture_root: Path,
+    daily_fixture: Path,
+    work_root: Path,
+    pairs: int = 9,
+    monotonic_ns: Callable[[], int] = time.perf_counter_ns,
+    variant_runner: Callable[[_PreparedFixture, Path, bool], str] | None = None,
+    peak_sampler: Callable[[], int] = default_peak_memory_sampler,
+) -> OptimizationComparison:
+    if isinstance(pairs, bool) or not 9 <= pairs <= 99:
+        raise ValueError("pairs must be between 9 and 99")
+    root = Path(work_root).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    prepared = _prepare_fixture(Path(fixture_root), Path(daily_fixture))
+
+    def default_variant(
+        fixture: _PreparedFixture,
+        output: Path,
+        parallel_writes: bool,
+    ) -> str:
+        return _execution_equivalence_hash(
+            _fixture_execution(
+                fixture,
+                output,
+                parallel_writes=parallel_writes,
+            )
+        )
+
+    execute = variant_runner or default_variant
+    baseline_warm = execute(prepared, root / "warmup-baseline", False)
+    optimized_warm = execute(prepared, root / "warmup-optimized", True)
+    if baseline_warm != optimized_warm:
+        raise ValueError("optimization equivalence differs during warm-up")
+
+    baseline: list[int] = []
+    optimized: list[int] = []
+    baseline_peaks: list[int] = []
+    optimized_peaks: list[int] = []
+    identities = {baseline_warm}
+    tracing_was_active = tracemalloc.is_tracing()
+
+    def measure(parallel: bool, output: Path) -> None:
+        if tracemalloc.is_tracing():
+            tracemalloc.reset_peak()
+        else:
+            tracemalloc.start()
+        started = monotonic_ns()
+        identity = execute(prepared, output, parallel)
+        completed = monotonic_ns()
+        peak = peak_sampler()
+        if (
+            isinstance(started, bool)
+            or isinstance(completed, bool)
+            or not isinstance(started, int)
+            or not isinstance(completed, int)
+            or completed < started
+            or isinstance(peak, bool)
+            or not isinstance(peak, int)
+            or peak < 0
+        ):
+            raise ValueError("comparison clock or peak sample is invalid")
+        identities.add(identity)
+        duration = completed - started
+        if parallel:
+            optimized.append(duration)
+            optimized_peaks.append(peak)
+        else:
+            baseline.append(duration)
+            baseline_peaks.append(peak)
+
+    try:
+        for index in range(pairs):
+            order = (False, True) if index % 2 == 0 else (True, False)
+            for parallel in order:
+                label = "optimized" if parallel else "baseline"
+                measure(
+                    parallel,
+                    root / f"pair-{index + 1:02d}-{label}",
+                )
+        if len(identities) != 1:
+            raise ValueError("optimization equivalence differs")
+        return build_optimization_comparison(
+            baseline_observations_ns=tuple(baseline),
+            optimized_observations_ns=tuple(optimized),
+            baseline_peak_bytes=max(baseline_peaks),
+            optimized_peak_bytes=max(optimized_peaks),
+            equivalence_hash=identities.pop(),
+        )
+    finally:
+        if not tracing_was_active and tracemalloc.is_tracing():
+            tracemalloc.stop()
 
 
 def run_stage9_benchmark(

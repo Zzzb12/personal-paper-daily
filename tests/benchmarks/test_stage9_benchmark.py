@@ -233,8 +233,11 @@ def test_cli_writes_canonical_report_and_returns_nonzero_on_budget_failure(
     parsed = BenchmarkReport.model_validate_json(output.read_bytes())
     profile = ProfileReport.model_validate_json(profile_output.read_bytes())
     assert output.read_text(encoding="utf-8") == parsed.to_canonical_json()
-    assert profile.relative_path.startswith("src/zotero_arxiv_daily/")
-    assert profile.symbol != "zotero_arxiv_daily.pipeline.daily:run_daily:148"
+    assert profile.target_status in {"selected", "no_eligible_target"}
+    if profile.target_status == "selected":
+        assert profile.relative_path is not None
+        assert profile.relative_path.startswith("src/zotero_arxiv_daily/")
+        assert profile.symbol != "zotero_arxiv_daily.pipeline.daily:run_daily:148"
     summary = capsys.readouterr().out
     assert "status=passed" in summary
     assert str(tmp_path) not in summary

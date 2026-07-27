@@ -9,6 +9,7 @@ from typing import Sequence
 from zotero_arxiv_daily.observability.benchmark import (
     build_profile_report,
     run_stage9_benchmark,
+    run_stage9_paired_comparison,
 )
 from zotero_arxiv_daily.pipeline.artifacts import atomic_write_bytes
 
@@ -18,14 +19,41 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--fixture-root", type=Path, required=True)
     parser.add_argument("--daily-fixture", type=Path, required=True)
     parser.add_argument("--work-root", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    output_group = parser.add_mutually_exclusive_group(required=True)
+    output_group.add_argument("--output", type=Path)
+    output_group.add_argument("--comparison-output", type=Path)
     parser.add_argument("--profile-output", type=Path)
     parser.add_argument("--repetitions", type=int, default=9)
+    parser.add_argument("--pairs", type=int, default=9)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    arguments = _parser().parse_args(argv)
+    parser = _parser()
+    arguments = parser.parse_args(argv)
+    if arguments.comparison_output is not None:
+        if arguments.profile_output is not None:
+            parser.error("--profile-output is not valid with --comparison-output")
+        comparison = run_stage9_paired_comparison(
+            fixture_root=arguments.fixture_root,
+            daily_fixture=arguments.daily_fixture,
+            work_root=arguments.work_root,
+            pairs=arguments.pairs,
+        )
+        output = arguments.comparison_output.resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_bytes(
+            output,
+            comparison.to_canonical_json().encode("utf-8"),
+        )
+        status = "passed" if comparison.passed else "failed"
+        print(
+            f"status={status} pairs={comparison.pair_count} "
+            f"improvement_ppm={comparison.improvement_ppm} "
+            f"p95_ratio_ppm={comparison.p95_ratio_ppm}"
+        )
+        return 0 if comparison.passed else 2
+
     profiler = cProfile.Profile() if arguments.profile_output is not None else None
     report = run_stage9_benchmark(
         fixture_root=arguments.fixture_root,

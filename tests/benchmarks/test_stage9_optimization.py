@@ -1,0 +1,260 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from tools.benchmarks.run_stage9_benchmark import main
+from zotero_arxiv_daily.observability.benchmark import (
+    OptimizationComparison,
+    build_optimization_comparison,
+    run_stage9_paired_comparison,
+)
+
+
+ROOT = Path(__file__).parents[2]
+FIXTURE = ROOT / "tests" / "fixtures" / "benchmarks" / "stage9"
+DAILY_FIXTURE = ROOT / "tests" / "fixtures" / "evidence" / "stage4_golden.json"
+HASH = "a" * 64
+
+
+def test_comparison_math_enforces_exact_median_and_p95_gates() -> None:
+    passing = build_optimization_comparison(
+        baseline_observations_ns=(1_000_000,) * 9,
+        optimized_observations_ns=(900_000,) * 9,
+        baseline_peak_bytes=100,
+        optimized_peak_bytes=100,
+        equivalence_hash=HASH,
+    )
+    assert passing.improvement_ppm == 100_000
+    assert passing.p95_ratio_ppm == 900_000
+    assert passing.passed is True
+
+    below_ten = build_optimization_comparison(
+        baseline_observations_ns=(1_000_000,) * 9,
+        optimized_observations_ns=(900_001,) * 9,
+        baseline_peak_bytes=100,
+        optimized_peak_bytes=100,
+        equivalence_hash=HASH,
+    )
+    assert below_ten.improvement_ppm == 99_999
+    assert below_ten.passed is False
+
+    p95_too_high = build_optimization_comparison(
+        baseline_observations_ns=(1_000_000,) * 9,
+        optimized_observations_ns=(900_000,) * 8 + (1_050_001,),
+        baseline_peak_bytes=100,
+        optimized_peak_bytes=100,
+        equivalence_hash=HASH,
+    )
+    assert p95_too_high.p95_ratio_ppm == 1_050_001
+    assert p95_too_high.passed is False
+
+
+def test_comparison_rejects_mismatched_pairs_and_unsafe_identity() -> None:
+    with pytest.raises(ValueError):
+        build_optimization_comparison(
+            baseline_observations_ns=(100,) * 9,
+            optimized_observations_ns=(90,) * 10,
+            baseline_peak_bytes=1,
+            optimized_peak_bytes=1,
+            equivalence_hash=HASH,
+        )
+    with pytest.raises(Exception):
+        OptimizationComparison(
+            **build_optimization_comparison(
+                baseline_observations_ns=(100,) * 9,
+                optimized_observations_ns=(90,) * 9,
+                baseline_peak_bytes=1,
+                optimized_peak_bytes=1,
+                equivalence_hash=HASH,
+            ).model_dump(),
+            private_path="PRIVATE",
+        )
+    with pytest.raises((ValueError, ValidationError)):
+        build_optimization_comparison(
+            baseline_observations_ns=(0,) + (100,) * 8,
+            optimized_observations_ns=(90,) * 9,
+            baseline_peak_bytes=1,
+            optimized_peak_bytes=1,
+            equivalence_hash=HASH,
+        )
+
+
+def test_paired_runner_alternates_order_and_uses_fresh_roots(
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[bool, Path]] = []
+
+    def variant_runner(prepared, root: Path, parallel_writes: bool) -> str:
+        calls.append((parallel_writes, root))
+        return HASH
+
+    clock_values = iter(
+        value
+        for _ in range(18)
+        for value in (0, 1_000_000, 0, 900_000)
+    )
+    comparison = run_stage9_paired_comparison(
+        fixture_root=FIXTURE,
+        daily_fixture=DAILY_FIXTURE,
+        work_root=tmp_path,
+        pairs=9,
+        monotonic_ns=lambda: next(clock_values),
+        variant_runner=variant_runner,
+        peak_sampler=lambda: 1,
+    )
+
+    measured = calls[2:]
+    assert calls[:2] == [
+        (False, tmp_path.resolve() / "warmup-baseline"),
+        (True, tmp_path.resolve() / "warmup-optimized"),
+    ]
+    assert [parallel for parallel, _ in measured[:4]] == [
+        False,
+        True,
+        True,
+        False,
+    ]
+    assert len({root for _, root in measured}) == 18
+    assert comparison.pair_count == 9
+
+
+def test_paired_runner_rejects_any_semantic_mismatch(tmp_path: Path) -> None:
+    calls = 0
+
+    def variant_runner(prepared, root: Path, parallel_writes: bool) -> str:
+        nonlocal calls
+        calls += 1
+        return ("b" if calls == 4 else "a") * 64
+
+    with pytest.raises(ValueError, match="equivalence"):
+        run_stage9_paired_comparison(
+            fixture_root=FIXTURE,
+            daily_fixture=DAILY_FIXTURE,
+            work_root=tmp_path,
+            pairs=9,
+            monotonic_ns=iter(range(100)).__next__,
+            variant_runner=variant_runner,
+            peak_sampler=lambda: 1,
+        )
+
+
+def test_cli_writes_canonical_comparison_and_returns_gate_status(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    passing = build_optimization_comparison(
+        baseline_observations_ns=(1_000_000,) * 9,
+        optimized_observations_ns=(900_000,) * 9,
+        baseline_peak_bytes=100,
+        optimized_peak_bytes=90,
+        equivalence_hash=HASH,
+    )
+    monkeypatch.setattr(
+        "tools.benchmarks.run_stage9_benchmark.run_stage9_paired_comparison",
+        lambda **kwargs: passing,
+        raising=False,
+    )
+    output = tmp_path / "comparison.json"
+    arguments = [
+        "--fixture-root",
+        str(FIXTURE),
+        "--daily-fixture",
+        str(DAILY_FIXTURE),
+        "--work-root",
+        str(tmp_path / "work"),
+        "--comparison-output",
+        str(output),
+        "--pairs",
+        "9",
+    ]
+
+    assert main(arguments) == 0
+    assert output.read_text(encoding="utf-8") == passing.to_canonical_json()
+    summary = capsys.readouterr().out
+    assert "status=passed" in summary
+    assert "improvement_ppm=100000" in summary
+    assert str(tmp_path) not in summary
+
+    monkeypatch.setattr(
+        "tools.benchmarks.run_stage9_benchmark.run_stage9_paired_comparison",
+        lambda **kwargs: passing.model_copy(update={"passed": False}),
+        raising=False,
+    )
+    failed_arguments = list(arguments)
+    failed_arguments[failed_arguments.index(str(output))] = str(tmp_path / "fail.json")
+    assert main(failed_arguments) == 2
+
+
+def test_cli_rejects_profile_output_in_comparison_mode(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        main(
+            [
+                "--fixture-root",
+                str(FIXTURE),
+                "--daily-fixture",
+                str(DAILY_FIXTURE),
+                "--work-root",
+                str(tmp_path / "work"),
+                "--comparison-output",
+                str(tmp_path / "comparison.json"),
+                "--profile-output",
+                str(tmp_path / "profile.json"),
+            ]
+        )
+
+
+def test_paired_runner_stops_only_tracing_it_started(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tracing = False
+    calls: list[str] = []
+
+    def is_tracing() -> bool:
+        return tracing
+
+    def start() -> None:
+        nonlocal tracing
+        tracing = True
+        calls.append("start")
+
+    def stop() -> None:
+        nonlocal tracing
+        tracing = False
+        calls.append("stop")
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.is_tracing",
+        is_tracing,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.start",
+        start,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.stop",
+        stop,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.reset_peak",
+        lambda: calls.append("reset"),
+    )
+    clock = iter(value for _ in range(18) for value in (0, 100, 0, 90))
+
+    run_stage9_paired_comparison(
+        fixture_root=FIXTURE,
+        daily_fixture=DAILY_FIXTURE,
+        work_root=tmp_path,
+        pairs=9,
+        monotonic_ns=clock.__next__,
+        variant_runner=lambda prepared, root, parallel: HASH,
+        peak_sampler=lambda: 1,
+    )
+
+    assert calls.count("start") == 1
+    assert calls.count("stop") == 1
+    assert tracing is False

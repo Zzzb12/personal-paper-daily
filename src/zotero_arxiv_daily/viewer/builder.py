@@ -19,7 +19,7 @@ class StaticViewerBuilder:
         settings: ViewerSettings,
         *,
         parallel_writes: bool = True,
-        max_write_workers: int = 4,
+        max_write_workers: int = 8,
         executor_factory: Callable[..., object] = ThreadPoolExecutor,
     ) -> None:
         self._settings = settings
