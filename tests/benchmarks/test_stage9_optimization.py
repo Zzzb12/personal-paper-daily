@@ -252,13 +252,22 @@ def test_paired_runner_stops_only_tracing_it_started(
     )
     clock = iter(value for _ in range(18) for value in (0, 100, 0, 90))
 
+    variant_calls = 0
+
+    def variant(prepared, root, parallel):
+        nonlocal variant_calls
+        variant_calls += 1
+        if variant_calls == 1:
+            start()
+        return HASH
+
     run_stage9_paired_comparison(
         fixture_root=FIXTURE,
         daily_fixture=DAILY_FIXTURE,
         work_root=tmp_path,
         pairs=9,
         monotonic_ns=clock.__next__,
-        variant_runner=lambda prepared, root, parallel: HASH,
+        variant_runner=variant,
         peak_sampler=lambda: 1,
     )
 

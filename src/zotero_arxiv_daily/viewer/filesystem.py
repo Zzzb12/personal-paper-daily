@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable
@@ -103,12 +104,39 @@ class AtomicOutputRoot:
             for part in relative.parts
         ):
             raise ValueError("output path must not contain a Windows path component")
-        if self._root.is_symlink():
-            raise ValueError("output root must not be a symbolic link")
+        boundary_root = (
+            self._root
+            if self._root.is_absolute()
+            else Path.cwd() / self._root
+        )
+        for boundary in (boundary_root, *boundary_root.parents):
+            if self._is_link_or_reparse(boundary):
+                raise ValueError(
+                    "output root must not traverse a symbolic link or reparse point"
+                )
         target = self._root.joinpath(*relative.parts)
         current = self._root
         for part in relative.parts:
             current = current / part
-            if current.is_symlink():
-                raise ValueError("output path must not traverse a symbolic link")
+            if self._is_link_or_reparse(current):
+                raise ValueError(
+                    "output path must not traverse a symbolic link or reparse point"
+                )
         return target
+
+    @staticmethod
+    def _is_link_or_reparse(path: Path) -> bool:
+        if path.is_symlink():
+            return True
+        is_junction = getattr(path, "is_junction", None)
+        if callable(is_junction) and is_junction():
+            return True
+        try:
+            attributes = getattr(path.lstat(), "st_file_attributes", 0)
+        except FileNotFoundError:
+            return False
+        except OSError as error:
+            raise ValueError("output boundary cannot be inspected") from error
+        return bool(
+            attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+        )

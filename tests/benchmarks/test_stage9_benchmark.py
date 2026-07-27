@@ -13,6 +13,7 @@ from zotero_arxiv_daily.observability.benchmark import (
     ProfileReport,
     _benchmark_code_paths,
     _prepare_fixture,
+    _sha256_files,
     percentile_nearest_rank,
     run_stage9_benchmark,
 )
@@ -79,6 +80,74 @@ def test_benchmark_identity_covers_executed_code_and_stage4_fixture(
 
     assert original.fixture_identity_hash != changed.fixture_identity_hash
     assert original.config_hash != changed.config_hash
+
+
+def test_code_identity_changes_when_source_relative_path_changes(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "a" / "same.py"
+    second = tmp_path / "b" / "same.py"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_text("VALUE = 1\n", encoding="utf-8")
+    second.write_text("VALUE = 1\n", encoding="utf-8")
+
+    assert _sha256_files((first,), relative_to=tmp_path) != _sha256_files(
+        (second,),
+        relative_to=tmp_path,
+    )
+
+
+def test_benchmark_preserves_callers_existing_tracemalloc(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    tracing = True
+    calls: list[str] = []
+
+    def is_tracing() -> bool:
+        return tracing
+
+    def start() -> None:
+        nonlocal tracing
+        tracing = True
+        calls.append("start")
+
+    def stop() -> None:
+        nonlocal tracing
+        tracing = False
+        calls.append("stop")
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.is_tracing",
+        is_tracing,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.start",
+        start,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.stop",
+        stop,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.reset_peak",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.observability.benchmark.tracemalloc.get_traced_memory",
+        lambda: (1, 2),
+    )
+
+    run_stage9_benchmark(
+        fixture_root=FIXTURE,
+        daily_fixture=DAILY_FIXTURE,
+        work_root=tmp_path,
+        repetitions=9,
+    )
+
+    assert tracing is True
+    assert calls == []
 
 
 def test_offline_benchmark_exercises_exact_shape_and_passes_budgets(

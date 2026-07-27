@@ -648,10 +648,22 @@ class _FixtureEmbeddingProvider:
         return np.asarray([self._vectors[text] for text in texts], dtype=np.float64)
 
 
-def _sha256_files(paths: tuple[Path, ...]) -> str:
+def _sha256_files(
+    paths: tuple[Path, ...],
+    *,
+    relative_to: Path | None = None,
+) -> str:
     digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.name):
-        digest.update(path.name.encode("utf-8"))
+    root = Path(relative_to).resolve() if relative_to is not None else None
+
+    def label(path: Path) -> str:
+        if root is None:
+            return path.name
+        return path.resolve().relative_to(root).as_posix()
+
+    ordered = sorted(paths, key=label)
+    for path in ordered:
+        digest.update(label(path).encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
@@ -1098,36 +1110,39 @@ def run_stage9_paired_comparison(
 ) -> OptimizationComparison:
     if isinstance(pairs, bool) or not 9 <= pairs <= 99:
         raise ValueError("pairs must be between 9 and 99")
+    tracing_was_active = tracemalloc.is_tracing()
     root = Path(work_root).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    prepared = _prepare_fixture(Path(fixture_root), Path(daily_fixture))
+    try:
+        prepared = _prepare_fixture(Path(fixture_root), Path(daily_fixture))
 
-    def default_variant(
-        fixture: _PreparedFixture,
-        output: Path,
-        parallel_writes: bool,
-    ) -> str:
-        return _execution_equivalence_hash(
-            _fixture_execution(
-                fixture,
-                output,
-                parallel_writes=parallel_writes,
+        def default_variant(
+            fixture: _PreparedFixture,
+            output: Path,
+            parallel_writes: bool,
+        ) -> str:
+            return _execution_equivalence_hash(
+                _fixture_execution(
+                    fixture,
+                    output,
+                    parallel_writes=parallel_writes,
+                )
             )
-        )
 
-    execute = variant_runner or default_variant
-    baseline_warm = execute(prepared, root / "warmup-baseline", False)
-    optimized_warm = execute(prepared, root / "warmup-optimized", True)
-    if baseline_warm != optimized_warm:
-        raise ValueError("optimization equivalence differs during warm-up")
+        execute = variant_runner or default_variant
+        baseline_warm = execute(prepared, root / "warmup-baseline", False)
+        optimized_warm = execute(prepared, root / "warmup-optimized", True)
+        if baseline_warm != optimized_warm:
+            raise ValueError("optimization equivalence differs during warm-up")
+    except BaseException:
+        _restore_tracemalloc_state(tracing_was_active)
+        raise
 
     baseline: list[int] = []
     optimized: list[int] = []
     baseline_peaks: list[int] = []
     optimized_peaks: list[int] = []
     identities = {baseline_warm}
-    tracing_was_active = tracemalloc.is_tracing()
-
     def measure(parallel: bool, output: Path) -> None:
         if tracemalloc.is_tracing():
             tracemalloc.reset_peak()
@@ -1176,8 +1191,15 @@ def run_stage9_paired_comparison(
             equivalence_hash=identities.pop(),
         )
     finally:
-        if not tracing_was_active and tracemalloc.is_tracing():
-            tracemalloc.stop()
+        _restore_tracemalloc_state(tracing_was_active)
+
+
+def _restore_tracemalloc_state(was_active: bool) -> None:
+    is_active = tracemalloc.is_tracing()
+    if was_active and not is_active:
+        tracemalloc.start()
+    elif not was_active and is_active:
+        tracemalloc.stop()
 
 
 def run_stage9_benchmark(
@@ -1204,15 +1226,19 @@ def run_stage9_benchmark(
     ):
         raise ValueError("benchmark boundary counts are invalid")
 
-    prepared = _prepare_fixture(fixture_root, daily_fixture)
-    _fixture_execution(prepared, work_root / "warmup")
+    tracing_was_active = tracemalloc.is_tracing()
     observations: list[int] = []
     last_execution = None
-    tracemalloc.start()
-    tracemalloc.reset_peak()
-    if steady_state_profiler is not None:
-        getattr(steady_state_profiler, "enable")()
+    profiler_enabled = False
     try:
+        prepared = _prepare_fixture(fixture_root, daily_fixture)
+        _fixture_execution(prepared, work_root / "warmup")
+        if not tracemalloc.is_tracing():
+            tracemalloc.start()
+        tracemalloc.reset_peak()
+        if steady_state_profiler is not None:
+            getattr(steady_state_profiler, "enable")()
+            profiler_enabled = True
         for index in range(1, repetitions + 1):
             started = time.perf_counter_ns()
             last_execution = _fixture_execution(
@@ -1220,11 +1246,13 @@ def run_stage9_benchmark(
                 work_root / f"run-{index:02d}",
             )
             observations.append(time.perf_counter_ns() - started)
+        peak = tracemalloc.get_traced_memory()[1]
     finally:
-        if steady_state_profiler is not None:
-            getattr(steady_state_profiler, "disable")()
-    peak = tracemalloc.get_traced_memory()[1]
-    tracemalloc.stop()
+        try:
+            if profiler_enabled:
+                getattr(steady_state_profiler, "disable")()
+        finally:
+            _restore_tracemalloc_state(tracing_was_active)
     if last_execution is None:
         raise RuntimeError("benchmark viewer artifact is unavailable")
     (
@@ -1237,7 +1265,10 @@ def run_stage9_benchmark(
     ) = last_execution
     ordered = tuple(sorted(observations))
     source_root = Path(__file__).parents[1]
-    code_hash = _sha256_files(_benchmark_code_paths(source_root))
+    code_hash = _sha256_files(
+        _benchmark_code_paths(source_root),
+        relative_to=source_root,
+    )
     successful_calls = run_metrics.model_usage.successful_call_count
     analysis_attempts = run_metrics.model_usage.attempt_count
     configured_output_tokens = (

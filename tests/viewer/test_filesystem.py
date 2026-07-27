@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -38,6 +39,57 @@ def test_rejects_existing_symlink_inside_output_root(tmp_path: Path, monkeypatch
 
     with pytest.raises(ValueError, match="symbolic link"):
         AtomicOutputRoot(root).write_text(PurePosixPath("papers", "paper.html"), "blocked")
+
+
+def test_rejects_symlink_or_junction_ancestor_of_output_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ancestor = tmp_path / "linked"
+    root = ancestor / "nested" / "site"
+    original_symlink = Path.is_symlink
+    original_junction = getattr(Path, "is_junction", lambda value: False)
+    monkeypatch.setattr(
+        Path,
+        "is_symlink",
+        lambda value: value == ancestor or original_symlink(value),
+    )
+
+    with pytest.raises(ValueError, match="link|reparse"):
+        AtomicOutputRoot(root).write_text(PurePosixPath("index.html"), "blocked")
+
+    monkeypatch.setattr(Path, "is_symlink", original_symlink)
+    monkeypatch.setattr(
+        Path,
+        "is_junction",
+        lambda value: value == ancestor or original_junction(value),
+        raising=False,
+    )
+    with pytest.raises(ValueError, match="link|reparse"):
+        AtomicOutputRoot(root).write_text(PurePosixPath("index.html"), "blocked")
+
+
+def test_rejects_other_reparse_point_ancestor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ancestor = tmp_path / "reparse"
+    root = ancestor / "site"
+    original_lstat = Path.lstat
+    monkeypatch.setattr(Path, "is_symlink", lambda value: False)
+    monkeypatch.setattr(Path, "is_junction", lambda value: False, raising=False)
+    monkeypatch.setattr(
+        Path,
+        "lstat",
+        lambda value: (
+            SimpleNamespace(st_file_attributes=0x400)
+            if value == ancestor
+            else original_lstat(value)
+        ),
+    )
+
+    with pytest.raises(ValueError, match="link|reparse"):
+        AtomicOutputRoot(root).write_text(PurePosixPath("index.html"), "blocked")
 
 
 @pytest.mark.parametrize("unsafe_name", (r"\\Windows\\Temp\\escape.html", r"C:\\escape.html", r"C:escape.html"))

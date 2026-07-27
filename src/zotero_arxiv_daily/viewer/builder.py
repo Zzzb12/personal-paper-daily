@@ -97,14 +97,14 @@ class StaticViewerBuilder:
         else:
             for relative, content in entries:
                 output.write_text(relative, content)
-        output.write_text(
-            PurePosixPath("build-manifest.json"),
-            manifest.model_dump_json(indent=2) + "\n",
-        )
         output.remove_stale_files(
             PurePosixPath("papers"),
             suffix=".html",
             keep_names={Path(page.relative_path).name for page in pages},
+        )
+        output.write_text(
+            PurePosixPath("build-manifest.json"),
+            manifest.model_dump_json(indent=2) + "\n",
         )
         return manifest
 

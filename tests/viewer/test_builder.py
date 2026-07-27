@@ -174,6 +174,7 @@ def test_parallel_builder_writes_manifest_last_and_not_after_batch_failure(
     calls: list[str] = []
     original_write = AtomicOutputRoot.write_text
     original_batch = AtomicOutputRoot.write_many_text
+    original_cleanup = AtomicOutputRoot.remove_stale_files
 
     def batch(self, entries, **kwargs):
         calls.append("batch")
@@ -184,13 +185,18 @@ def test_parallel_builder_writes_manifest_last_and_not_after_batch_failure(
         calls.append(relative.name)
         return original_write(self, relative, content)
 
+    def cleanup(self, directory, **kwargs):
+        calls.append("cleanup")
+        return original_cleanup(self, directory, **kwargs)
+
     monkeypatch.setattr(AtomicOutputRoot, "write_many_text", batch)
     monkeypatch.setattr(AtomicOutputRoot, "write_text", single)
+    monkeypatch.setattr(AtomicOutputRoot, "remove_stale_files", cleanup)
     StaticViewerBuilder(
         ViewerSettings(output_root=tmp_path / "success")
     ).build((result,), batch_label="stage9")
 
-    assert calls == ["batch", "build-manifest.json"]
+    assert calls == ["batch", "cleanup", "build-manifest.json"]
 
     def fail_batch(self, entries, **kwargs):
         raise RuntimeError("PRIVATE BATCH FAILURE")
@@ -203,6 +209,21 @@ def test_parallel_builder_writes_manifest_last_and_not_after_batch_failure(
             batch_label="stage9",
         )
     assert not (failed_root / "build-manifest.json").exists()
+
+    cleanup_root = tmp_path / "cleanup-failed"
+
+    def fail_cleanup(self, directory, **kwargs):
+        calls.append("cleanup")
+        raise ValueError("PRIVATE CLEANUP FAILURE")
+
+    monkeypatch.setattr(AtomicOutputRoot, "write_many_text", original_batch)
+    monkeypatch.setattr(AtomicOutputRoot, "remove_stale_files", fail_cleanup)
+    with pytest.raises(ValueError, match="PRIVATE CLEANUP FAILURE"):
+        StaticViewerBuilder(ViewerSettings(output_root=cleanup_root)).build(
+            (result,),
+            batch_label="stage9",
+        )
+    assert not (cleanup_root / "build-manifest.json").exists()
 
 
 def test_viewer_build_does_not_introduce_gsap_or_change_static_frontend_contract(
