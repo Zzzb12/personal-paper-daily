@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.13、`concurrent.futures.ThreadPoolExecutor`、Pydantic 2、pytest、现有 viewer/daily/benchmark。Frontend Design、GSAP Core 与 GSAP Performance 已用于边界核对；由于无视觉或动效变化，不新增 GSAP runtime。
 
+**Measured status:** 原预声明 15-pair 正式结果仅改善 `80,858 ppm`，因此本计划的性能 verdict 为 failed；31-pair 结果只作 exploratory non-verdict。最终是否接受同一实现由在新数据前独立提交的 Stage 9C 99-pair confirmation 计划判定，不追溯修改本计划的失败结论。
+
 ## Global Constraints
 
 - 只允许这一项 viewer write scheduling 优化；不得顺带修改 renderer、模板、CSS、JS、反馈行为、模型、prompt、schema、validator 或 artifact hash 算法。
@@ -87,10 +89,10 @@
 
 - [x] Run at least nine warm alternating pairs with cProfile disabled during timed regions and tracemalloc applied identically to both modes.
 - [x] Audit raw comparison for exact 30/15/5, zero network/paid/send, identical quality/cache/metrics/viewer bytes and hashes, and absence of private/dynamic fields.
-- [x] Require median improvement ≥10% and optimized p95 ≤105%; retain the failed 15-pair observation and use the unchanged 31-pair expansion for the final verdict.
+- [x] Require median improvement ≥10% and optimized p95 ≤105%; the formal 15-pair result failed, so this plan does not claim a passing performance verdict.
 - [x] Profile optimized steady state outside timed paired runs and confirm no new project hotspot or allocation regression invalidates the change.
 - [x] Copy only reviewed aggregate evidence into tracked JSON/Markdown; add a static privacy/identity test.
-- [x] Commit `perf: record parallel viewer write improvement`.
+- [x] Commit the observed Stage 9B evidence; classify the later 31-pair pass as exploratory only after independent review.
 
 ### Task 5: Full verification, independent review, and documentation
 

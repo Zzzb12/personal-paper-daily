@@ -1042,20 +1042,27 @@ worker failure cannot publish the manifest or trigger stale cleanup.
 
 The reviewed comparison is
 `docs/benchmarks/2026-07-26-stage9-parallel-viewer-writes.{json,md}`. A preliminary
-15-pair CLI run improved median time by only `80,858 ppm` and was retained as a
-failed observation. The unchanged design was then expanded to 31 alternating AB/BA
-pairs: sequential median/p95 were `197,259,800/223,178,000 ns`; parallel median/p95
-were `173,691,300/190,794,900 ns`. Median improvement was `119,479 ppm` and the p95
-ratio was `854,900 ppm`, passing both hard gates. Peak traced allocation decreased
-from `1,806,314` to `1,768,730` bytes. The shared equivalence hash was identical.
+15-pair CLI run improved median time by only `80,858 ppm`; this is the failed formal
+Stage 9B verdict. A later 31-pair pass is retained only as exploratory non-verdict
+evidence because its sample size was chosen after observing the failure.
+
+Independent Stage 9C protocol commit `77fc731` then fixed exactly one 99-pair run
+before new data existed and prohibited reruns or optional stopping. The confirmation
+measured sequential median/p95 `234,164,600/259,528,100 ns` and parallel median/p95
+`208,970,900/231,485,000 ns`. Median improvement was `107,590 ppm`; optimized p95
+was `891,946 ppm` of reference. Peak traced allocation decreased from `2,060,272`
+to `2,013,396` bytes. The single semantic equivalence hash was identical and the
+ignored canonical result hash is tracked with the aggregate distribution.
 
 The post-optimization offline audit retained exact 30/15/5 selection, five reviewed
 viewer publications, all quality budgets, zero network calls and zero paid calls.
 Profile schema v3 reported `no_eligible_target`: no remaining project row crossed
 the unchanged 20% threshold. The Frontend Design, GSAP Core and GSAP Performance
 boundary review found no visual or motion change; no GSAP dependency was introduced.
-Final full-suite/security verification and whole-branch review are recorded after
-they execute.
+Final review repairs enforce stale-cleanup-before-manifest, preserve caller
+tracemalloc state, reject root ancestor symlink/junction/reparse points and include
+relative source paths in code identity. Final full-suite/security verification and
+rereview are recorded after they execute.
 
 Rollback of Stage 9B reverts commits `a3e6c51`, `3c1c257`, `c1fcb8c` and `c3ee32e`
 in reverse order, restoring sequential writes without changing rendered content.

@@ -759,14 +759,21 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
 - `StaticViewerBuilder` writes independent non-manifest content with eight bounded
   workers, then writes the build manifest last. Sequential reference mode produces
   byte-for-byte identical output and is used by the paired benchmark.
-- The formal 31-pair alternating AB/BA comparison measured `197,259,800 ns`
-  sequential versus `173,691,300 ns` parallel median (`119,479 ppm` improvement);
-  optimized p95 was `854,900 ppm` of baseline and traced peak allocation decreased.
+- The original formal 15-pair Stage 9B result improved median by only `80,858 ppm`
+  and failed. The later 31-pair pass is exploratory non-verdict evidence.
+- Independent Stage 9C protocol commit `77fc731` fixed one 99-pair confirmation
+  before new data collection and prohibited reruns/optional stopping. It measured
+  `234,164,600 ns` sequential versus `208,970,900 ns` parallel median
+  (`107,590 ppm` improvement); optimized p95 was `891,946 ppm` of baseline and
+  traced peak allocation decreased.
 - The runner rejects semantic identity differences before timing is accepted. The
   audited fixture retained 30/15/5, five publications, all quality budgets, and zero
   network/paid calls.
 - Optimized profile schema v3 recorded `no_eligible_target`; the 20% selection gate
   remains unchanged.
+- Independent review repairs moved stale cleanup before the final manifest, restored
+  caller allocation tracing state, closed ancestor reparse boundaries, and made code
+  identity path-sensitive.
 - Frontend Design, GSAP Core and GSAP Performance were applied as boundary checks.
   No rendered frontend or animation behavior changed and no GSAP runtime was added.
 

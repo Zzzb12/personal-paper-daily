@@ -1,2 +1,1 @@
 """Offline benchmark command package."""
-

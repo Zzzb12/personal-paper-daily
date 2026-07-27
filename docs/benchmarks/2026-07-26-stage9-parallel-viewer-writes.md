@@ -1,20 +1,20 @@
 # Stage 9 parallel viewer write evidence
 
-## Decision
+## Confirmed decision
 
-The bounded parallel atomic viewer writer passes the measured Stage 9 gate with 8 workers. The final decision uses 31 alternating AB/BA pairs, fresh output roots, identical fixture preparation, identical allocation tracing, and no profiler inside timed regions.
+The bounded parallel atomic viewer writer passes the independent Stage 9C confirmation protocol with 8 workers. Protocol commit `77fc731` fixed one and only one 99 对 alternating AB/BA run before the confirmation output existed. It prohibited optional stopping, sample extension and rerunning for a favorable result.
 
 | Measure | Sequential reference | Parallel writer | Result |
 | --- | ---: | ---: | ---: |
-| Median | 197,259,800 ns | 173,691,300 ns | 11.9479% faster |
-| p95 | 223,178,000 ns | 190,794,900 ns | 85.4900% of reference |
-| Peak traced allocation | 1,806,314 bytes | 1,768,730 bytes | no regression |
+| Median | 234,164,600 ns | 208,970,900 ns | 10.7590% faster |
+| p95 | 259,528,100 ns | 231,485,000 ns | 89.1946% of reference |
+| Peak traced allocation | 2,060,272 bytes | 2,013,396 bytes | no regression |
 
-The complete sorted distributions and the shared semantic equivalence hash are recorded in the adjacent JSON evidence.
+The tracked JSON records min, q1, median, q3, p95 and max for both distributions, the shared semantic equivalence hash, and the SHA-256 of the ignored canonical raw result. The 99-pair confirmation is the only result used for the final verdict.
 
-## Measurement history
+## Historical observations
 
-The first formal CLI observation used 15 对 and produced only 8.0858% median improvement, so it failed the unchanged 10% gate. No threshold was relaxed and that failure is retained in the JSON. Because an earlier exploratory observation conflicted with it, the final run expanded the same alternating design to 31 对. The larger sample passed at 11.9479% median improvement and a p95 ratio of 85.4900%.
+The original Stage 9B formal CLI observation used 15 对 and produced only 8.0858% median improvement, so it failed the predeclared 10% gate. The subsequent 31 对 run passed at 11.9479%, but it was collected after observing the failure and is classified as exploratory non-verdict evidence. Neither historical result was used to choose the fixed Stage 9C sample size after confirmation data collection began.
 
 ## Semantic and safety audit
 
@@ -23,6 +23,7 @@ The first formal CLI observation used 15 对 and produced only 8.0858% median im
 - The paired runner rejected any difference in viewer artifact identity, ranking, quality, cost, cache, retry, partial-failure, and stage-result semantics before accepting timing.
 - Network and paid-call counters were zero. No real library, model, Feishu, or hosted GitHub operation was performed.
 - Optimized steady-state profiling returned `no_eligible_target`: no remaining project row met the unchanged 20% target threshold.
+- Review repairs moved stale cleanup before the final manifest write, restored caller tracemalloc state on normal and exceptional paths, rejected output-root ancestor symlink/junction/reparse points, and included relative source paths in code identity.
 
 ## Frontend boundary
 
@@ -30,4 +31,4 @@ Frontend Design, GSAP Core, and GSAP Performance guidance were checked before im
 
 ## Reproduction and scope
 
-The evidence was collected locally on Windows with Python 3.13 using repository fixtures and the versioned comparison CLI. It demonstrates this fixture workload and does not predict hosted runner, real PDF, or network performance. Raw run roots remain under the ignored `outputs/stage9/` directory.
+The confirmation was collected locally on Windows with Python 3.13 using repository fixtures and the versioned comparison CLI. It demonstrates this fixture workload and does not predict hosted runner, real PDF, or network performance. Raw run roots remain under the ignored `outputs/stage9/confirmation-99/` directory.

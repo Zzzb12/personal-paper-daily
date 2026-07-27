@@ -448,6 +448,10 @@ remains available to the paired benchmark as a semantic reference.
 The versioned paired runner uses fresh roots and alternating AB/BA order, excludes
 cProfile from timed regions, applies allocation tracing identically, and rejects
 quality, ranking, metrics, cost, cache, artifact or viewer identity differences
-before calculating a verdict. Frontend Design, GSAP Core and GSAP Performance
+before calculating a verdict. The original 15-pair Stage 9B verdict failed; a later
+31-pair observation is exploratory only. Independent Stage 9C protocol commit
+`77fc731` fixed one 99-pair run before collecting confirmation data and prohibited
+reruns or optional stopping. That confirmation is the production performance
+verdict. Frontend Design, GSAP Core and GSAP Performance
 constraints were checked because this path builds the viewer; HTML, DOM, CSS,
 JavaScript, CSP and animation behavior are unchanged, so no GSAP runtime was added.

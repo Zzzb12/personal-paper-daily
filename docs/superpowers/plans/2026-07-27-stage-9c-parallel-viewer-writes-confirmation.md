@@ -45,8 +45,8 @@
 - Consumes: committed Task 1 protocol and repository fixture identities
 - Produces: one canonical `OptimizationComparison`
 
-- [ ] Confirm the protocol commit is an ancestor of HEAD and the result path does not exist.
-- [ ] Run exactly once:
+- [x] Confirm the protocol commit is an ancestor of HEAD and the result path does not exist.
+- [x] Run exactly once:
 
 ```powershell
 .venv\Scripts\python.exe tools/benchmarks/run_stage9_benchmark.py `
@@ -57,9 +57,9 @@
   --pairs 99
 ```
 
-- [ ] Do not invoke the confirmation command again regardless of exit code.
-- [ ] Validate canonical JSON with `OptimizationComparison`, exact pair count, sorted positive observations, recomputed median/p95/ppm, and one 64-character equivalence hash.
-- [ ] Audit exact 30/15/5, five publications, zero network/paid/send, and absence of credential, private identifier, dynamic exception, path and generated content fields.
+- [x] Do not invoke the confirmation command again regardless of exit code.
+- [x] Validate canonical JSON with `OptimizationComparison`, exact pair count, sorted positive observations, recomputed median/p95/ppm, and one 64-character equivalence hash.
+- [x] Audit exact 30/15/5, five publications, zero network/paid/send, and absence of credential, private identifier, dynamic exception, path and generated content fields.
 
 ### Task 3: Apply the predeclared verdict and record evidence
 
@@ -77,9 +77,9 @@
 - Consumes: the single Task 2 result
 - Produces: either confirmed production optimization or rejected candidate with sequential rollback
 
-- [ ] If and only if all confirmation gates pass, replace tracked performance verdict fields with the 99-pair result while retaining both earlier observations as historical non-verdict evidence.
-- [ ] If any gate fails, first add a failing test requiring production `parallel_writes=False`, implement that rollback, mark the candidate rejected, and create a new plan for the next eligible original-profile target before further performance work.
-- [ ] Update the static evidence test to require `confirmation_protocol_version`, `pair_count == 99`, exact gates and the historical 15/31 classifications.
+- [x] If and only if all confirmation gates pass, replace tracked performance verdict fields with the 99-pair result while retaining both earlier observations as historical non-verdict evidence.
+- [x] Evaluate the predeclared failure branch; it is not applicable because both confirmation gates and semantic identity passed.
+- [x] Update the static evidence test to require `confirmation_protocol_version`, `pair_count == 99`, exact gates and the historical 15/31 classifications.
 - [ ] Run benchmark/viewer focused suites, compileall, privacy scan and `git diff --check`.
 - [ ] Request independent rereview of the protocol ancestry, single-result provenance and verdict.
 - [ ] Commit the observed verdict and evidence without rewriting or deleting the protocol commit.

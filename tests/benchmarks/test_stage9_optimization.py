@@ -281,23 +281,44 @@ def test_tracked_optimization_evidence_is_identity_and_privacy_safe() -> None:
     markdown = TRACKED_MD.read_text(encoding="utf-8")
     assert set(payload) == {
         "candidate",
-        "comparison",
+        "confirmation",
+        "confirmation_protocol_version",
         "evidence_version",
+        "historical_observations",
         "optimized_profile",
-        "preliminary_observation",
         "semantic_audit",
     }
-    comparison = OptimizationComparison.model_validate(payload["comparison"])
-    assert comparison.pair_count == 31
-    assert comparison.improvement_ppm >= 100_000
-    assert comparison.p95_ratio_ppm <= 1_050_000
-    assert comparison.passed is True
+    confirmation = payload["confirmation"]
+    assert payload["confirmation_protocol_version"] == "stage9c-confirmation-v1"
+    assert confirmation["pair_count"] == 99
+    assert confirmation["improvement_ppm"] >= 100_000
+    assert confirmation["p95_ratio_ppm"] <= 1_050_000
+    assert confirmation["passed"] is True
+    assert len(confirmation["equivalence_hash"]) == 64
+    assert len(confirmation["raw_result_sha256"]) == 64
+    assert confirmation["baseline_distribution_ns"]["median"] == 234_164_600
+    assert confirmation["optimized_distribution_ns"]["median"] == 208_970_900
     assert payload["candidate"] == {
         "frontend_assets_changed": False,
         "max_write_workers": 8,
         "name": "bounded_parallel_atomic_viewer_writes",
     }
-    assert payload["preliminary_observation"]["passed"] is False
+    assert payload["historical_observations"] == [
+        {
+            "classification": "formal_failure",
+            "improvement_ppm": 80_858,
+            "pair_count": 15,
+            "p95_ratio_ppm": 966_262,
+            "passed": False,
+        },
+        {
+            "classification": "exploratory_non_verdict",
+            "improvement_ppm": 119_479,
+            "pair_count": 31,
+            "p95_ratio_ppm": 854_900,
+            "passed": True,
+        },
+    ]
     assert payload["semantic_audit"] == {
         "candidate_count": 30,
         "network_call_count": 0,
@@ -326,7 +347,8 @@ def test_tracked_optimization_evidence_is_identity_and_privacy_safe() -> None:
         "zotero:",
     ):
         assert forbidden not in serialized
-    assert "31 对" in markdown
+    assert "99 对" in markdown
     assert "15 对" in markdown
+    assert "31 对" in markdown
     assert "frontend design" in markdown.casefold()
     assert "gsap" in markdown.casefold()

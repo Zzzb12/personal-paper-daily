@@ -1,6 +1,7 @@
 # Stage 9A Offline Quality, Cost, and Runtime Baseline
 
-**Date:** 2026-07-26  
+**Date:** 2026-07-26
+
 **Status:** Passed all configured offline budgets.
 
 ## Method
