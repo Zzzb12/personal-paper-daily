@@ -72,7 +72,7 @@ The quick start must include:
 
 ```powershell
 uv sync --frozen
-uv run python -m zotero_arxiv_daily.pipeline.daily --trigger local --mode dry-run --offline-fixture tests/fixtures/stage7/offline-run.json
+uv run python -m zotero_arxiv_daily.pipeline.daily --trigger local --mode dry-run --offline-fixture tests/fixtures/evidence/stage4_golden.json
 ```
 
 The live examples must use `python-dotenv`, unique run IDs, and omit
