@@ -1260,8 +1260,10 @@ Local completion verification observed:
 No real Zotero/private-library access, paid LLM call, Feishu send, Pages deployment,
 GitHub rerun, push, PR, merge or upstream mutation was performed. The only external
 acceptance is a user push followed by one manual live/no-send dispatch. Rollback
-reverts `c023cbe`, invalidates the affected public model/embedding caches, and keeps
-all live/send/Pages gates disabled while retaining the previous reviewed artifact.
+reverts `0216887` and then `c023cbe`, invalidates the affected public
+model/embedding caches, and keeps all live/send/Pages gates disabled while retaining
+the previous reviewed artifact. The two documentation-only commits may be reverted
+separately without changing runtime behavior.
 
 The independent final review found two P2 hardening gaps in the first candidate:
 runtime environment variables alone did not prove strict-offline replacement loads,
