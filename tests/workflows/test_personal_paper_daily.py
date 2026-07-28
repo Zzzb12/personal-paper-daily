@@ -167,6 +167,8 @@ def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
     )
     assert "I_UNDERSTAND_LIVE_NETWORK" in model_step["if"]
     assert "github.ref_name == github.event.repository.default_branch" in model_step["if"]
+    assert model_step["env"] == {"HF_TOKEN": "${{ secrets.HF_TOKEN }}"}
+    assert "missing required live model secret: HF_TOKEN" in model_step["run"]
     assert int(model_step["timeout-minutes"]) > 0
     assert '"$REF_NAME" == "$DEFAULT_BRANCH"' in raw
     deploy = _load(DAILY)["jobs"]["deploy"]
@@ -211,6 +213,7 @@ def test_environment_template_and_actions_documentation_contain_names_not_values
         "ZOTERO_ID",
         "ZOTERO_KEY",
         "LLM_API_KEY",
+        "HF_TOKEN",
         "LLM_BASE_URL",
         "LLM_MODEL",
         "FEISHU_APP_ID",

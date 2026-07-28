@@ -14,6 +14,7 @@ Stage 7 的 workflow 默认执行人工 fixture 的 `dry-run`，不会读取 Zot
 | `ZOTERO_ID` | Zotero 私人文库标识 |
 | `ZOTERO_KEY` | Zotero 只读 API 凭据 |
 | `LLM_API_KEY` | OpenAI-compatible LLM 凭据 |
+| `HF_TOKEN` | Hugging Face read token；仅用于下载固定 revision 的公开模型 |
 | `FEISHU_APP_ID` | 飞书应用标识 |
 | `FEISHU_APP_SECRET` | 飞书应用凭据 |
 | `FEISHU_CHAT_ID` | 私人飞书目标会话 |
@@ -28,8 +29,9 @@ Stage 7 的 workflow 默认执行人工 fixture 的 `dry-run`，不会读取 Zot
 | `LLM_MODEL` | 完整模型名称；参与 workflow cache identity |
 | `PAPER_DAILY_SITE_URL` | 已审核静态站的绝对 HTTPS URL |
 
-本地 `.env` 使用相同九个名称，示例只见 `.env.example` 的空占位。即使 endpoint 或
-model 通常不是密钥，也不得在运行时打印完整环境或生成配置文件。
+本地 `.env` 可使用相同十个名称，示例只见 `.env.example` 的空占位；本地已有完整
+模型缓存时可不设置 `HF_TOKEN`。即使 endpoint 或 model 通常不是密钥，也不得在
+运行时打印完整环境或生成配置文件。
 
 ## 精确启用门
 
@@ -50,7 +52,9 @@ Docling artifacts 和 embedding reranker。workflow 仅在 live 门精确开启�
 `layout`/`tableformer` 到 `models/docling`，并通过无凭据 model preflight 下载、加载和
 验证 `config/base.yaml` 中固定 commit revision 的 Jina reranker。公开模型文件只缓存
 到 `models/reranker`；revision 同时进入 embedding cache identity。任一模型准备失败
-都会在 Zotero、LLM 和 Pages 边界之前阻止 live run。
+都会在 Zotero、LLM 和 Pages 边界之前阻止 live run。GitHub-hosted Runner 的共享
+出口容易触发 Hugging Face 未认证限流，因此 live preflight 明确要求 read-only
+`HF_TOKEN`；缺失时只报告变量名，不打印值。
 
 manual live/send 只允许从 repository default branch 触发。workflow 使用全局
 concurrency 且不取消进行中的 run，避免发送中断。飞书 ledger 只包含 SHA-256

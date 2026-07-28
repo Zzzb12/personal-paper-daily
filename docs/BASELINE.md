@@ -1126,3 +1126,17 @@ tracked path/archive/large-file checks and `git diff --check` passed. An actual
 offline load of the pinned cached model reported dimension 768, revision-bearing
 identity and successful close. Independent review reported no high-confidence
 findings; the fresh GitHub Runner download remains the sole external validation.
+
+Remote run `30343947289` then confirmed the repaired workflow reached the new model
+preflight on commit `4493591`: Docling preparation succeeded, but the Jina load
+failed after Hugging Face warned that the shared runner was making unauthenticated
+Hub requests. The daily CLI, Zotero, LLM, Pages and Feishu boundaries were never
+entered. The follow-up requires the read-only `HF_TOKEN` GitHub Secret before live
+model preparation and adds fixed preflight error codes that never include the Hub
+response body. Default dry-run remains independent of that token.
+
+The follow-up local verification observed `186 passed` across the affected suites,
+plus compileall and `git diff --check` success. Independent rereview confirmed that
+`HF_TOKEN` is scoped only to the exact live-model gate, dry-run does not require it,
+and neither the missing-token guard nor preflight classifier can print its value or
+a dynamic Hub error.

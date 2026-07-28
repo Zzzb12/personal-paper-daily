@@ -524,6 +524,11 @@ revision in embedding identity, preflights the model without credentials, and
 allowlists only `models/reranker` in the workflow cache. A remote rerun remains an
 external acceptance step.
 
+The next remote attempt reached that preflight and confirmed Docling success, then
+failed after an unauthenticated Hugging Face Hub warning. Live model preparation now
+requires a read-only `HF_TOKEN` Secret and reports only fixed safe failure codes.
+Dry-run and no-send defaults do not require or read this token.
+
 ### Goal
 
 Run the validated pipeline daily and on manual dispatch using least-privilege GitHub Actions, safe secrets, versioned caches, static Pages deployment, and partial-failure reporting.

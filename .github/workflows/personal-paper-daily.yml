@@ -68,7 +68,13 @@ jobs:
       - name: Prepare version-declared live models
         if: ${{ (github.event_name == 'schedule' && vars.PAPER_DAILY_SCHEDULE_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch && inputs.live_run && vars.PAPER_DAILY_MANUAL_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') }}
         timeout-minutes: 30
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          if [[ -z "$HF_TOKEN" ]]; then
+            echo "::error::missing required live model secret: HF_TOKEN"
+            exit 2
+          fi
           uv run docling-tools models download layout tableformer --output-dir models/docling --quiet
           uv run python -m zotero_arxiv_daily.pipeline.model_preflight --config-dir config
 

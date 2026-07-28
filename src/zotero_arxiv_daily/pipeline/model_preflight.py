@@ -14,6 +14,19 @@ from zotero_arxiv_daily.candidates.ranking import (
 
 
 _COMMIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
+_SAFE_ERROR_CODES = {
+    "EntryNotFoundError": "reranker_hub_access_failed",
+    "GatedRepoError": "reranker_hub_access_failed",
+    "HfHubHTTPError": "reranker_hub_access_failed",
+    "LocalEntryNotFoundError": "reranker_hub_access_failed",
+    "RepositoryNotFoundError": "reranker_hub_access_failed",
+    "RevisionNotFoundError": "reranker_hub_access_failed",
+    "ImportError": "reranker_import_failed",
+    "ModuleNotFoundError": "reranker_import_failed",
+    "OSError": "reranker_model_io_failed",
+    "RuntimeError": "reranker_runtime_failed",
+    "ValueError": "reranker_config_failed",
+}
 
 
 def _merged_config(config_dir: Path) -> Any:
@@ -58,7 +71,23 @@ def prepare_local_reranker(
         provider.close()
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def _safe_error_code(error: Exception) -> str:
+    current: BaseException | None = error
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        code = _SAFE_ERROR_CODES.get(type(current).__name__)
+        if code is not None:
+            return code
+        current = current.__cause__ or current.__context__
+    return "reranker_unknown_failed"
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    preparer: Callable[[Path], None] = prepare_local_reranker,
+) -> int:
     parser = argparse.ArgumentParser(
         description="Prepare the version-declared public reranker model",
         allow_abbrev=False,
@@ -66,9 +95,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--config-dir", type=Path, default=Path("config"))
     args = parser.parse_args(argv)
     try:
-        prepare_local_reranker(args.config_dir.resolve())
-    except Exception:
-        parser.error("version-declared reranker could not be prepared")
+        preparer(args.config_dir.resolve())
+    except Exception as error:
+        parser.error(
+            "version-declared reranker could not be prepared; "
+            f"error_code={_safe_error_code(error)}"
+        )
     print("reranker_model_ready")
     return 0
 
