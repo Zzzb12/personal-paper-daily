@@ -15,11 +15,13 @@ from zotero_arxiv_daily.analysis.document_schemas import (
 from zotero_arxiv_daily.analysis.client import AnalysisRequest
 from zotero_arxiv_daily.analysis.paper_schemas import (
     AnalysisBatchResult,
+    AnalysisIssue,
     PaperAnalysisResult,
 )
 from zotero_arxiv_daily.analysis.validation_schemas import ValidationBatchResult
 from zotero_arxiv_daily.delivery.feishu import DigestPolicy
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
+from zotero_arxiv_daily.documents.evidence import EvidenceBuildSettings
 from zotero_arxiv_daily.observability.collector import (
     AnalysisMetricsSink,
     BoundedTokenEstimator,
@@ -33,6 +35,7 @@ from zotero_arxiv_daily.pipeline.daily import (
     DailyDependencies,
     DailySettings,
     PreparedDelivery,
+    _build_validation_packets,
     run_daily,
 )
 from zotero_arxiv_daily.pipeline.validation import (
@@ -237,6 +240,106 @@ def test_candidate_cleanup_runs_before_document_stage(tmp_path: Path) -> None:
 
     assert manifest.status == "success"
     assert order[:3] == ["candidates", "candidate_cleanup", "documents"]
+
+
+def test_validation_packet_rebuild_skips_failed_analyses_without_calling_builder() -> None:
+    items = _inputs(2)
+    candidates = _candidate_batch(items)
+    documents = _document_batch(items)
+    analyses = _analysis_batch(items)
+    failed_results = tuple(
+        result.model_copy(
+            update={
+                "status": "failed",
+                "analysis": None,
+                "issues": (
+                    AnalysisIssue(
+                        code="analysis_evidence_build_failed",
+                        severity="error",
+                        message="analysis could not build its evidence packet",
+                    ),
+                ),
+            }
+        )
+        for result in analyses.results
+    )
+    analyses = analyses.model_copy(update={"results": failed_results})
+    calls: list[str] = []
+
+    packets = _build_validation_packets(
+        candidates,
+        documents,
+        analyses,
+        EvidenceBuildSettings(),
+        builder=lambda paper_id, *_args: calls.append(paper_id),
+    )
+
+    assert packets == ()
+    assert calls == []
+
+
+def test_validation_packet_rebuild_isolates_one_paper_failure() -> None:
+    items = _inputs(2)
+    candidates = _candidate_batch(items)
+    documents = _document_batch(items)
+    analyses = _analysis_batch(items)
+    packet_by_id = {item.packet.paper_id: item.packet for item in items}
+    first_id, second_id = candidates.selected_for_full_analysis[:2]
+
+    def builder(paper_id, *_args):
+        if paper_id == first_id:
+            raise RuntimeError("PRIVATE DOCUMENT CONTENT")
+        return packet_by_id[paper_id]
+
+    packets = _build_validation_packets(
+        candidates,
+        documents,
+        analyses,
+        EvidenceBuildSettings(),
+        builder=builder,
+    )
+
+    assert tuple(packet.paper_id for packet in packets) == (second_id,)
+
+
+def test_analysis_stage_exposes_only_allowlisted_fixed_diagnostics(
+    tmp_path: Path,
+) -> None:
+    items = _inputs(1)
+    analyses = _analysis_batch(items)
+    failed = analyses.results[0].model_copy(
+        update={
+            "status": "failed",
+            "analysis": None,
+            "issues": (
+                AnalysisIssue(
+                    code="analysis_evidence_build_failed",
+                    severity="error",
+                    message="analysis could not build its evidence packet",
+                ),
+                AnalysisIssue(
+                    code="https://private.example.test/dynamic-error",
+                    severity="error",
+                    message="dynamic dependency exception",
+                ),
+            ),
+        }
+    )
+    analyses = analyses.model_copy(update={"results": (failed,)})
+
+    manifest = run_daily(
+        _settings(tmp_path),
+        _dependencies(tmp_path, items, analysis_batch=analyses),
+    )
+
+    assert manifest.stages[2].error_codes == (
+        "analysis_paper_failed",
+        "analysis_evidence_build_failed",
+    )
+    serialized = (tmp_path / "run" / "run-manifest.json").read_text(
+        encoding="utf-8"
+    )
+    assert "private.example.test" not in serialized
 
 
 def test_metrics_persistence_failure_does_not_change_content_success(

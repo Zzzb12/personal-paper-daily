@@ -21,7 +21,7 @@ from zotero_arxiv_daily.analysis.paper_schemas import (
 from zotero_arxiv_daily.analysis.schemas import StrictModel
 
 
-EVIDENCE_BUILDER_VERSION = "1"
+EVIDENCE_BUILDER_VERSION = "2"
 _NUMBER_PREFIX_RE = re.compile(
     r"^\s*(?:(?:[A-Z]\.\d+(?:\.\d+)*|\d+(?:\.\d+)*)(?:[.):])?|[A-Z][.):])\s+",
     re.IGNORECASE,
@@ -114,6 +114,8 @@ def _text_candidates(
         section = section_by_id.get(block.section_id) if block.section_id else None
         path = section_paths.get(block.section_id, ()) if block.section_id else ()
         text = block.text[: settings.max_block_chars]
+        if not text.strip():
+            continue
         region = EvidenceRegion(
             pdf_page=block.pdf_page,
             bbox=block.bbox,

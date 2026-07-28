@@ -252,6 +252,26 @@ def test_analyzer_does_not_call_client_for_an_abstract_only_document(tmp_path):
     assert deps.client.calls == 0
 
 
+def test_analyzer_reports_evidence_build_failure_without_dynamic_exception(
+    tmp_path, monkeypatch
+):
+    def fail_evidence_build(*_args, **_kwargs):
+        raise RuntimeError("PRIVATE DOCUMENT CONTENT")
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.analysis.analyzer.build_evidence_packet",
+        fail_evidence_build,
+    )
+    deps, _ = dependencies(tmp_path, valid_draft().model_dump_json())
+
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert result.status == "failed"
+    assert result.issues[0].code == "analysis_evidence_build_failed"
+    assert "PRIVATE DOCUMENT CONTENT" not in result.issues[0].message
+    assert deps.client.calls == 0
+
+
 def test_analyzer_marks_an_explicitly_missing_insight_as_partial_without_caching_it(tmp_path):
     draft = valid_draft().model_copy(update={"insights": (), "supporting_visuals": ()})
     deps, _ = dependencies(tmp_path, draft.model_dump_json(), draft.model_dump_json())

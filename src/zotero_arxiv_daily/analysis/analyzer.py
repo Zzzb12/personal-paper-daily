@@ -103,7 +103,14 @@ def analyze_paper(
 ) -> PaperAnalysisResult:
     started = dependencies.monotonic()
     try:
-        packet = build_evidence_packet(paper.paper_id, document, settings.evidence)
+        try:
+            packet = build_evidence_packet(
+                paper.paper_id, document, settings.evidence
+            )
+        except Exception:
+            raise _AnalysisProtocolError(
+                "analysis_evidence_build_failed"
+            ) from None
         if not packet.candidates:
             raise _AnalysisProtocolError("evidence_packet_empty")
         if not any(not candidate.abstract_only for candidate in packet.candidates):

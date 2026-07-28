@@ -269,6 +269,26 @@ def test_evidence_ids_and_order_do_not_depend_on_input_tuple_order():
     ]
 
 
+def test_evidence_skips_blank_text_blocks_from_the_parser():
+    document = document_graph()
+    blank = next(block for block in document.blocks if block.block_type == "text")
+    document = document.model_copy(
+        update={
+            "blocks": tuple(
+                block.model_copy(update={"text": " \n\t "})
+                if block.block_id == blank.block_id
+                else block
+                for block in document.blocks
+            )
+        }
+    )
+
+    packet = build_evidence_packet(PAPER_ID, document, settings())
+
+    assert all(blank.block_id not in item.block_ids for item in packet.candidates)
+    assert packet.candidates
+
+
 def test_evidence_ids_include_bbox_when_parser_source_ids_are_reused():
     document = document_graph(visual_count=2)
     first = document.visuals[0].model_copy(update={"regions": document.visuals[0].regions[:1]})

@@ -23,6 +23,7 @@ from zotero_arxiv_daily.candidates.feedback import (
     FeedbackProjectionError,
 )
 from zotero_arxiv_daily.delivery.ledger import DeliveryLedger
+from zotero_arxiv_daily.documents.evidence import EvidenceBuildSettings
 from zotero_arxiv_daily.pipeline.artifacts import (
     ArtifactAudit,
     ArtifactAuditor,
@@ -43,6 +44,38 @@ from zotero_arxiv_daily.observability.collector import AnalysisMetricsSink, Metr
 from zotero_arxiv_daily.observability.metrics import PricingPolicy
 from zotero_arxiv_daily.observability.store import MetricsWriter
 from zotero_arxiv_daily.viewer.schemas import BuildManifest
+
+
+_SAFE_ANALYSIS_RESULT_CODES = frozenset(
+    {
+        "analysis_ablation_requires_visual",
+        "analysis_abstract_only_insight",
+        "analysis_auth_failed",
+        "analysis_candidate_missing",
+        "analysis_document_failed",
+        "analysis_document_mismatch",
+        "analysis_document_missing",
+        "analysis_duplicate_claim_id",
+        "analysis_evidence_build_failed",
+        "analysis_failed",
+        "analysis_insight_not_provided",
+        "analysis_malformed_json",
+        "analysis_malformed_response",
+        "analysis_metadata_mismatch",
+        "analysis_permanent_error",
+        "analysis_response_too_large",
+        "analysis_retry_exhausted",
+        "analysis_schema_invalid",
+        "analysis_timeout",
+        "analysis_transient_error",
+        "analysis_unknown_ablation",
+        "analysis_unknown_evidence",
+        "analysis_unknown_insight",
+        "analysis_visual_provenance_mismatch",
+        "evidence_packet_empty",
+        "evidence_packet_non_abstract_empty",
+    }
+)
 
 
 class DailySettings(StrictModel):
@@ -285,6 +318,7 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
         tuple(result.status for result in analyses.results),
         cache_hits=analyses.cache_hit_count,
         error_code="analysis_paper_failed",
+        detail_error_codes=_analysis_result_error_codes(analyses),
     )
     if dependencies.metrics_session is not None:
         analysis_stage = analysis_stage.model_copy(
@@ -487,6 +521,7 @@ def _paper_stage(
     *,
     cache_hits: int,
     error_code: str,
+    detail_error_codes: tuple[str, ...] = (),
 ) -> StageRunResult:
     output_count = sum(status in {"success", "partial"} for status in statuses)
     failures = sum(status != "success" for status in statuses) + max(
@@ -505,8 +540,56 @@ def _paper_stage(
         output_count=output_count,
         cache_hit_count=cache_hits,
         partial_failure_count=failures,
-        error_codes=(error_code,) if failures else (),
+        error_codes=(
+            tuple(dict.fromkeys((error_code, *detail_error_codes)))
+            if failures
+            else ()
+        ),
     )
+
+
+def _analysis_result_error_codes(
+    analyses: AnalysisBatchResult,
+) -> tuple[str, ...]:
+    codes: list[str] = []
+    for result in analyses.results:
+        for issue in result.issues:
+            if (
+                issue.code in _SAFE_ANALYSIS_RESULT_CODES
+                and issue.code not in codes
+            ):
+                codes.append(issue.code)
+    return tuple(codes)
+
+
+def _build_validation_packets(
+    candidates: CandidateBatch,
+    documents: DocumentBatchResult,
+    analyses: AnalysisBatchResult,
+    settings: EvidenceBuildSettings,
+    *,
+    builder: Callable[[str, Any, EvidenceBuildSettings], EvidencePacket],
+) -> tuple[EvidencePacket, ...]:
+    document_by_id = {
+        result.paper_id: result.document
+        for result in documents.results
+        if result.document is not None
+    }
+    analyzed_ids = {
+        result.paper_id
+        for result in analyses.results
+        if result.status in {"success", "partial"} and result.analysis is not None
+    }
+    packets: list[EvidencePacket] = []
+    for paper_id in candidates.selected_for_full_analysis[:5]:
+        document = document_by_id.get(paper_id)
+        if paper_id not in analyzed_ids or document is None:
+            continue
+        try:
+            packets.append(builder(paper_id, document, settings))
+        except Exception:
+            continue
+    return tuple(packets)
 
 
 def _validation_stage(
@@ -1144,19 +1227,12 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
         batch = build_analysis_batch(
             candidates, documents, analysis_settings, analysis_dependencies
         )
-        document_by_id = {
-            result.paper_id: result.document
-            for result in documents.results
-            if result.document is not None
-        }
-        packets = tuple(
-            build_evidence_packet(
-                paper_id,
-                document_by_id[paper_id],
-                analysis_settings.evidence,
-            )
-            for paper_id in candidates.selected_for_full_analysis[:5]
-            if paper_id in document_by_id
+        packets = _build_validation_packets(
+            candidates,
+            documents,
+            batch,
+            analysis_settings.evidence,
+            builder=build_evidence_packet,
         )
         return AnalysisStageOutput(batch=batch, packets=packets)
 
