@@ -246,3 +246,25 @@
 - [x] Generated viewer/run artifact content audit
 - [x] Benchmark privacy/budget audit and predeclared 99-pair confirmation
 - [x] Independent whole-branch final review, focused RED repairs for confirmed findings, and clean-worktree confirmation
+
+## 2026-07-28 GitHub live-run repair verification
+
+- [x] Record run `30346566106` as a Linux custom-model import failure before the daily
+  CLI, Zotero, LLM, Pages or Feishu boundaries.
+- [x] Write focused failing configuration/provider/preflight tests before replacing
+  the custom-code model path.
+- [x] Pin the replacement model to a full revision, disable remote code, separate
+  retrieval identity from encode kwargs and keep complete cache identity.
+- [x] Compare both fixed revisions offline on a synthetic retrieval fixture and
+  retain a privacy-tested versioned non-regression report plus strict-offline
+  recomputer.
+- [x] Load and encode with the replacement in strict offline mode.
+- [x] Upgrade both cache steps to a full-SHA Node.js 24 action and statically enforce
+  the exact pin.
+- [x] Run frozen sync, affected tests, default tests, explicit slow/non-slow tests,
+  compileall, workflow validation, diff check, deliverable scans and fixture dry-run.
+- [x] Keep Zotero, paid LLM, Feishu, GitHub dispatch, Pages, push, PR, merge and
+  upstream operations unexecuted.
+- [x] Close independent-review P2 by binding the complete fixture, scoring,
+  aggregation, stable tie-break, model identities, encode settings, metrics and
+  verdict to repository code and an explicit real-model slow test.

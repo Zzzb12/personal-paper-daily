@@ -529,6 +529,17 @@ failed after an unauthenticated Hugging Face Hub warning. Live model preparation
 requires a read-only `HF_TOKEN` Secret and reports only fixed safe failure codes.
 Dry-run and no-send defaults do not require or read this token.
 
+Run `30346566106` confirmed the token and Docling path, then isolated a Linux import
+failure in the fixed Jina custom model code before the daily CLI. The accepted repair
+uses fixed revision `b207367332321f8e44f96e224ef15bc607f4dbf0` of
+`sentence-transformers/multi-qa-MiniLM-L6-cos-v1` with remote code disabled. A
+versioned synthetic offline comparison retained 1,000,000 ppm precision@5,
+recall@5 and NDCG@5 while reducing the observed local model snapshot from about
+4.56 GB to 91.6 MB. The report is
+`docs/benchmarks/2026-07-28-reranker-linux-repair.json` and its strict-offline
+recomputer is `tools/benchmarks/compare_rerankers.py`; a final GitHub-hosted
+live/no-send run remains external acceptance.
+
 ### Goal
 
 Run the validated pipeline daily and on manual dispatch using least-privilege GitHub Actions, safe secrets, versioned caches, static Pages deployment, and partial-failure reporting.
@@ -790,6 +801,19 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   identity path-sensitive.
 - Frontend Design, GSAP Core and GSAP Performance were applied as boundary checks.
   No rendered frontend or animation behavior changed and no GSAP runtime was added.
+
+### Stage 9 post-completion live-run repair
+
+- A disclosed and user-continued model replacement removed runner-incompatible
+  custom remote code and pinned the replacement to a full immutable revision.
+- The fixed synthetic comparison showed no precision@5, recall@5 or NDCG@5
+  regression; the fixture, scoring, stable tie-break, model identities, actual
+  embeddings, metrics and verdict can be recomputed in strict offline mode.
+- The replacement completed an actual cached offline preflight and embedding
+  calculation. The explicit slow/non-slow suite now completes locally; only the two
+  existing Windows one-second spawn failures remain.
+- This repair does not change prompts, Stage 4 eligibility, parser/mapper/validator,
+  renderer, Feishu gates, Pages gates, credentials or private-data boundaries.
 
 ### Acceptance criteria
 

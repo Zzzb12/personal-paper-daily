@@ -50,8 +50,10 @@ Stage 7 的 workflow 默认执行人工 fixture 的 `dry-run`，不会读取 Zot
 `outputs/daily/viewer`，不会改变 repository visibility。启用 live 前还必须准备本地
 Docling artifacts 和 embedding reranker。workflow 仅在 live 门精确开启后下载
 `layout`/`tableformer` 到 `models/docling`，并通过无凭据 model preflight 下载、加载和
-验证 `config/base.yaml` 中固定 commit revision 的 Jina reranker。公开模型文件只缓存
-到 `models/reranker`；revision 同时进入 embedding cache identity。任一模型准备失败
+验证 `config/base.yaml` 中固定 commit revision 的
+`sentence-transformers/multi-qa-MiniLM-L6-cos-v1` reranker。该模型禁用
+`trust_remote_code`，公开模型文件只缓存到 `models/reranker`；revision、任务标识、
+编码参数和 remote-code 策略同时进入 embedding cache identity。任一模型准备失败
 都会在 Zotero、LLM 和 Pages 边界之前阻止 live run。GitHub-hosted Runner 的共享
 出口容易触发 Hugging Face 未认证限流，因此 live preflight 明确要求 read-only
 `HF_TOKEN`；缺失时只报告变量名，不打印值。

@@ -1140,3 +1140,62 @@ plus compileall and `git diff --check` success. Independent rereview confirmed t
 `HF_TOKEN` is scoped only to the exact live-model gate, dry-run does not require it,
 and neither the missing-token guard nor preflight classifier can print its value or
 a dynamic Hub error.
+
+Remote run `30346566106` on commit `fb74c5a` confirmed that `HF_TOKEN` was present
+and Docling preparation succeeded, but the fixed Jina revision still failed with
+the safe code `reranker_import_failed` while importing its custom model code on the
+Linux runner. The daily CLI, Zotero, paid LLM, Pages and Feishu boundaries were not
+entered. The Node.js 20 annotation came from the pinned v4 cache action and was not
+the job failure.
+
+The reviewed repair replaces that custom-code model with the public semantic-search
+model `sentence-transformers/multi-qa-MiniLM-L6-cos-v1` at full revision
+`b207367332321f8e44f96e224ef15bc607f4dbf0`, explicitly disables
+`trust_remote_code`, and separates the retrieval identity from `encode()` kwargs.
+Revision, task, encode settings and remote-code policy are all cache identity inputs.
+Production construction, model preflight and the retained legacy local reranker use
+the same revision/cache/policy values.
+
+The offline comparison recorded at
+`docs/benchmarks/2026-07-28-reranker-linux-repair.json` used only synthetic paper
+topics and the already cached fixed revisions. Both models achieved 1,000,000 ppm
+precision@5, recall@5 and NDCG@5. The observed local replacement snapshot was
+91,579,532 bytes versus 4,556,721,955 bytes for the reference; this is a local cache
+footprint, not a download-size guarantee. The user continued after the replacement
+and its safety/quality trade-off were disclosed. The tracked strict-offline
+recomputer is `tools/benchmarks/compare_rerankers.py`; it binds the complete
+synthetic fixture hash, both model identities/encode settings, mean cosine
+aggregation, stable input-order tie-breaking, metric calculation and verdict.
+
+Final local repair verification observed:
+
+- frozen uv 0.11.29 sync checked 172 packages;
+- affected candidate/document/pipeline/delivery/workflow/benchmark tests:
+  `306 passed, 1 deselected`;
+- default suite: `824 passed, 2 failed, 2 skipped, 2 deselected` in `63.03s`;
+- explicit offline `slow or not slow` suite:
+  `826 passed, 2 failed, 2 skipped` in `78.56s`, including the real local-model
+  encoding test and the actual two-model report recomputation;
+- the only failures in both suites were the unchanged Windows one-second
+  multiprocessing spawn tests in `tests/retriever/test_arxiv_retriever.py`;
+- workflow static safety: `15 passed`; compileall and `git diff --check` passed;
+- tracked/untracked deliverable scan covered 257 files with zero prohibited
+  environment/cache/model/output path, archive, file-over-5-MiB or
+  high-confidence secret hits;
+- fixture daily dry-run succeeded with one publication, zero deliveries, six viewer
+  files, matching sidecar/artifact hashes, and artifact hash
+  `2f4889f313c4d02806eca457d7f3cb591a5362986953b21c67fcd05434937116`.
+
+The two workflow cache steps now use the full-SHA Node.js 24 cache action v5.0.5, so
+the unrelated Node.js 20 annotation is also removed. No real Zotero/private-library
+read, paid LLM call, Feishu send, GitHub rerun, Pages deployment, push, PR, merge or
+upstream mutation was performed. The remaining external acceptance is one user
+push followed by one manual live/no-send dispatch. Rollback reverts the runner-safe
+reranker repair, restores the prior Jina model identity and invalidates only the
+model/embedding cache selected by the configuration hash; the live/send gates remain
+disabled during rollback.
+
+Independent review found one P2 in the first repair candidate: the comparison JSON
+was privacy-tested but not reproducible from repository code. That finding was
+reproduced with a failing import test and closed by the strict-offline recomputer,
+pure scoring/tie-break tests and explicit slow fixed-revision recomputation above.
