@@ -1218,8 +1218,9 @@ environment. This also remained a latent Docling risk.
 Commit `c023cbe` repairs both boundaries. `torch==2.11.0` and
 `torchvision==0.26.0` are direct, paired dependencies from the PyTorch CPU index;
 the lock selects `2.11.0+cpu` and `0.26.0+cpu` Linux wheels. Model preflight imports
-and verifies `torchvision.ops` before constructing the reranker and maps any dynamic
-native failure to fixed safe code `cpu_vision_runtime_failed`.
+`torchvision.ops`, executes empty-tensor CPU NMS before constructing the reranker,
+and maps any dynamic native failure to fixed safe code
+`cpu_vision_runtime_failed`.
 
 Production reranking no longer goes through the broad SentenceTransformers package
 import. It loads the same immutable
@@ -1230,17 +1231,19 @@ policy, batch size, token limit, pooling implementation and normalization all en
 the embedding identity. Three offline sample embeddings differed from the prior
 wrapper by at most `1.4901161193847656e-08`; the tracked slow equivalence test binds
 vectors and stable ordering, and the strict two-model report recomputer now executes
-the production implementation.
+the production implementation. Its replacement tokenizer and model loaders receive
+`local_files_only=True` directly, so strict-offline behavior does not depend on when
+Hugging Face process constants were imported.
 
 Local completion verification observed:
 
 - uv 0.11.29 frozen sync checked 172 packages; runtime imports reported
   `torch 2.11.0+cpu`, `torchvision 0.26.0+cpu`, and working torchvision ops;
 - affected candidate/document/pipeline/workflow/benchmark tests:
-  `308 passed, 2 deselected`;
-- default suite: `830 passed, 2 failed, 2 skipped, 3 deselected` in `67.33s`;
+  `309 passed, 2 deselected`;
+- default suite: `831 passed, 2 failed, 2 skipped, 3 deselected` in `63.21s`;
 - explicit `slow or not slow` suite:
-  `833 passed, 2 failed, 2 skipped` in `80.26s`;
+  `834 passed, 2 failed, 2 skipped` in `77.37s`;
 - both failures were the unchanged Windows one-second multiprocessing spawn tests
   in `tests/retriever/test_arxiv_retriever.py`;
 - workflow static safety: `16 passed`; compileall and `git diff --check` passed;
@@ -1259,3 +1262,13 @@ GitHub rerun, push, PR, merge or upstream mutation was performed. The only exter
 acceptance is a user push followed by one manual live/no-send dispatch. Rollback
 reverts `c023cbe`, invalidates the affected public model/embedding caches, and keeps
 all live/send/Pages gates disabled while retaining the previous reviewed artifact.
+
+The independent final review found two P2 hardening gaps in the first candidate:
+runtime environment variables alone did not prove strict-offline replacement loads,
+and checking whether the Python NMS wrapper was callable did not prove the native
+operator loaded. Commit `0216887` closed both with direct `local_files_only=True`
+loader arguments, an actual empty-tensor CPU NMS call, focused RED tests, actual
+strict-offline model execution and a successful local preflight. Independent
+rereview confirmed both findings closed, ran `37 passed, 2 deselected`, exercised
+the real CPU native probe, found no production/workflow/private-paid-send regression,
+and returned `Ready`.

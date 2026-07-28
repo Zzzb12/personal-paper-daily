@@ -814,7 +814,9 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   a text-only Transformers mean-pooling implementation. Its 512-token truncation,
   attention-mask pooling, normalization and implementation version are cache
   identity inputs; an offline equivalence test binds its vectors and ordering to
-  the prior SentenceTransformer wrapper.
+  the prior SentenceTransformer wrapper. Strict benchmark recomputation passes
+  `local_files_only=True` directly to both replacement loaders rather than relying
+  on mutable process environment state.
 - The fixed synthetic comparison showed no precision@5, recall@5 or NDCG@5
   regression; the fixture, scoring, stable tie-break, model identities, actual
   production embeddings, metrics and verdict can be recomputed in strict offline

@@ -57,11 +57,12 @@ Docling artifacts 和 embedding reranker。workflow 仅在 live 门精确开启�
 cache identity。生产路径用 `transformers` 的纯文本 tokenizer/model 实现该模型声明的
 attention-mask mean pooling 和 L2 normalization，不执行无关的 SentenceTransformers
 视觉模块导入。`torch==2.11.0` 与 `torchvision==0.26.0` 均固定到 PyTorch CPU index；
-preflight 会实际验证 CPU runtime 和 `torchvision.ops`，以便在 Docling 或 reranker
-运行前发现 wheel 失配。任一模型准备失败都会在 Zotero、LLM 和 Pages 边界之前阻止
-live run；CPU/vision 失配只报告固定错误码 `cpu_vision_runtime_failed`。GitHub-hosted
-Runner 的共享出口容易触发 Hugging Face 未认证限流，因此 live preflight 明确要求
-read-only `HF_TOKEN`；缺失时只报告变量名，不打印值。
+preflight 会用空 CPU tensor 实际执行一次 `torchvision.ops.nms`，以便在 Docling 或
+reranker 运行前发现 native wheel 失配。任一模型准备失败都会在 Zotero、LLM 和 Pages
+边界之前阻止 live run；CPU/vision 失配只报告固定错误码
+`cpu_vision_runtime_failed`。GitHub-hosted Runner 的共享出口容易触发 Hugging Face
+未认证限流，因此 live preflight 明确要求 read-only `HF_TOKEN`；缺失时只报告变量名，
+不打印值。
 
 manual live/send 只允许从 repository default branch 触发。workflow 使用全局
 concurrency 且不取消进行中的 run，避免发送中断。飞书 ledger 只包含 SHA-256
