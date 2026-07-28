@@ -824,6 +824,19 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
 - The replacement completed an actual cached offline preflight and embedding
   calculation. The explicit slow/non-slow suite now completes locally; only the two
   existing Windows one-second spawn failures remain.
+- Manual live/no-send run `30367595690` reached the unified production CLI but its
+  safe manifest reported five pre-LLM analysis failures and zero model attempts.
+  Evidence builder version `2` now skips blank parser blocks, classifies builder
+  failures with a fixed safe code and preserves per-paper isolation when rebuilding
+  validation packets.
+- The workflow now uploads safe diagnostic records before enforcing a failed
+  manifest as a failed GitHub job. Feishu-only partial failure still cannot remove
+  or block an already reviewed Pages artifact. Affected official actions use
+  full-SHA Node.js 24 releases.
+- Local repair completion includes the focused, default and explicit slow/non-slow
+  suites, fixture CLI/artifact audit, tracked hygiene scan and independent read-only
+  review. The remaining acceptance step is a user push and manual live/no-send
+  dispatch; no real private/paid/send boundary was entered locally.
 - This repair does not change prompts, Stage 4 eligibility, parser/mapper/validator,
   renderer, Feishu gates, Pages gates, credentials or private-data boundaries.
 

@@ -1274,3 +1274,65 @@ strict-offline model execution and a successful local preflight. Independent
 rereview confirmed both findings closed, ran `37 passed, 2 deselected`, exercised
 the real CPU native probe, found no production/workflow/private-paid-send regression,
 and returned `Ready`.
+
+## First unified live-pipeline result and truthful workflow outcome (2026-07-28)
+
+Manual live/no-send run `30367595690` (Personal Paper Daily `#8`) on commit
+`728a2e4` passed Linux model preparation and reached the unified production CLI for
+the first time. The GitHub job displayed green because the CLI had persisted a
+strict manifest and returned zero, but the uploaded manifest was
+`status=failed`: 200 inputs, 30 candidates, five selected papers, zero analyzed,
+zero validated, zero published and zero delivered. Candidate processing recorded
+six isolated failures; all five document results were partial. Analysis ended in
+about eight milliseconds with zero model attempts, zero paid calls and zero tokens,
+so the failure occurred before the DeepSeek boundary. Pages and Feishu were both
+correctly skipped, and no viewer artifact was uploaded or deployed.
+
+The deterministic failure path had two defects. Docling-mapped text, formula or list
+blocks may carry blank text, while the evidence builder attempted to materialize each
+one as a strict non-empty `EvidenceCandidate`. Production daily composition then
+rebuilt validation packets for every selected document outside the analyzer's
+per-paper exception boundary, allowing one repeat build to fail the complete stage.
+Commit `e82e810` skips blank truncated text blocks, increments the evidence builder
+version to `2`, maps builder exceptions to fixed
+`analysis_evidence_build_failed`, includes only allowlisted fixed analysis codes in
+the manifest, and rebuilds validation packets only for successful/partial analyses
+with per-paper failure isolation. The version change enters the existing analysis
+and validation cache identities.
+
+Commit `8f5c19c` adds a final workflow outcome gate after safe manifest/metrics and
+reviewed Pages artifact upload. A core `failed` manifest now makes the daily job red
+without losing its diagnostic artifact. A Feishu-only failure remains `partial`, so
+an already successful static site and its Pages path remain independent. Checkout,
+private artifact upload, Pages artifact upload and Pages deployment are updated to
+full-SHA Node.js 24 action releases; cache already used its Node.js 24 full-SHA pin.
+Permissions, `persist-credentials: false`, live/send acknowledgements and
+non-writing upstream behavior are unchanged.
+
+Local completion verification observed:
+
+- uv 0.11.21 frozen sync checked 172 packages;
+- focused documents/analysis/pipeline/workflow regression:
+  `427 passed`, with the final independent review rerunning `58 passed`;
+- default suite: `838 passed, 2 failed, 2 skipped, 3 deselected` in `71.33s`;
+- explicit `slow or not slow` suite:
+  `841 passed, 2 failed, 2 skipped` in `127.94s`, including the real strict-offline
+  two-model report recomputation;
+- both failures remained the unchanged Windows one-second multiprocessing spawn
+  tests in `tests/retriever/test_arxiv_retriever.py`;
+- compileall, workflow YAML/static security validation and `git diff --check`
+  passed;
+- the fixture daily CLI published one item, delivered zero, produced six viewer
+  files totaling 32,610 bytes and matched audited artifact SHA-256
+  `56cd6712a84b9854ee4d0d761f16dc053489653c8811a2e4ac6dcd3d0a874d38`;
+- the generated viewer had zero forbidden path or credential-marker hits; the
+  258-file tracked scan found zero prohibited private/cache/output path, archive,
+  file over 5 MiB or high-confidence secret hits, and all required ignored
+  boundaries remained ignored.
+
+Independent read-only review reported no Critical, Important or Minor findings and
+returned `Ready`. No new real Zotero read, paid LLM call, Feishu send, Pages
+deployment, GitHub dispatch, push, PR, merge or upstream mutation was performed
+during this repair. External acceptance is one user push followed by one manual
+live/no-send dispatch. Rollback reverts `8f5c19c` and then `e82e810`; live, send and
+Pages acknowledgements should remain disabled while rolling back.
