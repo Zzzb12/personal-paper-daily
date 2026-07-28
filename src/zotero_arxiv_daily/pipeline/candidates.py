@@ -27,6 +27,7 @@ from zotero_arxiv_daily.candidates.ranking import (
 )
 from zotero_arxiv_daily.candidates.feedback import (
     FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION,
+    FeedbackProjectionError,
     FeedbackProjectionLoader,
 )
 from zotero_arxiv_daily.candidates.store import CandidateStore
@@ -77,7 +78,7 @@ class CandidatePipelineError(RuntimeError):
         self.code = code
 
 
-class EmptyInterestCorpusError(CandidatePipelineError):
+class EmptyInterestCorpusError(CandidatePipelineError, ValueError):
     def __init__(self) -> None:
         super().__init__("candidate_interest_empty")
 
@@ -184,7 +185,7 @@ def build_candidate_batch(
 ) -> CandidateBatch:
     try:
         interests = dependencies.interest_provider.read()
-    except CandidatePipelineError:
+    except (CandidatePipelineError, FeedbackProjectionError):
         raise
     except Exception as error:
         raise CandidatePipelineError(
@@ -194,7 +195,7 @@ def build_candidate_batch(
         raise EmptyInterestCorpusError()
     try:
         metadata = dependencies.arxiv_retriever.retrieve()
-    except CandidatePipelineError:
+    except (CandidatePipelineError, FeedbackProjectionError):
         raise
     except Exception as error:
         raise CandidatePipelineError(
@@ -207,7 +208,7 @@ def build_candidate_batch(
             settings.ranking_limits(),
             feedback=dependencies.feedback,
         )
-    except CandidatePipelineError:
+    except (CandidatePipelineError, FeedbackProjectionError):
         raise
     except Exception:
         raise CandidatePipelineError("candidate_ranking_failed") from None
@@ -237,7 +238,7 @@ def build_candidate_batch(
     if not settings.dry_run:
         try:
             dependencies.store.write(batch)
-        except CandidatePipelineError:
+        except (CandidatePipelineError, FeedbackProjectionError):
             raise
         except Exception:
             raise CandidatePipelineError("candidate_store_failed") from None

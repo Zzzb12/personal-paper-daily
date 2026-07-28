@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 
 from zotero_arxiv_daily.analysis.schemas import CandidatePaper, InterestPaper
 from zotero_arxiv_daily.candidates.ranking import CandidateRanker, EmbeddingIdentity
+from zotero_arxiv_daily.candidates.feedback import FeedbackProjectionError
 from zotero_arxiv_daily.viewer.feedback import InterestFeedbackProjection
 from zotero_arxiv_daily.interest.base import InterestReadResult
 from zotero_arxiv_daily.pipeline.candidates import (
@@ -178,8 +179,9 @@ def test_empty_interest_corpus_fails_before_metadata_or_embeddings():
     deps = dependencies(interests=())
     deps.arxiv_retriever = Mock()
     deps.ranker = Mock()
-    with pytest.raises(EmptyInterestCorpusError):
+    with pytest.raises(EmptyInterestCorpusError) as error:
         build_candidate_batch(CandidatePipelineSettings(), deps, lambda: NOW)
+    assert isinstance(error.value, ValueError)
     deps.arxiv_retriever.retrieve.assert_not_called()
     deps.ranker.rank.assert_not_called()
 
@@ -262,6 +264,30 @@ def test_candidate_pipeline_classifies_ranking_and_store_failures():
 
     assert store_error.value.code == "candidate_store_failed"
     assert "PRIVATE OUTPUT PATH" not in str(store_error.value)
+
+
+@pytest.mark.parametrize(
+    ("boundary", "replacement"),
+    (
+        ("interest_provider", Mock(read=Mock(side_effect=FeedbackProjectionError()))),
+        ("arxiv_retriever", Mock(retrieve=Mock(side_effect=FeedbackProjectionError()))),
+        ("ranker", Mock(rank=Mock(side_effect=FeedbackProjectionError()))),
+        ("store", Mock(write=Mock(side_effect=FeedbackProjectionError()))),
+    ),
+)
+def test_candidate_pipeline_preserves_feedback_projection_rejection(
+    boundary: str,
+    replacement: Mock,
+):
+    deps = dependencies()
+    setattr(deps, boundary, replacement)
+
+    with pytest.raises(FeedbackProjectionError):
+        build_candidate_batch(
+            CandidatePipelineSettings(dry_run=False),
+            deps,
+            lambda: NOW,
+        )
 
 
 def test_offline_fixture_cli_prints_safe_summary_without_network(monkeypatch, capsys, tmp_path):
