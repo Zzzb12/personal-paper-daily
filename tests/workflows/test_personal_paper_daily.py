@@ -149,6 +149,34 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     assert "feedback" not in raw
 
 
+def test_failed_manifest_is_enforced_only_after_safe_artifact_uploads() -> None:
+    steps = _load(DAILY)["jobs"]["daily"]["steps"]
+    gate = next(
+        step for step in steps if step["name"] == "Enforce daily manifest outcome"
+    )
+    private_upload = next(
+        step
+        for step in steps
+        if step["name"] == "Upload safe private run records"
+    )
+    pages_upload = next(
+        step
+        for step in steps
+        if step["name"] == "Upload reviewed Pages artifact"
+    )
+
+    assert steps.index(gate) > steps.index(private_upload)
+    assert steps.index(gate) > steps.index(pages_upload)
+    assert gate["if"] == (
+        "${{ always() && "
+        "hashFiles('outputs/daily/run-manifest.json') != '' }}"
+    )
+    assert "RunManifest" in gate["run"]
+    assert 'manifest.status == "failed"' in gate["run"]
+    assert "model_dump" not in gate["run"]
+    assert "read_text" not in gate["run"]
+
+
 def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
     raw = DAILY.read_text(encoding="utf-8")
     assert "I_UNDERSTAND_LIVE_NETWORK" in raw
