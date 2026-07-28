@@ -1336,3 +1336,68 @@ deployment, GitHub dispatch, push, PR, merge or upstream mutation was performed
 during this repair. External acceptance is one user push followed by one manual
 live/no-send dispatch. Rollback reverts `8f5c19c` and then `e82e810`; live, send and
 Pages acknowledgements should remain disabled while rolling back.
+
+## Candidate-stage diagnostics after live run `30376761859` (2026-07-29)
+
+Manual live/no-send run `30376761859` (Personal Paper Daily `#9`) on commit
+`71355ac` passed checkout, frozen dependency sync, safe cache restore and Linux
+model preparation. The unified CLI persisted a strict failed manifest, the safe
+diagnostic artifact uploaded successfully, and the final manifest outcome gate then
+made the job red as designed. Pages and Feishu were skipped.
+
+The manifest recorded zero input, candidate, selected, analyzed, validated,
+published and delivered items. Candidate processing ran for about `90.37` seconds
+before the generic `candidate_stage_failed`; model attempts, successful model calls,
+paid calls and tokens all remained zero. Consequently the run incurred no LLM
+charge and never entered PDF analysis, validation, static-site publication or
+delivery. Run `30367595690` had executed the same candidate code in about `17.66`
+seconds with 200 inputs, while a local public arXiv metadata probe completed
+successfully. These observations support a transient external candidate-boundary
+failure, but the old generic manifest cannot prove whether the final exception came
+from Zotero, arXiv metadata or ranking.
+
+Commit `1fbb9dd` closes that diagnostic gap. Candidate interest, metadata, ranking
+and store boundaries now map exceptions to an allowlisted fixed code. HTTP timeout,
+transport, authentication, rate-limit and other HTTP failures remain distinguishable
+for the network boundaries, while dynamic exception text, response bodies, paper
+content and local output paths are discarded. The daily manifest persists only that
+validated fixed code; an unknown exception still falls back to
+`candidate_stage_failed`. Empty Zotero interest state is represented by the fixed
+`candidate_interest_empty` code and still stops before metadata or ranking.
+
+Commit `0839df0` updates both CI and daily automation to full-SHA
+`astral-sh/setup-uv` v8.1.0, whose action runtime is Node.js 24. The uv version and
+frozen lock remain unchanged. Local completion verification observed:
+
+- frozen uv sync checked 172 packages;
+- candidate/daily/CLI/workflow regression: `81 passed`;
+- default suite: `847 passed, 2 failed, 2 skipped, 3 deselected` in `75.44s`;
+- explicit `slow or not slow` suite:
+  `850 passed, 2 failed, 2 skipped` in `97.03s`;
+- both failures were the unchanged Windows one-second multiprocessing spawn tests
+  in `tests/retriever/test_arxiv_retriever.py`;
+- workflow static safety: `18 passed`; compileall and `git diff --check` passed;
+- the 258-file tracked/untracked deliverable scan found zero prohibited private,
+  cache, model or output paths, archives, files over 5 MiB or high-confidence secret
+  hits, and all 11 representative private/generated paths remained ignored;
+- the fixture daily dry-run succeeded with one publication, zero deliveries and six
+  viewer files totaling 32,607 bytes. Manifest and audited artifact hashes matched
+  `5dd2006438a9777b66d111042e474d5b274d487fe02f76208bcb6ab4d9697cf4`,
+  with zero forbidden artifact path or credential-marker content hits.
+
+No real Zotero/private-library read, paid LLM call, paper download, Feishu send,
+Pages deployment, new GitHub dispatch, push, PR, merge or upstream mutation was
+performed for this repair. External acceptance is one user push of the repaired HEAD
+followed by one new manual live/no-send dispatch; rerunning the old `#9` commit would
+not include the new diagnostics. Rollback reverts `8412a07`, `0839df0` and then
+`1fbb9dd`, leaving live/send gates disabled while restoring the prior generic
+candidate error and setup action.
+
+The first independent review found two Minor compatibility gaps: empty-interest
+errors had lost their historical `ValueError` identity, and an injected
+`FeedbackProjectionError` could be rewritten at a candidate sub-boundary. Commit
+`8412a07` restores the exception identity and preserves the dedicated feedback
+rejection through interest, metadata, ranking and store boundaries. Both findings
+were reproduced with failing tests before repair. Final independent rereview ran
+59 focused tests, found no remaining Critical, Important or Minor issue, and
+returned `Ready`.

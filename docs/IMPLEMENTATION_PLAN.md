@@ -837,6 +837,21 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   suites, fixture CLI/artifact audit, tracked hygiene scan and independent read-only
   review. The remaining acceptance step is a user push and manual live/no-send
   dispatch; no real private/paid/send boundary was entered locally.
+- Manual live/no-send run `30376761859` truthfully failed the job after safely
+  uploading a manifest with `candidate_stage_failed`. It spent about 90 seconds in
+  candidates but recorded zero model attempts, paid calls, publications or
+  deliveries. The old generic code cannot identify Zotero, arXiv or ranking as the
+  exact final boundary.
+- Candidate interest, arXiv metadata, ranking and persistence now emit only
+  allowlisted fixed diagnostic codes; timeout, transport, auth and rate-limit
+  classes are distinguishable without persisting response bodies, exception text,
+  paper content or private paths. Both workflows also pin the Node.js 24
+  `setup-uv` release to a complete commit SHA.
+- This follow-up passed 81 focused regression tests, 18 workflow tests, compileall,
+  fixture/artifact and hygiene audits. Default and explicit slow/non-slow suites
+  retained only the two documented Windows one-second spawn baseline failures.
+  Acceptance requires a new push and dispatch because rerunning the old commit
+  cannot contain the new diagnostics.
 - This repair does not change prompts, Stage 4 eligibility, parser/mapper/validator,
   renderer, Feishu gates, Pages gates, credentials or private-data boundaries.
 
