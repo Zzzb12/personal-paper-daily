@@ -27,8 +27,14 @@ def test_workflows_pin_node24_github_actions():
     ci = CI_WORKFLOW.read_text(encoding="utf-8")
 
     checkout = "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
+    setup_uv = (
+        "astral-sh/setup-uv@"
+        "08807647e7069bb48b6ef5acd8ec9567f424441b"
+    )
     assert checkout in daily
     assert checkout in ci
+    assert setup_uv in daily
+    assert setup_uv in ci
     assert (
         "actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f"
         in daily
