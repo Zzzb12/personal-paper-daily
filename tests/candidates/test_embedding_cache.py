@@ -1,6 +1,8 @@
 import json
+import weakref
 
 import numpy as np
+import pytest
 
 from zotero_arxiv_daily.candidates.ranking import (
     CachedEmbeddingProvider,
@@ -113,3 +115,87 @@ def test_sentence_transformer_provider_records_settings_without_network():
     assert json.loads(provider.identity.settings_json) == {
         "encode_kwargs": {"normalize_embeddings": True}, "prompt_name": "document"
     }
+
+
+def test_sentence_transformer_provider_revision_changes_cache_identity():
+    class FakeEncoder:
+        def get_sentence_embedding_dimension(self):
+            return 3
+
+    first = SentenceTransformerEmbeddingProvider(
+        model="synthetic/model",
+        revision="a" * 40,
+        cache_folder="models/reranker",
+        task="retrieval",
+        prompt_name="document",
+        encode_kwargs={},
+        model_factory=lambda _: FakeEncoder(),
+        implementation_version="test-version",
+    )
+    second = SentenceTransformerEmbeddingProvider(
+        model="synthetic/model",
+        revision="b" * 40,
+        cache_folder="models/reranker",
+        task="retrieval",
+        prompt_name="document",
+        encode_kwargs={},
+        model_factory=lambda _: FakeEncoder(),
+        implementation_version="test-version",
+    )
+
+    assert first.identity.fingerprint() != second.identity.fingerprint()
+    assert json.loads(first.identity.settings_json)["revision"] == "a" * 40
+    assert "cache_folder" not in json.loads(first.identity.settings_json)
+
+
+def test_sentence_transformer_provider_close_releases_encoder_and_collects_once():
+    collections = []
+    encoder_references = []
+
+    class FakeEncoder:
+        def get_sentence_embedding_dimension(self):
+            return 3
+
+        def encode(self, texts, **kwargs):
+            return np.asarray([[1, 2, 3]], dtype=np.float32)
+
+    def model_factory(_):
+        encoder = FakeEncoder()
+        encoder_references.append(weakref.ref(encoder))
+        return encoder
+
+    provider = SentenceTransformerEmbeddingProvider(
+        model="synthetic/model",
+        task="retrieval",
+        prompt_name=None,
+        encode_kwargs={},
+        model_factory=model_factory,
+        implementation_version="test-version",
+        garbage_collect=lambda: collections.append("collected"),
+    )
+
+    provider.close()
+    provider.close()
+
+    assert collections == ["collected"]
+    assert encoder_references[0]() is None
+    with pytest.raises(RuntimeError, match="embedding provider is closed"):
+        provider.encode(("alpha",))
+
+
+def test_cached_embedding_provider_forwards_close_once(tmp_path):
+    class ClosableProvider(CountingProvider):
+        def __init__(self):
+            super().__init__(identity())
+            self.close_calls = 0
+
+        def close(self):
+            self.close_calls += 1
+
+    delegate = ClosableProvider()
+    provider = CachedEmbeddingProvider(delegate, FileEmbeddingCache(tmp_path))
+
+    provider.close()
+    provider.close()
+
+    assert delegate.close_calls == 1

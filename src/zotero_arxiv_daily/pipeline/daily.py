@@ -127,6 +127,7 @@ class DailyDependencies:
     delivery_ledger: Ledger
     clock: Callable[[], datetime]
     sleep: Callable[[float], None]
+    candidate_cleanup: Callable[[], None] = lambda: None
     metrics_session: MetricsSession | None = None
     metrics_writer: MetricsWriter | None = None
     close_callbacks: tuple[Callable[[], None], ...] = ()
@@ -154,9 +155,12 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
     counts = RunCounts()
 
     try:
-        candidates = _observed_call(
-            dependencies, "candidates", dependencies.candidate_runner
-        )
+        try:
+            candidates = _observed_call(
+                dependencies, "candidates", dependencies.candidate_runner
+            )
+        finally:
+            dependencies.candidate_cleanup()
     except FeedbackProjectionError:
         stages.append(_failed_stage("candidates", "feedback_projection_rejected"))
         stages.extend(_skipped_stages(start_at=1))
@@ -1220,6 +1224,7 @@ def build_production_daily_dependencies(context: DailyFactoryContext) -> DailyDe
         delivery_ledger=DeliveryLedger(Path("cache/workflow/delivery-ledger.json")),
         clock=lambda: datetime.now(UTC),
         sleep=time.sleep,
+        candidate_cleanup=candidate_dependencies.close,
         metrics_session=metrics_session,
         metrics_writer=metrics_writer,
         close_callbacks=tuple(callbacks),

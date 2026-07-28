@@ -1,6 +1,8 @@
+import gc
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+import weakref
 
 from zotero_arxiv_daily.documents.parser import DoclingDocumentParser
 from tests.fixtures.pdf_factory import text_pdf
@@ -134,6 +136,95 @@ def test_parser_translates_partial_and_failed_conversion_states(tmp_path):
         ),
     ).parse(text_pdf(tmp_path / "timeout.pdf"), max_pages=10, max_file_size=1024 * 1024)
     assert timed_out.issues[0].code == "parser_timeout"
+
+
+def test_parser_releases_cyclic_converter_after_each_document(tmp_path):
+    models = tmp_path / "models"
+    models.mkdir()
+    references = []
+    collections = []
+
+    def factory(config):
+        converter = FakeConverter(
+            SimpleNamespace(status="success", document=fake_document(), errors=())
+        )
+        converter.cycle = converter
+        references.append(weakref.ref(converter))
+        return converter
+
+    def collect():
+        collections.append("collected")
+        return gc.collect()
+
+    parser = DoclingDocumentParser(
+        artifacts_path=models,
+        converter_factory=factory,
+        garbage_collect=collect,
+    )
+
+    result = parser.parse(
+        text_pdf(tmp_path / "paper.pdf"),
+        max_pages=10,
+        max_file_size=1024 * 1024,
+    )
+
+    assert result.status == "success"
+    assert collections == ["collected"]
+    assert references[0]() is None
+
+
+def test_parser_reports_bad_alloc_as_safe_memory_error(tmp_path):
+    models = tmp_path / "models"
+    models.mkdir()
+    parser = DoclingDocumentParser(
+        artifacts_path=models,
+        converter_factory=lambda config: FakeConverter(
+            SimpleNamespace(
+                status="failure",
+                document=None,
+                errors=("Stage preprocess failed: std::bad_alloc PRIVATE",),
+            )
+        ),
+    )
+
+    result = parser.parse(
+        text_pdf(tmp_path / "paper.pdf"),
+        max_pages=10,
+        max_file_size=1024 * 1024,
+    )
+
+    assert result.status == "failed"
+    assert result.issues[0].code == "parser_out_of_memory"
+    assert "PRIVATE" not in result.issues[0].message
+
+
+def test_parser_preserves_partial_document_and_reports_bad_alloc(tmp_path):
+    models = tmp_path / "models"
+    models.mkdir()
+    parser = DoclingDocumentParser(
+        artifacts_path=models,
+        converter_factory=lambda config: FakeConverter(
+            SimpleNamespace(
+                status="partial_success",
+                document=fake_document(),
+                errors=("page preprocess failed: std::bad_alloc PRIVATE",),
+            )
+        ),
+    )
+
+    result = parser.parse(
+        text_pdf(tmp_path / "paper.pdf"),
+        max_pages=10,
+        max_file_size=1024 * 1024,
+    )
+
+    assert result.status == "partial"
+    assert result.document is not None
+    assert [issue.code for issue in result.issues] == [
+        "parser_partial",
+        "parser_out_of_memory",
+    ]
+    assert "PRIVATE" not in " ".join(issue.message for issue in result.issues)
 
 
 def test_parser_rejects_urls_so_download_policy_cannot_be_bypassed(tmp_path):

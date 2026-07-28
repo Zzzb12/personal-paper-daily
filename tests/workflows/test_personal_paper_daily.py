@@ -87,7 +87,12 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     assert len(cache_steps) == 2
     cache_step = next(step for step in cache_steps if "safe caches" in step["name"])
     cache_paths = tuple(line.strip() for line in cache_step["with"]["path"].splitlines() if line.strip())
-    assert cache_paths == ("cache/embeddings", "cache/documents", "models/docling")
+    assert cache_paths == (
+        "cache/embeddings",
+        "cache/documents",
+        "models/docling",
+        "models/reranker",
+    )
     assert "stage9-v1" in cache_step["with"]["key"]
     assert "hashFiles" in cache_step["with"]["key"]
     assert "LLM_MODEL" in cache_step["with"]["key"]
@@ -154,10 +159,11 @@ def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
     assert "PAPER_DAILY_SCHEDULE_SEND" in raw
     assert "PAPER_DAILY_ENABLE_PAGES_DEPLOY" in raw
     assert "docling-tools models download layout tableformer" in raw
+    assert "python -m zotero_arxiv_daily.pipeline.model_preflight" in raw
     model_step = next(
         step
         for step in _load(DAILY)["jobs"]["daily"]["steps"]
-        if step["name"] == "Prepare version-declared Docling models for live mode"
+        if step["name"] == "Prepare version-declared live models"
     )
     assert "I_UNDERSTAND_LIVE_NETWORK" in model_step["if"]
     assert "github.ref_name == github.event.repository.default_branch" in model_step["if"]

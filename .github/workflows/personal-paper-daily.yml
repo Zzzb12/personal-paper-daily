@@ -54,6 +54,7 @@ jobs:
             cache/embeddings
             cache/documents
             models/docling
+            models/reranker
           key: personal-paper-daily-stage9-v1-${{ runner.os }}-${{ hashFiles('uv.lock', 'config/base.yaml', 'src/zotero_arxiv_daily/**/*.py') }}-${{ vars.LLM_MODEL }}
 
       - name: Restore append-only delivery ledger
@@ -64,10 +65,12 @@ jobs:
           restore-keys: |
             personal-paper-daily-delivery-stage7-v1-${{ runner.os }}-
 
-      - name: Prepare version-declared Docling models for live mode
+      - name: Prepare version-declared live models
         if: ${{ (github.event_name == 'schedule' && vars.PAPER_DAILY_SCHEDULE_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch && inputs.live_run && vars.PAPER_DAILY_MANUAL_LIVE == 'I_UNDERSTAND_LIVE_NETWORK') }}
         timeout-minutes: 30
-        run: uv run docling-tools models download layout tableformer --output-dir models/docling --quiet
+        run: |
+          uv run docling-tools models download layout tableformer --output-dir models/docling --quiet
+          uv run python -m zotero_arxiv_daily.pipeline.model_preflight --config-dir config
 
       - name: Run daily pipeline
         timeout-minutes: 70

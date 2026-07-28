@@ -203,6 +203,7 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
     zotero_gateway = Mock()
     arxiv_gateway = Mock()
     embedding_provider = DeterministicEmbeddings()
+    embedding_provider.close = Mock()
 
     def zotero_factory(library_id, api_key, **kwargs):
         calls["zotero"] = (library_id, api_key, kwargs)
@@ -236,11 +237,15 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
     )
     assert calls["zotero"][0:2] == ("synthetic-id", "synthetic-key")
     assert calls["embedding"]["model"] == "jinaai/jina-embeddings-v5-text-nano-retrieval"
+    assert calls["embedding"]["revision"] == "ac5d898c8d382b17167c33e5c8af644a3519b47d"
+    assert calls["embedding"]["cache_folder"] == Path("models/reranker")
     assert deps.store.root == Path("data/candidates")
     assert deps.ranker.provider.cache.root == Path("cache/embeddings")
     offset_time = datetime(2026, 7, 20, 8, tzinfo=timezone(timedelta(hours=8)))
     assert deps.run_id_factory(offset_time) == "20260720T000000Z"
     deps.close()
+    deps.close()
+    embedding_provider.close.assert_called_once()
     zotero_gateway.close.assert_called_once()
     arxiv_gateway.close.assert_called_once()
 

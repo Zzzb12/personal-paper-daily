@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 from collections.abc import Callable
 from importlib.metadata import version
 from pathlib import Path
@@ -78,6 +79,7 @@ class DoclingDocumentParser:
         artifacts_path: Path,
         converter_factory: Callable[[DoclingParserConfig], Converter] | None = None,
         document_timeout_seconds: float = 300,
+        garbage_collect: Callable[[], object] = gc.collect,
     ) -> None:
         self.config = DoclingParserConfig(
             artifacts_path=Path(artifacts_path),
@@ -85,6 +87,7 @@ class DoclingDocumentParser:
         )
         self.parser_version = DOCLING_VERSION
         self.converter_factory = converter_factory or _build_docling_converter
+        self._garbage_collect = garbage_collect
 
     def parse(
         self, path: Path, *, max_pages: int, max_file_size: int
@@ -100,6 +103,22 @@ class DoclingDocumentParser:
                 "Docling model artifacts must be prepared in the configured local directory",
             )
         try:
+            return self._parse_local(
+                local_path,
+                max_pages=max_pages,
+                max_file_size=max_file_size,
+            )
+        finally:
+            self._garbage_collect()
+
+    def _parse_local(
+        self,
+        local_path: Path,
+        *,
+        max_pages: int,
+        max_file_size: int,
+    ) -> ParsedDocumentResult:
+        try:
             converter = self.converter_factory(self.config)
             result = converter.convert(
                 local_path,
@@ -109,18 +128,25 @@ class DoclingDocumentParser:
             )
         except TimeoutError:
             return _failure("parser_timeout", "Docling conversion exceeded its configured timeout")
+        except MemoryError:
+            return _memory_failure()
         except (FileNotFoundError, OSError) as exc:
             return _failure(
                 "parser_model_unavailable",
                 f"Docling local artifacts are unavailable: {type(exc).__name__}",
             )
         except Exception as exc:
+            if _contains_memory_exhaustion((exc,)):
+                return _memory_failure()
             return _failure("parser_failed", f"Docling conversion failed: {type(exc).__name__}")
 
         status = _status_value(getattr(result, "status", "failure"))
         document = getattr(result, "document", None)
+        errors = getattr(result, "errors", ()) or ()
         if status == "failure" or document is None:
-            if "timeout" in " ".join(str(error) for error in (getattr(result, "errors", ()) or ())).lower():
+            if _contains_memory_exhaustion(errors):
+                return _memory_failure()
+            if "timeout" in " ".join(str(error) for error in errors).lower():
                 return _failure(
                     "parser_timeout", "Docling conversion exceeded its configured timeout"
                 )
@@ -130,16 +156,19 @@ class DoclingDocumentParser:
         except Exception as exc:
             return _failure("parser_failed", f"Docling mapping failed: {type(exc).__name__}")
         if status == "partial_success":
+            issues = [
+                DocumentIssue(
+                    code="parser_partial",
+                    severity="warning",
+                    message="Docling reported a partial conversion",
+                )
+            ]
+            if _contains_memory_exhaustion(errors):
+                issues.append(_memory_issue())
             return ParsedDocumentResult(
                 status="partial",
                 document=parsed,
-                issues=(
-                    DocumentIssue(
-                        code="parser_partial",
-                        severity="warning",
-                        message="Docling reported a partial conversion",
-                    ),
-                ),
+                issues=tuple(issues),
             )
         return ParsedDocumentResult(status="success", document=parsed)
 
@@ -224,4 +253,29 @@ def _failure(code: str, message: str) -> ParsedDocumentResult:
         status="failed",
         document=None,
         issues=(DocumentIssue(code=code, severity="error", message=message),),
+    )
+
+
+def _memory_failure() -> ParsedDocumentResult:
+    return ParsedDocumentResult(
+        status="failed",
+        document=None,
+        issues=(_memory_issue(),),
+    )
+
+
+def _memory_issue() -> DocumentIssue:
+    return DocumentIssue(
+        code="parser_out_of_memory",
+        severity="error",
+        message="Docling conversion exceeded the available local memory",
+    )
+
+
+def _contains_memory_exhaustion(errors: Any) -> bool:
+    markers = ("bad_alloc", "out of memory", "cannot allocate memory")
+    return any(
+        marker in str(error).casefold()
+        for error in errors
+        for marker in markers
     )

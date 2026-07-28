@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -120,8 +120,12 @@ class CandidatePipelineDependencies:
     run_id_factory: Callable[[datetime], str]
     feedback: InterestFeedbackProjection = InterestFeedbackProjection()
     close_callbacks: tuple[Callable[[], None], ...] = ()
+    _closed: bool = field(default=False, init=False, repr=False, compare=False)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         for callback in reversed(self.close_callbacks):
             callback()
 
@@ -279,6 +283,8 @@ def build_production_pipeline(
             prompt_name = encode_kwargs.pop("prompt_name", None)
             embedding_provider = SentenceTransformerEmbeddingProvider(
                 model=str(config.reranker.local.model),
+                revision=str(config.reranker.local.revision),
+                cache_folder=Path(str(config.reranker.local.cache_folder)),
                 task=task,
                 prompt_name=prompt_name,
                 encode_kwargs=encode_kwargs,
@@ -326,7 +332,15 @@ def build_production_pipeline(
         store=CandidateStore(settings.output_dir),
         run_id_factory=lambda value: value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"),
         feedback=feedback,
-        close_callbacks=(zotero_gateway.close, arxiv_gateway.close),
+        close_callbacks=tuple(
+            callback
+            for callback in (
+                zotero_gateway.close,
+                arxiv_gateway.close,
+                getattr(ranking_provider, "close", None),
+            )
+            if callable(callback)
+        ),
     )
     return settings, dependencies
 

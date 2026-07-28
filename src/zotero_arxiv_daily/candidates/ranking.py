@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import hashlib
 import importlib.metadata
 import json
@@ -87,40 +88,68 @@ class SentenceTransformerEmbeddingProvider:
         self,
         *,
         model: str,
+        revision: str | None = None,
+        cache_folder: Path | str | None = None,
         task: str,
         prompt_name: str | None,
         encode_kwargs: dict[str, Any],
         model_factory: Callable[[str], Any] | None = None,
         implementation_version: str | None = None,
+        garbage_collect: Callable[[], object] = gc.collect,
     ) -> None:
         if model_factory is None:
             from sentence_transformers import SentenceTransformer
 
-            model_factory = lambda name: SentenceTransformer(name, trust_remote_code=True)
+            model_factory = lambda name: SentenceTransformer(
+                name,
+                revision=revision,
+                cache_folder=(
+                    None if cache_folder is None else str(cache_folder)
+                ),
+                trust_remote_code=True,
+            )
         self._encoder = model_factory(model)
         self._task = task
         self._prompt_name = prompt_name
         self._encode_kwargs = dict(encode_kwargs)
+        self._garbage_collect = garbage_collect
         dimension = self._encoder.get_sentence_embedding_dimension()
         if not isinstance(dimension, int) or dimension <= 0:
             raise ValueError("embedding model must report a positive dimension")
         version = implementation_version or importlib.metadata.version("sentence-transformers")
+        identity_settings: dict[str, Any] = {
+            "prompt_name": prompt_name,
+            "encode_kwargs": self._encode_kwargs,
+        }
+        if revision is not None:
+            identity_settings["revision"] = revision
         self.identity = EmbeddingIdentity.from_settings(
             provider="sentence-transformers",
             implementation_version=version,
             model=model,
             task=task,
-            settings={"prompt_name": prompt_name, "encode_kwargs": self._encode_kwargs},
+            settings=identity_settings,
             dimension=dimension,
             dtype="float32",
         )
 
     def encode(self, texts: Sequence[str]) -> np.ndarray:
+        encoder = self._encoder
+        if encoder is None:
+            raise RuntimeError("embedding provider is closed")
         kwargs = dict(self._encode_kwargs)
         kwargs["task"] = self._task
         if self._prompt_name is not None:
             kwargs["prompt_name"] = self._prompt_name
-        return np.asarray(self._encoder.encode(list(texts), **kwargs), dtype=np.float32)
+        return np.asarray(encoder.encode(list(texts), **kwargs), dtype=np.float32)
+
+    def close(self) -> None:
+        encoder = self._encoder
+        if encoder is None:
+            return
+        self._encoder = None
+        del encoder
+        self._garbage_collect()
 
 
 class RankedCandidates(StrictModel):
@@ -206,8 +235,11 @@ class CachedEmbeddingProvider:
         self.delegate = delegate
         self.cache = cache
         self.identity = delegate.identity
+        self._closed = False
 
     def encode(self, texts: Sequence[str]) -> np.ndarray:
+        if self._closed:
+            raise RuntimeError("embedding provider is closed")
         items = tuple(texts)
         if not items:
             return np.empty((0, 0), dtype=np.float64)
@@ -229,6 +261,14 @@ class CachedEmbeddingProvider:
         if len(dimensions) != 1:
             raise ValueError("cached embeddings have inconsistent dimensions")
         return np.stack(vectors)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        close = getattr(self.delegate, "close", None)
+        if callable(close):
+            close()
 
 
 class CandidateRanker:

@@ -221,6 +221,24 @@ def test_complete_success_composes_all_stages_and_writes_safe_manifest(tmp_path:
     assert "prompt" not in serialized
 
 
+def test_candidate_cleanup_runs_before_document_stage(tmp_path: Path) -> None:
+    order: list[str] = []
+    dependencies = _dependencies(tmp_path, _inputs(1), order=order)
+    original_document_runner = dependencies.document_runner
+    dependencies.candidate_cleanup = lambda: order.append("candidate_cleanup")
+
+    def document_runner(batch):
+        assert order == ["candidates", "candidate_cleanup"]
+        return original_document_runner(batch)
+
+    dependencies.document_runner = document_runner
+
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert manifest.status == "success"
+    assert order[:3] == ["candidates", "candidate_cleanup", "documents"]
+
+
 def test_metrics_persistence_failure_does_not_change_content_success(
     tmp_path: Path,
 ) -> None:
