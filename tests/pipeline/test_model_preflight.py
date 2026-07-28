@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,6 +75,37 @@ def test_cpu_vision_probe_wraps_dynamic_import_failures():
         require_cpu_vision_runtime(importer=importer)
 
     assert private_detail not in str(captured.value)
+
+
+def test_cpu_vision_probe_executes_native_nms_on_empty_cpu_tensors():
+    events = []
+    float32 = object()
+
+    def empty(shape, *, dtype):
+        events.append(("empty", shape, dtype))
+        return SimpleNamespace(shape=shape)
+
+    def nms(boxes, scores, threshold):
+        events.append(("nms", boxes.shape, scores.shape, threshold))
+        return SimpleNamespace(numel=lambda: 0)
+
+    modules = {
+        "torch": SimpleNamespace(
+            version=SimpleNamespace(cuda=None),
+            float32=float32,
+            empty=empty,
+        ),
+        "torchvision": object(),
+        "torchvision.ops": SimpleNamespace(nms=nms),
+    }
+
+    require_cpu_vision_runtime(importer=modules.__getitem__)
+
+    assert events == [
+        ("empty", (0, 4), float32),
+        ("empty", (0,), float32),
+        ("nms", (0, 4), (0,), 0.5),
+    ]
 
 
 def test_cli_reports_fixed_cpu_vision_error_without_dynamic_detail(capsys):

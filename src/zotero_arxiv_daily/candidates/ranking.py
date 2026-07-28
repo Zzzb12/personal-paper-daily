@@ -170,6 +170,7 @@ class TransformersMeanPoolingEmbeddingProvider:
         encode_kwargs: dict[str, Any],
         max_sequence_length: int = 512,
         trust_remote_code: bool = False,
+        local_files_only: bool = False,
         tokenizer_factory: Callable[..., Any] | None = None,
         model_factory: Callable[..., Any] | None = None,
         implementation_version: str | None = None,
@@ -196,6 +197,7 @@ class TransformersMeanPoolingEmbeddingProvider:
         import torch
 
         load_kwargs: dict[str, Any] = {
+            "local_files_only": local_files_only,
             "trust_remote_code": trust_remote_code,
         }
         if revision is not None:

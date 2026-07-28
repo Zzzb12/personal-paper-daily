@@ -135,6 +135,7 @@ def _default_model_factory(
             encode_kwargs=dict(spec.encode_kwargs),
             max_sequence_length=512,
             trust_remote_code=spec.trust_remote_code,
+            local_files_only=True,
         )
         return _ConfiguredEncoder(provider, spec.encode_kwargs)
     from sentence_transformers import SentenceTransformer

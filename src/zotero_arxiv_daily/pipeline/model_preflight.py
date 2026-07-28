@@ -47,6 +47,11 @@ def require_cpu_vision_runtime(
             raise RuntimeError
         if not callable(getattr(operations, "nms", None)):
             raise RuntimeError
+        boxes = torch.empty((0, 4), dtype=torch.float32)
+        scores = torch.empty((0,), dtype=torch.float32)
+        selected = operations.nms(boxes, scores, 0.5)
+        if selected.numel() != 0:
+            raise RuntimeError
         del torchvision
     except Exception as error:
         raise CpuVisionRuntimeError from error

@@ -235,6 +235,7 @@ def test_transformers_mean_pooling_provider_matches_declared_text_pipeline():
         task="retrieval",
         prompt_name=None,
         trust_remote_code=False,
+        local_files_only=True,
         encode_kwargs={"batch_size": 2, "normalize_embeddings": True},
         max_sequence_length=512,
         tokenizer_factory=tokenizer_factory,
@@ -259,6 +260,7 @@ def test_transformers_mean_pooling_provider_matches_declared_text_pipeline():
     expected_load = {
         "revision": "a" * 40,
         "cache_dir": "models/reranker",
+        "local_files_only": True,
         "trust_remote_code": False,
     }
     assert factory_calls == [
