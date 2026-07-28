@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -9,12 +10,13 @@ from typing import Any
 from omegaconf import OmegaConf
 
 from zotero_arxiv_daily.candidates.ranking import (
-    SentenceTransformerEmbeddingProvider,
+    TransformersMeanPoolingEmbeddingProvider,
 )
 
 
 _COMMIT_REVISION = re.compile(r"^[0-9a-f]{40}$")
 _SAFE_ERROR_CODES = {
+    "CpuVisionRuntimeError": "cpu_vision_runtime_failed",
     "EntryNotFoundError": "reranker_hub_access_failed",
     "GatedRepoError": "reranker_hub_access_failed",
     "HfHubHTTPError": "reranker_hub_access_failed",
@@ -27,6 +29,27 @@ _SAFE_ERROR_CODES = {
     "RuntimeError": "reranker_runtime_failed",
     "ValueError": "reranker_config_failed",
 }
+
+
+class CpuVisionRuntimeError(RuntimeError):
+    """Fixed-detail failure for the shared Torch/torchvision CPU runtime."""
+
+
+def require_cpu_vision_runtime(
+    *,
+    importer: Callable[[str], Any] = importlib.import_module,
+) -> None:
+    try:
+        torch = importer("torch")
+        torchvision = importer("torchvision")
+        operations = importer("torchvision.ops")
+        if getattr(getattr(torch, "version", None), "cuda", None) is not None:
+            raise RuntimeError
+        if not callable(getattr(operations, "nms", None)):
+            raise RuntimeError
+        del torchvision
+    except Exception as error:
+        raise CpuVisionRuntimeError from error
 
 
 def _merged_config(config_dir: Path) -> Any:
@@ -45,7 +68,8 @@ def _safe_relative_cache_folder(value: object) -> Path:
 def prepare_local_reranker(
     config_dir: Path,
     *,
-    provider_factory: Callable[..., Any] = SentenceTransformerEmbeddingProvider,
+    provider_factory: Callable[..., Any] = TransformersMeanPoolingEmbeddingProvider,
+    runtime_probe: Callable[[], None] = require_cpu_vision_runtime,
 ) -> None:
     config = _merged_config(config_dir)
     local = config.reranker.local
@@ -56,6 +80,7 @@ def prepare_local_reranker(
     raw_encode = OmegaConf.to_container(local.encode_kwargs, resolve=True)
     encode_kwargs = dict(raw_encode or {})
     prompt_name = encode_kwargs.pop("prompt_name", None)
+    runtime_probe()
     provider = provider_factory(
         model=str(local.model),
         revision=revision,
@@ -64,6 +89,7 @@ def prepare_local_reranker(
         prompt_name=prompt_name,
         trust_remote_code=bool(local.get("trust_remote_code", False)),
         encode_kwargs=encode_kwargs,
+        max_sequence_length=int(local.get("max_sequence_length", 512)),
     )
     try:
         return None

@@ -224,7 +224,8 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
         "zotero_arxiv_daily.pipeline.candidates.HttpArxivMetadataGateway.from_defaults", arxiv_factory
     )
     monkeypatch.setattr(
-        "zotero_arxiv_daily.pipeline.candidates.SentenceTransformerEmbeddingProvider", embedding_factory
+        "zotero_arxiv_daily.pipeline.candidates.TransformersMeanPoolingEmbeddingProvider",
+        embedding_factory,
     )
     settings, deps = build_production_pipeline(
         Path(__file__).parents[2] / "config",
@@ -243,6 +244,7 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
     assert calls["embedding"]["trust_remote_code"] is False
     assert calls["embedding"]["prompt_name"] is None
     assert calls["embedding"]["encode_kwargs"] == {"normalize_embeddings": True}
+    assert calls["embedding"]["max_sequence_length"] == 512
     assert deps.store.root == Path("data/candidates")
     assert deps.ranker.provider.cache.root == Path("cache/embeddings")
     offset_time = datetime(2026, 7, 20, 8, tzinfo=timezone(timedelta(hours=8)))
@@ -264,7 +266,7 @@ def test_production_dry_run_does_not_construct_writable_embedding_cache(monkeypa
         lambda **kwargs: Mock(close=Mock()),
     )
     monkeypatch.setattr(
-        "zotero_arxiv_daily.pipeline.candidates.SentenceTransformerEmbeddingProvider",
+        "zotero_arxiv_daily.pipeline.candidates.TransformersMeanPoolingEmbeddingProvider",
         lambda **kwargs: DeterministicEmbeddings(),
     )
     _, deps = build_production_pipeline(

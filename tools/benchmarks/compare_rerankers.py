@@ -24,6 +24,7 @@ class ModelSpec:
     revision: str
     trust_remote_code: bool
     encode_kwargs: dict[str, object]
+    implementation: str
 
 
 MODEL_SPECS = {
@@ -36,12 +37,14 @@ MODEL_SPECS = {
             "prompt_name": "document",
             "task": "retrieval",
         },
+        implementation="sentence-transformers-v1",
     ),
     "replacement": ModelSpec(
         model="sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
         revision="b207367332321f8e44f96e224ef15bc607f4dbf0",
         trust_remote_code=False,
         encode_kwargs={"normalize_embeddings": True},
+        implementation="transformers-mean-pooling-v1",
     ),
 }
 
@@ -118,6 +121,22 @@ def _default_model_factory(
 ) -> Encoder:
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
+    if spec.implementation == "transformers-mean-pooling-v1":
+        from zotero_arxiv_daily.candidates.ranking import (
+            TransformersMeanPoolingEmbeddingProvider,
+        )
+
+        provider = TransformersMeanPoolingEmbeddingProvider(
+            model=spec.model,
+            revision=spec.revision,
+            cache_folder=cache_folder,
+            task="retrieval",
+            prompt_name=None,
+            encode_kwargs=dict(spec.encode_kwargs),
+            max_sequence_length=512,
+            trust_remote_code=spec.trust_remote_code,
+        )
+        return _ConfiguredEncoder(provider, spec.encode_kwargs)
     from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer(
@@ -127,6 +146,26 @@ def _default_model_factory(
         cache_folder=None if cache_folder is None else str(cache_folder),
         local_files_only=True,
     )
+
+
+class _ConfiguredEncoder:
+    def __init__(
+        self,
+        delegate: object,
+        encode_kwargs: dict[str, object],
+    ) -> None:
+        self._delegate = delegate
+        self._encode_kwargs = dict(encode_kwargs)
+
+    def encode(self, texts: Sequence[str], **kwargs: object) -> object:
+        if kwargs != self._encode_kwargs:
+            raise ValueError("replacement encode settings differ from model identity")
+        return self._delegate.encode(texts)
+
+    def close(self) -> None:
+        close = getattr(self._delegate, "close", None)
+        if callable(close):
+            close()
 
 
 def _encode_model(
@@ -149,6 +188,9 @@ def _encode_model(
         )
         return interest_vectors, candidate_vectors
     finally:
+        close = getattr(encoder, "close", None)
+        if callable(close):
+            close()
         del encoder
         gc.collect()
 
@@ -183,6 +225,7 @@ def compare_report(
             or recorded["revision"] != spec.revision
             or recorded["trust_remote_code"] is not spec.trust_remote_code
             or recorded["encode_kwargs"] != spec.encode_kwargs
+            or recorded["implementation"] != spec.implementation
         ):
             raise ValueError(f"{name} model identity differs from recomputation code")
         interest_vectors, candidate_vectors = _encode_model(

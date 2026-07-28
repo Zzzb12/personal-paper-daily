@@ -40,6 +40,7 @@ def test_reranker_linux_repair_has_reviewable_non_regression_evidence():
     assert re.fullmatch(r"[0-9a-f]{40}", reference["revision"])
     assert re.fullmatch(r"[0-9a-f]{40}", replacement["revision"])
     assert replacement["trust_remote_code"] is False
+    assert replacement["implementation"] == "transformers-mean-pooling-v1"
     assert replacement["local_snapshot_bytes"] < reference["local_snapshot_bytes"]
     for metric in ("precision_at_5_ppm", "recall_at_5_ppm", "ndcg_at_5_ppm"):
         assert replacement[metric] >= reference[metric]

@@ -68,6 +68,7 @@
         "prompt_name": "document",
         "task": "retrieval"
       },
+      "implementation": "sentence-transformers-v1",
       "local_snapshot_bytes": 4556721955,
       "model": "jinaai/jina-embeddings-v5-text-nano-retrieval",
       "ndcg_at_5_ppm": 1000000,
@@ -81,6 +82,7 @@
       "encode_kwargs": {
         "normalize_embeddings": true
       },
+      "implementation": "transformers-mean-pooling-v1",
       "local_snapshot_bytes": 91579532,
       "model": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
       "ndcg_at_5_ppm": 1000000,

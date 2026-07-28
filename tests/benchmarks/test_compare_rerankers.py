@@ -52,6 +52,7 @@ def test_report_fixture_and_model_specs_are_bound_to_recomputation_code():
         assert recorded["revision"] == spec.revision
         assert recorded["trust_remote_code"] is spec.trust_remote_code
         assert recorded["encode_kwargs"] == spec.encode_kwargs
+        assert recorded["implementation"] == spec.implementation
 
 
 @pytest.mark.slow

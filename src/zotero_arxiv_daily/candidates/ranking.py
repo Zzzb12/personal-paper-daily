@@ -153,6 +153,134 @@ class SentenceTransformerEmbeddingProvider:
         self._garbage_collect()
 
 
+class TransformersMeanPoolingEmbeddingProvider:
+    """Text-only Transformers provider matching mean-pooling SentenceTransformer models."""
+
+    _POOLING_VERSION = "attention-mask-mean-v1"
+    _SUPPORTED_ENCODE_SETTINGS = frozenset({"batch_size", "normalize_embeddings"})
+
+    def __init__(
+        self,
+        *,
+        model: str,
+        revision: str | None = None,
+        cache_folder: Path | str | None = None,
+        task: str,
+        prompt_name: str | None,
+        encode_kwargs: dict[str, Any],
+        max_sequence_length: int = 512,
+        trust_remote_code: bool = False,
+        tokenizer_factory: Callable[..., Any] | None = None,
+        model_factory: Callable[..., Any] | None = None,
+        implementation_version: str | None = None,
+        garbage_collect: Callable[[], object] = gc.collect,
+    ) -> None:
+        if prompt_name is not None:
+            raise ValueError("transformers mean-pooling provider does not support prompts")
+        unsupported = set(encode_kwargs) - self._SUPPORTED_ENCODE_SETTINGS
+        if unsupported:
+            raise ValueError("unsupported transformers mean-pooling encode setting")
+        if isinstance(max_sequence_length, bool) or max_sequence_length <= 0:
+            raise ValueError("max_sequence_length must be a positive integer")
+        batch_size = encode_kwargs.get("batch_size", 32)
+        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+        normalize_embeddings = encode_kwargs.get("normalize_embeddings", True)
+        if not isinstance(normalize_embeddings, bool):
+            raise ValueError("normalize_embeddings must be a boolean")
+        if tokenizer_factory is None or model_factory is None:
+            from transformers import AutoModel, AutoTokenizer
+
+            tokenizer_factory = tokenizer_factory or AutoTokenizer.from_pretrained
+            model_factory = model_factory or AutoModel.from_pretrained
+        import torch
+
+        load_kwargs: dict[str, Any] = {
+            "trust_remote_code": trust_remote_code,
+        }
+        if revision is not None:
+            load_kwargs["revision"] = revision
+        if cache_folder is not None:
+            load_kwargs["cache_dir"] = str(cache_folder)
+        tokenizer = tokenizer_factory(model, **load_kwargs)
+        encoder = model_factory(model, **load_kwargs)
+        encoder.eval()
+        dimension = getattr(getattr(encoder, "config", None), "hidden_size", None)
+        if not isinstance(dimension, int) or dimension <= 0:
+            raise ValueError("embedding model must report a positive hidden size")
+        self._tokenizer = tokenizer
+        self._encoder = encoder
+        self._torch = torch
+        self._batch_size = batch_size
+        self._normalize_embeddings = normalize_embeddings
+        self._max_sequence_length = max_sequence_length
+        self._garbage_collect = garbage_collect
+        version = implementation_version or importlib.metadata.version("transformers")
+        identity_settings: dict[str, Any] = {
+            "batch_size": batch_size,
+            "max_sequence_length": max_sequence_length,
+            "normalize_embeddings": normalize_embeddings,
+            "pooling": self._POOLING_VERSION,
+            "trust_remote_code": trust_remote_code,
+        }
+        if revision is not None:
+            identity_settings["revision"] = revision
+        self.identity = EmbeddingIdentity.from_settings(
+            provider="transformers-mean-pooling",
+            implementation_version=version,
+            model=model,
+            task=task,
+            settings=identity_settings,
+            dimension=dimension,
+            dtype="float32",
+        )
+
+    def encode(self, texts: Sequence[str]) -> np.ndarray:
+        tokenizer = self._tokenizer
+        encoder = self._encoder
+        if tokenizer is None or encoder is None:
+            raise RuntimeError("embedding provider is closed")
+        items = tuple(texts)
+        if not items:
+            return np.empty((0, self.identity.dimension), dtype=np.float32)
+        vectors: list[np.ndarray] = []
+        for offset in range(0, len(items), self._batch_size):
+            batch = list(items[offset : offset + self._batch_size])
+            inputs = tokenizer(
+                batch,
+                padding=True,
+                truncation=True,
+                max_length=self._max_sequence_length,
+                return_tensors="pt",
+            )
+            with self._torch.inference_mode():
+                hidden = encoder(**inputs).last_hidden_state
+                attention_mask = inputs["attention_mask"].unsqueeze(-1).to(hidden.dtype)
+                pooled = (hidden * attention_mask).sum(dim=1) / attention_mask.sum(
+                    dim=1
+                ).clamp(min=1e-9)
+                if self._normalize_embeddings:
+                    pooled = self._torch.nn.functional.normalize(pooled, p=2, dim=1)
+            values = np.asarray(pooled.detach().cpu().numpy(), dtype=np.float32)
+            if (
+                values.shape != (len(batch), self.identity.dimension)
+                or not np.isfinite(values).all()
+            ):
+                raise ValueError("embedding provider returned invalid values")
+            vectors.append(values)
+        return np.concatenate(vectors, axis=0)
+
+    def close(self) -> None:
+        tokenizer = self._tokenizer
+        encoder = self._encoder
+        if tokenizer is None and encoder is None:
+            return
+        self._tokenizer = None
+        self._encoder = None
+        del tokenizer, encoder
+        self._garbage_collect()
+
+
 class RankedCandidates(StrictModel):
     candidates: tuple[CandidatePaper, ...]
     rankings: tuple[RankingRecord, ...]

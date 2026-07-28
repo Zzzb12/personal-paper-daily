@@ -329,7 +329,7 @@ def test_corrupt_configured_feedback_store_writes_safe_failed_manifest_before_cl
     )
     monkeypatch.setattr(
         candidates,
-        "SentenceTransformerEmbeddingProvider",
+        "TransformersMeanPoolingEmbeddingProvider",
         lambda **kwargs: calls.append("embedding"),
     )
     run_root = tmp_path / "run"

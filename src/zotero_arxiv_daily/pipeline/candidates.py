@@ -23,7 +23,7 @@ from zotero_arxiv_daily.candidates.ranking import (
     FileEmbeddingCache,
     RankedCandidates,
     RankingLimits,
-    SentenceTransformerEmbeddingProvider,
+    TransformersMeanPoolingEmbeddingProvider,
 )
 from zotero_arxiv_daily.candidates.feedback import (
     FEEDBACK_PROJECTION_IMPLEMENTATION_VERSION,
@@ -280,7 +280,7 @@ def build_production_pipeline(
             raw_encode = OmegaConf.to_container(config.reranker.local.encode_kwargs, resolve=True)
             encode_kwargs = dict(raw_encode or {})
             prompt_name = encode_kwargs.pop("prompt_name", None)
-            embedding_provider = SentenceTransformerEmbeddingProvider(
+            embedding_provider = TransformersMeanPoolingEmbeddingProvider(
                 model=str(config.reranker.local.model),
                 revision=str(config.reranker.local.revision),
                 cache_folder=Path(str(config.reranker.local.cache_folder)),
@@ -290,6 +290,9 @@ def build_production_pipeline(
                     config.reranker.local.get("trust_remote_code", False)
                 ),
                 encode_kwargs=encode_kwargs,
+                max_sequence_length=int(
+                    config.reranker.local.get("max_sequence_length", 512)
+                ),
             )
         except Exception:
             arxiv_gateway.close()
