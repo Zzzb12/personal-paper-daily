@@ -516,6 +516,14 @@ idempotency ledger, pinned least-privilege workflow, and explicit live/send/Page
 gates. Default scheduled/manual/local acceptance remains fixture-only dry-run and
 no-send.
 
+The first remote live dispatch on 2026-07-28 exposed a runner-only gap: the
+production factory eagerly constructed the local embedding reranker, but the
+workflow neither pinned nor prepared its Hugging Face revision and did not persist
+the public model cache. The follow-up repair pins the model commit, includes the
+revision in embedding identity, preflights the model without credentials, and
+allowlists only `models/reranker` in the workflow cache. A remote rerun remains an
+external acceptance step.
+
 ### Goal
 
 Run the validated pipeline daily and on manual dispatch using least-privilege GitHub Actions, safe secrets, versioned caches, static Pages deployment, and partial-failure reporting.

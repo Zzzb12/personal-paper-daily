@@ -1098,3 +1098,31 @@ identity to the prior version, and disables metrics construction without changin
 Stages 1–8 content behavior. Raw ignored benchmark outputs may be removed after
 retaining reviewed aggregate reports. Neither rollback may alter Stage 4 eligibility
 or private feedback state.
+
+## First controlled GitHub live dispatch (2026-07-28)
+
+GitHub Actions run `30341813027` selected manual live/no-send on default branch and
+passed checkout, frozen sync, safe-cache restore, delivery-ledger restore, and
+Docling model preparation. The unified CLI then exited with code 2 while constructing
+production dependencies, before a manifest, Pages artifact, Feishu request, or paid
+LLM stage existed. The run log confirmed all live gates and required variable names
+were present; the remaining eager constructor at that boundary was the uncached local
+SentenceTransformer reranker.
+
+The local repair pins `jinaai/jina-embeddings-v5-text-nano-retrieval` to commit
+`ac5d898c8d382b17167c33e5c8af644a3519b47d`, includes that revision in embedding
+cache identity, uses the explicit public cache directory `models/reranker`, and adds
+a credential-free model preflight before the daily CLI. Workflow cache scope expands
+only by that public model directory; analysis, validation, Zotero, feedback, outputs,
+environment files and credentials remain excluded. Remote GitHub rerun and Pages
+deployment are pending user push/dispatch. Rollback reverts this repair commit and
+retains the last known-good Pages artifact with live/send gates disabled.
+
+Local repair verification observed `185 passed` across the affected candidate,
+document, daily, delivery and workflow suites. Default pytest reported `818 passed,
+2 failed, 2 skipped, 1 deselected`; the only failures remain the two documented
+Windows one-second multiprocessing spawn tests. Compileall, workflow static safety,
+tracked path/archive/large-file checks and `git diff --check` passed. An actual
+offline load of the pinned cached model reported dimension 768, revision-bearing
+identity and successful close. Independent review reported no high-confidence
+findings; the fresh GitHub Runner download remains the sole external validation.

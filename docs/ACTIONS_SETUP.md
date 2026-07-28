@@ -46,9 +46,11 @@ model 通常不是密钥，也不得在运行时打印完整环境或生成配�
 
 字符串必须精确匹配。Pages 门只允许部署 daily CLI 已审核并哈希的
 `outputs/daily/viewer`，不会改变 repository visibility。启用 live 前还必须准备本地
-Docling artifacts；workflow 仅在 live 门精确开启后通过锁定的 Docling 工具版本下载
-`layout`/`tableformer` 到 `models/docling`，随后 production factory 在构造 Zotero/arXiv
-客户端前执行本地预检。模型准备失败会阻止 live run 和 Pages 更新。
+Docling artifacts 和 embedding reranker。workflow 仅在 live 门精确开启后下载
+`layout`/`tableformer` 到 `models/docling`，并通过无凭据 model preflight 下载、加载和
+验证 `config/base.yaml` 中固定 commit revision 的 Jina reranker。公开模型文件只缓存
+到 `models/reranker`；revision 同时进入 embedding cache identity。任一模型准备失败
+都会在 Zotero、LLM 和 Pages 边界之前阻止 live run。
 
 manual live/send 只允许从 repository default branch 触发。workflow 使用全局
 concurrency 且不取消进行中的 run，避免发送中断。飞书 ledger 只包含 SHA-256
