@@ -43,6 +43,7 @@ from zotero_arxiv_daily.pipeline.daily_schemas import (
 from zotero_arxiv_daily.observability.collector import AnalysisMetricsSink, MetricsSession
 from zotero_arxiv_daily.observability.metrics import PricingPolicy
 from zotero_arxiv_daily.observability.store import MetricsWriter
+from zotero_arxiv_daily.pipeline.candidates import CandidatePipelineError
 from zotero_arxiv_daily.viewer.schemas import BuildManifest
 
 
@@ -196,6 +197,19 @@ def run_daily(settings: DailySettings, dependencies: DailyDependencies) -> RunMa
             dependencies.candidate_cleanup()
     except FeedbackProjectionError:
         stages.append(_failed_stage("candidates", "feedback_projection_rejected"))
+        stages.extend(_skipped_stages(start_at=1))
+        return _finish(
+            settings,
+            dependencies,
+            started_at,
+            stages,
+            counts,
+            static_site,
+            feishu,
+            status="failed",
+        )
+    except CandidatePipelineError as error:
+        stages.append(_failed_stage("candidates", error.code))
         stages.extend(_skipped_stages(start_at=1))
         return _finish(
             settings,

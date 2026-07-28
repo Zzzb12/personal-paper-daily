@@ -46,8 +46,55 @@ from zotero_arxiv_daily.retriever.arxiv_retriever import (
 )
 
 
-class EmptyInterestCorpusError(ValueError):
-    pass
+_CANDIDATE_PIPELINE_ERROR_CODES = frozenset(
+    {
+        "candidate_interest_auth_failed",
+        "candidate_interest_empty",
+        "candidate_interest_http_failed",
+        "candidate_interest_rate_limited",
+        "candidate_interest_read_failed",
+        "candidate_interest_timeout",
+        "candidate_interest_transport_failed",
+        "candidate_metadata_auth_failed",
+        "candidate_metadata_http_failed",
+        "candidate_metadata_rate_limited",
+        "candidate_metadata_read_failed",
+        "candidate_metadata_timeout",
+        "candidate_metadata_transport_failed",
+        "candidate_ranking_failed",
+        "candidate_store_failed",
+    }
+)
+
+
+class CandidatePipelineError(RuntimeError):
+    """A privacy-safe candidate-stage failure carrying only a fixed code."""
+
+    def __init__(self, code: str) -> None:
+        if code not in _CANDIDATE_PIPELINE_ERROR_CODES:
+            raise ValueError("unsupported candidate pipeline error code")
+        super().__init__(code)
+        self.code = code
+
+
+class EmptyInterestCorpusError(CandidatePipelineError):
+    def __init__(self) -> None:
+        super().__init__("candidate_interest_empty")
+
+
+def _candidate_boundary_error_code(prefix: str, error: Exception) -> str:
+    if isinstance(error, httpx.TimeoutException):
+        return f"{prefix}_timeout"
+    if isinstance(error, httpx.HTTPStatusError):
+        status = error.response.status_code
+        if status in {401, 403}:
+            return f"{prefix}_auth_failed"
+        if status == 429:
+            return f"{prefix}_rate_limited"
+        return f"{prefix}_http_failed"
+    if isinstance(error, httpx.TransportError):
+        return f"{prefix}_transport_failed"
+    return f"{prefix}_read_failed"
 
 
 class InterestProvider(Protocol):
@@ -135,16 +182,35 @@ def build_candidate_batch(
     dependencies: CandidatePipelineDependencies,
     clock: Callable[[], datetime],
 ) -> CandidateBatch:
-    interests = dependencies.interest_provider.read()
+    try:
+        interests = dependencies.interest_provider.read()
+    except CandidatePipelineError:
+        raise
+    except Exception as error:
+        raise CandidatePipelineError(
+            _candidate_boundary_error_code("candidate_interest", error)
+        ) from None
     if not interests.papers:
-        raise EmptyInterestCorpusError("no eligible Zotero interest papers")
-    metadata = dependencies.arxiv_retriever.retrieve()
-    ranked = dependencies.ranker.rank(
-        metadata.candidates,
-        interests.papers,
-        settings.ranking_limits(),
-        feedback=dependencies.feedback,
-    )
+        raise EmptyInterestCorpusError()
+    try:
+        metadata = dependencies.arxiv_retriever.retrieve()
+    except CandidatePipelineError:
+        raise
+    except Exception as error:
+        raise CandidatePipelineError(
+            _candidate_boundary_error_code("candidate_metadata", error)
+        ) from None
+    try:
+        ranked = dependencies.ranker.rank(
+            metadata.candidates,
+            interests.papers,
+            settings.ranking_limits(),
+            feedback=dependencies.feedback,
+        )
+    except CandidatePipelineError:
+        raise
+    except Exception:
+        raise CandidatePipelineError("candidate_ranking_failed") from None
     now = clock()
     provider = getattr(dependencies.ranker, "provider", None)
     identity = getattr(provider, "identity", None)
@@ -169,7 +235,12 @@ def build_candidate_batch(
         limits=settings.ranking_limits(),
     )
     if not settings.dry_run:
-        dependencies.store.write(batch)
+        try:
+            dependencies.store.write(batch)
+        except CandidatePipelineError:
+            raise
+        except Exception:
+            raise CandidatePipelineError("candidate_store_failed") from None
     return batch
 
 

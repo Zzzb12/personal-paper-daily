@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock
 
+import httpx
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
@@ -14,6 +15,7 @@ from zotero_arxiv_daily.viewer.feedback import InterestFeedbackProjection
 from zotero_arxiv_daily.interest.base import InterestReadResult
 from zotero_arxiv_daily.pipeline.candidates import (
     CandidatePipelineDependencies,
+    CandidatePipelineError,
     CandidatePipelineSettings,
     EmptyInterestCorpusError,
     build_candidate_batch,
@@ -180,6 +182,86 @@ def test_empty_interest_corpus_fails_before_metadata_or_embeddings():
         build_candidate_batch(CandidatePipelineSettings(), deps, lambda: NOW)
     deps.arxiv_retriever.retrieve.assert_not_called()
     deps.ranker.rank.assert_not_called()
+
+
+def test_candidate_pipeline_classifies_interest_timeout_without_dynamic_details():
+    deps = dependencies()
+    deps.interest_provider = Mock()
+    deps.arxiv_retriever = Mock()
+    deps.interest_provider.read.side_effect = httpx.ReadTimeout(
+        "PRIVATE ZOTERO RESPONSE"
+    )
+
+    with pytest.raises(CandidatePipelineError) as error:
+        build_candidate_batch(CandidatePipelineSettings(), deps, lambda: NOW)
+
+    assert error.value.code == "candidate_interest_timeout"
+    assert str(error.value) == "candidate_interest_timeout"
+    assert "PRIVATE ZOTERO RESPONSE" not in str(error.value)
+    deps.arxiv_retriever.retrieve.assert_not_called()
+
+
+def test_candidate_pipeline_classifies_interest_auth_failure():
+    deps = dependencies()
+    deps.interest_provider = Mock()
+    request = httpx.Request("GET", "https://example.test")
+    response = httpx.Response(401, request=request)
+    deps.interest_provider.read.side_effect = httpx.HTTPStatusError(
+        "PRIVATE ZOTERO RESPONSE",
+        request=request,
+        response=response,
+    )
+
+    with pytest.raises(CandidatePipelineError) as error:
+        build_candidate_batch(CandidatePipelineSettings(), deps, lambda: NOW)
+
+    assert error.value.code == "candidate_interest_auth_failed"
+    assert "PRIVATE ZOTERO RESPONSE" not in str(error.value)
+
+
+def test_candidate_pipeline_classifies_metadata_rate_limit():
+    deps = dependencies()
+    deps.arxiv_retriever = Mock()
+    deps.ranker = Mock()
+    request = httpx.Request("GET", "https://example.test")
+    response = httpx.Response(429, request=request)
+    deps.arxiv_retriever.retrieve.side_effect = httpx.HTTPStatusError(
+        "PRIVATE ARXIV RESPONSE",
+        request=request,
+        response=response,
+    )
+
+    with pytest.raises(CandidatePipelineError) as error:
+        build_candidate_batch(CandidatePipelineSettings(), deps, lambda: NOW)
+
+    assert error.value.code == "candidate_metadata_rate_limited"
+    assert "PRIVATE ARXIV RESPONSE" not in str(error.value)
+    deps.ranker.rank.assert_not_called()
+
+
+def test_candidate_pipeline_classifies_ranking_and_store_failures():
+    ranking = dependencies()
+    ranking.ranker = Mock()
+    ranking.ranker.rank.side_effect = RuntimeError("PRIVATE PAPER CONTENT")
+
+    with pytest.raises(CandidatePipelineError) as ranking_error:
+        build_candidate_batch(CandidatePipelineSettings(), ranking, lambda: NOW)
+
+    assert ranking_error.value.code == "candidate_ranking_failed"
+    assert "PRIVATE PAPER CONTENT" not in str(ranking_error.value)
+
+    store = Mock()
+    store.write.side_effect = OSError("PRIVATE OUTPUT PATH")
+    persistence = dependencies(store=store)
+    with pytest.raises(CandidatePipelineError) as store_error:
+        build_candidate_batch(
+            CandidatePipelineSettings(dry_run=False),
+            persistence,
+            lambda: NOW,
+        )
+
+    assert store_error.value.code == "candidate_store_failed"
+    assert "PRIVATE OUTPUT PATH" not in str(store_error.value)
 
 
 def test_offline_fixture_cli_prints_safe_summary_without_network(monkeypatch, capsys, tmp_path):

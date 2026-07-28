@@ -38,6 +38,7 @@ from zotero_arxiv_daily.pipeline.daily import (
     _build_validation_packets,
     run_daily,
 )
+from zotero_arxiv_daily.pipeline.candidates import CandidatePipelineError
 from zotero_arxiv_daily.pipeline.validation import (
     ValidationSettings,
     build_validation_batch,
@@ -240,6 +241,28 @@ def test_candidate_cleanup_runs_before_document_stage(tmp_path: Path) -> None:
 
     assert manifest.status == "success"
     assert order[:3] == ["candidates", "candidate_cleanup", "documents"]
+
+
+def test_candidate_boundary_failure_writes_only_fixed_manifest_code(
+    tmp_path: Path,
+) -> None:
+    dependencies = _dependencies(tmp_path, _inputs(1))
+
+    def fail_candidates():
+        try:
+            raise RuntimeError("PRIVATE ZOTERO RESPONSE")
+        except RuntimeError as error:
+            raise CandidatePipelineError("candidate_interest_timeout") from error
+
+    dependencies.candidate_runner = fail_candidates
+
+    manifest = run_daily(_settings(tmp_path), dependencies)
+
+    assert manifest.status == "failed"
+    assert manifest.error_codes == ("candidate_interest_timeout",)
+    assert manifest.stages[0].error_codes == ("candidate_interest_timeout",)
+    serialized = dependencies.manifest_store.output.read_text(encoding="utf-8")
+    assert "PRIVATE ZOTERO RESPONSE" not in serialized
 
 
 def test_validation_packet_rebuild_skips_failed_analyses_without_calling_builder() -> None:
