@@ -1199,3 +1199,63 @@ Independent review found one P2 in the first repair candidate: the comparison JS
 was privacy-tested but not reproducible from repository code. That finding was
 reproduced with a failing import test and closed by the strict-offline recomputer,
 pure scoring/tie-break tests and explicit slow fixed-revision recomputation above.
+
+## Linux CPU model-runtime repair after live run `30358490057` (2026-07-28)
+
+Manual live/no-send run `30358490057` on commit `8a023d2` again stopped in
+`Prepare version-declared live models` with safe code `reranker_import_failed`.
+Checkout, uv frozen sync, cache restore and Docling model download had completed;
+the daily CLI, Zotero read, paid LLM, Pages and Feishu boundaries were not entered.
+
+Static inspection of the exact locked CPython 3.13 Linux wheels identified the
+concrete dependency mismatch. `torch 2.11.0+cpu` came from the PyTorch CPU index,
+while `torchvision 0.26.0` came from PyPI and its ELF dependencies included
+`libcudart.so.13`, `libc10_cuda.so` and `libtorch_cuda.so`. The text-only
+SentenceTransformers top-level import nevertheless imported torchvision, so the
+runner attempted to load CUDA-linked visual extensions into a CPU-only Torch
+environment. This also remained a latent Docling risk.
+
+Commit `c023cbe` repairs both boundaries. `torch==2.11.0` and
+`torchvision==0.26.0` are direct, paired dependencies from the PyTorch CPU index;
+the lock selects `2.11.0+cpu` and `0.26.0+cpu` Linux wheels. Model preflight imports
+and verifies `torchvision.ops` before constructing the reranker and maps any dynamic
+native failure to fixed safe code `cpu_vision_runtime_failed`.
+
+Production reranking no longer goes through the broad SentenceTransformers package
+import. It loads the same immutable
+`sentence-transformers/multi-qa-MiniLM-L6-cos-v1` revision with Transformers
+`AutoTokenizer`/`AutoModel`, performs the model-declared 512-token attention-mask
+mean pooling, and applies L2 normalization. Model, revision, task, remote-code
+policy, batch size, token limit, pooling implementation and normalization all enter
+the embedding identity. Three offline sample embeddings differed from the prior
+wrapper by at most `1.4901161193847656e-08`; the tracked slow equivalence test binds
+vectors and stable ordering, and the strict two-model report recomputer now executes
+the production implementation.
+
+Local completion verification observed:
+
+- uv 0.11.29 frozen sync checked 172 packages; runtime imports reported
+  `torch 2.11.0+cpu`, `torchvision 0.26.0+cpu`, and working torchvision ops;
+- affected candidate/document/pipeline/workflow/benchmark tests:
+  `308 passed, 2 deselected`;
+- default suite: `830 passed, 2 failed, 2 skipped, 3 deselected` in `67.33s`;
+- explicit `slow or not slow` suite:
+  `833 passed, 2 failed, 2 skipped` in `80.26s`;
+- both failures were the unchanged Windows one-second multiprocessing spawn tests
+  in `tests/retriever/test_arxiv_retriever.py`;
+- workflow static safety: `16 passed`; compileall and `git diff --check` passed;
+- tracked/untracked deliverable scan covered 258 files with zero prohibited private
+  path, archive, file-over-5-MiB or high-confidence secret hits; the tracked
+  `config/custom.yaml` was separately confirmed to contain only environment
+  references and public defaults, while `.env`, cache, models and outputs remained
+  ignored;
+- fixture daily dry-run succeeded with one publication, zero deliveries and six
+  viewer files totaling 32,617 bytes; manifest and audited artifact hashes matched
+  `22db8776af281f868f44123caf50d194ba54a2b4f16edf25096d544cc9c84fdf`,
+  with no forbidden artifact path or credential-name content hits.
+
+No real Zotero/private-library access, paid LLM call, Feishu send, Pages deployment,
+GitHub rerun, push, PR, merge or upstream mutation was performed. The only external
+acceptance is a user push followed by one manual live/no-send dispatch. Rollback
+reverts `c023cbe`, invalidates the affected public model/embedding caches, and keeps
+all live/send/Pages gates disabled while retaining the previous reviewed artifact.

@@ -806,9 +806,19 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
 
 - A disclosed and user-continued model replacement removed runner-incompatible
   custom remote code and pinned the replacement to a full immutable revision.
+- The subsequent Linux failure was traced to a PyPI `torchvision` wheel linked to
+  CUDA libraries while the lock selected CPU-only `torch`. Both packages are now
+  version-paired on the PyTorch CPU index, and preflight verifies the shared
+  Torch/torchvision runtime before any private or paid boundary.
+- Production reranking now loads the same fixed MiniLM tokenizer/base model through
+  a text-only Transformers mean-pooling implementation. Its 512-token truncation,
+  attention-mask pooling, normalization and implementation version are cache
+  identity inputs; an offline equivalence test binds its vectors and ordering to
+  the prior SentenceTransformer wrapper.
 - The fixed synthetic comparison showed no precision@5, recall@5 or NDCG@5
   regression; the fixture, scoring, stable tie-break, model identities, actual
-  embeddings, metrics and verdict can be recomputed in strict offline mode.
+  production embeddings, metrics and verdict can be recomputed in strict offline
+  mode.
 - The replacement completed an actual cached offline preflight and embedding
   calculation. The explicit slow/non-slow suite now completes locally; only the two
   existing Windows one-second spawn failures remain.
