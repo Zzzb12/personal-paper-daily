@@ -15,7 +15,7 @@ class _FakeProvider:
         self.closed = True
 
 
-def test_preflight_loads_pinned_public_reranker_without_credentials():
+def test_preflight_loads_pinned_public_reranker_without_remote_code():
     captured: list[_FakeProvider] = []
 
     def factory(**kwargs):
@@ -28,9 +28,13 @@ def test_preflight_loads_pinned_public_reranker_without_credentials():
         provider_factory=factory,
     )
 
-    assert captured[0].kwargs["model"] == "jinaai/jina-embeddings-v5-text-nano-retrieval"
-    assert captured[0].kwargs["revision"] == "ac5d898c8d382b17167c33e5c8af644a3519b47d"
+    assert captured[0].kwargs["model"] == "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+    assert captured[0].kwargs["revision"] == "b207367332321f8e44f96e224ef15bc607f4dbf0"
     assert captured[0].kwargs["cache_folder"] == Path("models/reranker")
+    assert captured[0].kwargs["task"] == "retrieval"
+    assert captured[0].kwargs["trust_remote_code"] is False
+    assert captured[0].kwargs["prompt_name"] is None
+    assert captured[0].kwargs["encode_kwargs"] == {"normalize_embeddings": True}
     assert captured[0].closed is True
 
 

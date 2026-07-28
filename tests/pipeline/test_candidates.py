@@ -236,9 +236,13 @@ def test_production_factory_wires_real_boundaries_from_config_and_environment(mo
         "PaperDaily/00-Seeds/**", "PaperDaily/03-Read/**", "PaperDaily/04-Favorite/**"
     )
     assert calls["zotero"][0:2] == ("synthetic-id", "synthetic-key")
-    assert calls["embedding"]["model"] == "jinaai/jina-embeddings-v5-text-nano-retrieval"
-    assert calls["embedding"]["revision"] == "ac5d898c8d382b17167c33e5c8af644a3519b47d"
+    assert calls["embedding"]["model"] == "sentence-transformers/multi-qa-MiniLM-L6-cos-v1"
+    assert calls["embedding"]["revision"] == "b207367332321f8e44f96e224ef15bc607f4dbf0"
     assert calls["embedding"]["cache_folder"] == Path("models/reranker")
+    assert calls["embedding"]["task"] == "retrieval"
+    assert calls["embedding"]["trust_remote_code"] is False
+    assert calls["embedding"]["prompt_name"] is None
+    assert calls["embedding"]["encode_kwargs"] == {"normalize_embeddings": True}
     assert deps.store.root == Path("data/candidates")
     assert deps.ranker.provider.cache.root == Path("cache/embeddings")
     offset_time = datetime(2026, 7, 20, 8, tzinfo=timezone(timedelta(hours=8)))

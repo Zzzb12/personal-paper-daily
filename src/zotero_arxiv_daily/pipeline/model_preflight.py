@@ -55,14 +55,14 @@ def prepare_local_reranker(
     cache_folder = _safe_relative_cache_folder(local.cache_folder)
     raw_encode = OmegaConf.to_container(local.encode_kwargs, resolve=True)
     encode_kwargs = dict(raw_encode or {})
-    task = str(encode_kwargs.pop("task", "retrieval"))
     prompt_name = encode_kwargs.pop("prompt_name", None)
     provider = provider_factory(
         model=str(local.model),
         revision=revision,
         cache_folder=cache_folder,
-        task=task,
+        task=str(local.get("task", "retrieval")),
         prompt_name=prompt_name,
+        trust_remote_code=bool(local.get("trust_remote_code", False)),
         encode_kwargs=encode_kwargs,
     )
     try:

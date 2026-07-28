@@ -1,0 +1,102 @@
+{
+  "fixture": {
+    "candidate_count": 10,
+    "interest_count": 3,
+    "relevant_candidate_count": 5,
+    "synthetic": true
+  },
+  "fixture_data": {
+    "candidates": [
+      [
+        "Efficient vision transformers for high-resolution image recognition.",
+        1
+      ],
+      [
+        "Open-vocabulary object detection with image-text pretraining.",
+        1
+      ],
+      [
+        "Self-supervised masked image modeling for visual representations.",
+        1
+      ],
+      [
+        "Parameter-efficient adaptation of multimodal vision-language models.",
+        1
+      ],
+      [
+        "Semantic segmentation using hierarchical visual transformers.",
+        1
+      ],
+      [
+        "Quantum error correction for superconducting qubit architectures.",
+        0
+      ],
+      [
+        "Single-cell transcriptomics of immune response pathways.",
+        0
+      ],
+      [
+        "Fiscal policy effects on international bond markets.",
+        0
+      ],
+      [
+        "Protein folding dynamics measured by cryogenic microscopy.",
+        0
+      ],
+      [
+        "Archaeological reconstruction of ancient maritime trade.",
+        0
+      ]
+    ],
+    "interests": [
+      "Vision transformer architectures for image classification and representation learning.",
+      "Self-supervised visual representation learning for object detection and segmentation.",
+      "Multimodal foundation models that align images and natural language."
+    ]
+  },
+  "fixture_sha256": "48468f18c363e5ee63fa56b821ffa92fe6d5ffbbb401ea328e0c50626826afd1",
+  "limitations": [
+    "The synthetic fixture checks topical separation for the configured computer-vision use case; it does not establish universal ranking quality.",
+    "Local snapshot bytes are an observed cache footprint, not a network transfer guarantee.",
+    "The Linux import repair still requires one GitHub-hosted Runner validation after the reviewed commit is pushed."
+  ],
+  "models": {
+    "reference": {
+      "dimension": 768,
+      "encode_kwargs": {
+        "normalize_embeddings": true,
+        "prompt_name": "document",
+        "task": "retrieval"
+      },
+      "local_snapshot_bytes": 4556721955,
+      "model": "jinaai/jina-embeddings-v5-text-nano-retrieval",
+      "ndcg_at_5_ppm": 1000000,
+      "precision_at_5_ppm": 1000000,
+      "recall_at_5_ppm": 1000000,
+      "revision": "ac5d898c8d382b17167c33e5c8af644a3519b47d",
+      "trust_remote_code": true
+    },
+    "replacement": {
+      "dimension": 384,
+      "encode_kwargs": {
+        "normalize_embeddings": true
+      },
+      "local_snapshot_bytes": 91579532,
+      "model": "sentence-transformers/multi-qa-MiniLM-L6-cos-v1",
+      "ndcg_at_5_ppm": 1000000,
+      "precision_at_5_ppm": 1000000,
+      "recall_at_5_ppm": 1000000,
+      "revision": "b207367332321f8e44f96e224ef15bc607f4dbf0",
+      "trust_remote_code": false
+    }
+  },
+  "recorded_date": "2026-07-28",
+  "safety": {
+    "network_calls": 0,
+    "paid_calls": 0,
+    "private_records": 0,
+    "real_deliveries": 0
+  },
+  "schema_version": "1",
+  "verdict": "non_regression_pass"
+}

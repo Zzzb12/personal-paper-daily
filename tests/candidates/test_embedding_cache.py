@@ -98,13 +98,12 @@ def test_sentence_transformer_provider_records_settings_without_network():
 
         def encode(self, texts, **kwargs):
             assert texts == ["alpha"]
-            assert kwargs == {
-                "task": "retrieval", "prompt_name": "document", "normalize_embeddings": True
-            }
+            assert kwargs == {"normalize_embeddings": True}
             return np.asarray([[1, 2, 3]], dtype=np.float32)
 
     provider = SentenceTransformerEmbeddingProvider(
-        model="synthetic/model", task="retrieval", prompt_name="document",
+        model="synthetic/model", task="retrieval", prompt_name=None,
+        trust_remote_code=False,
         encode_kwargs={"normalize_embeddings": True}, model_factory=lambda _: FakeEncoder(),
         implementation_version="test-version",
     )
@@ -113,7 +112,9 @@ def test_sentence_transformer_provider_records_settings_without_network():
     assert provider.identity.dimension == 3
     assert provider.identity.dtype == "float32"
     assert json.loads(provider.identity.settings_json) == {
-        "encode_kwargs": {"normalize_embeddings": True}, "prompt_name": "document"
+        "encode_kwargs": {"normalize_embeddings": True},
+        "prompt_name": None,
+        "trust_remote_code": False,
     }
 
 
@@ -128,6 +129,7 @@ def test_sentence_transformer_provider_revision_changes_cache_identity():
         cache_folder="models/reranker",
         task="retrieval",
         prompt_name="document",
+        trust_remote_code=False,
         encode_kwargs={},
         model_factory=lambda _: FakeEncoder(),
         implementation_version="test-version",
@@ -138,6 +140,7 @@ def test_sentence_transformer_provider_revision_changes_cache_identity():
         cache_folder="models/reranker",
         task="retrieval",
         prompt_name="document",
+        trust_remote_code=False,
         encode_kwargs={},
         model_factory=lambda _: FakeEncoder(),
         implementation_version="test-version",

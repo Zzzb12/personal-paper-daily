@@ -93,6 +93,7 @@ class SentenceTransformerEmbeddingProvider:
         task: str,
         prompt_name: str | None,
         encode_kwargs: dict[str, Any],
+        trust_remote_code: bool = False,
         model_factory: Callable[[str], Any] | None = None,
         implementation_version: str | None = None,
         garbage_collect: Callable[[], object] = gc.collect,
@@ -106,7 +107,7 @@ class SentenceTransformerEmbeddingProvider:
                 cache_folder=(
                     None if cache_folder is None else str(cache_folder)
                 ),
-                trust_remote_code=True,
+                trust_remote_code=trust_remote_code,
             )
         self._encoder = model_factory(model)
         self._task = task
@@ -120,6 +121,7 @@ class SentenceTransformerEmbeddingProvider:
         identity_settings: dict[str, Any] = {
             "prompt_name": prompt_name,
             "encode_kwargs": self._encode_kwargs,
+            "trust_remote_code": trust_remote_code,
         }
         if revision is not None:
             identity_settings["revision"] = revision
@@ -138,7 +140,6 @@ class SentenceTransformerEmbeddingProvider:
         if encoder is None:
             raise RuntimeError("embedding provider is closed")
         kwargs = dict(self._encode_kwargs)
-        kwargs["task"] = self._task
         if self._prompt_name is not None:
             kwargs["prompt_name"] = self._prompt_name
         return np.asarray(encoder.encode(list(texts), **kwargs), dtype=np.float32)

@@ -279,14 +279,16 @@ def build_production_pipeline(
         try:
             raw_encode = OmegaConf.to_container(config.reranker.local.encode_kwargs, resolve=True)
             encode_kwargs = dict(raw_encode or {})
-            task = str(encode_kwargs.pop("task", "retrieval"))
             prompt_name = encode_kwargs.pop("prompt_name", None)
             embedding_provider = SentenceTransformerEmbeddingProvider(
                 model=str(config.reranker.local.model),
                 revision=str(config.reranker.local.revision),
                 cache_folder=Path(str(config.reranker.local.cache_folder)),
-                task=task,
+                task=str(config.reranker.local.get("task", "retrieval")),
                 prompt_name=prompt_name,
+                trust_remote_code=bool(
+                    config.reranker.local.get("trust_remote_code", False)
+                ),
                 encode_kwargs=encode_kwargs,
             )
         except Exception:
