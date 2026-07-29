@@ -256,14 +256,18 @@ Actions → Personal Paper Daily → Run workflow
 `live_run=true` 仅申请真实网络运行；`send_feishu=true` 仅在 live 和相应
 acknowledgement 同时成立时发送。没有精确门禁值时，schedule 仍保持 dry-run/no-send。
 
+Dry-run 只验证 fixture 流水线，绝不会上传或部署 GitHub Pages；schedule 要生成真实
+日报，必须将 `PAPER_DAILY_SCHEDULE_LIVE` 精确设为表中的确认值。
+
 如需 GitHub Pages：
 
 1. 在 `Settings → Pages → Build and deployment` 选择 `GitHub Actions`。
 2. 配置 `PAPER_DAILY_ENABLE_PAGES_DEPLOY`。
 3. 成功部署后，将实际 Pages HTTPS 地址填入 `PAPER_DAILY_SITE_URL`。
 
-GitHub Pages 网站是公开内容。流水线只上传通过 Stage 4 和 artifact audit 的 viewer
-目录，不会自动把私人仓库改成公开，也不会向上游仓库写入。
+GitHub Pages 网站是公开内容。流水线只上传 live 模式中通过 Stage 4 和 artifact
+audit 的 viewer 目录；fixture dry-run 即使成功也没有发布资格。流水线不会自动把
+私人仓库改为公开，也不会向上游仓库写入。
 
 ## 输出与数据边界
 

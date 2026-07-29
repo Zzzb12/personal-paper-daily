@@ -854,6 +854,18 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   cannot contain the new diagnostics.
 - This repair does not change prompts, Stage 4 eligibility, parser/mapper/validator,
   renderer, Feishu gates, Pages gates, credentials or private-data boundaries.
+- GitHub Actions run `#10` failed before any LLM/PDF/Feishu work because the
+  arXiv export metadata endpoint returned HTTP 429. The live retriever now falls
+  back immediately to official per-category Atom/RSS feeds and uses a validated,
+  versioned public-metadata cache for same-day reuse and bounded transient-outage
+  recovery.
+- Scheduled run `#11` was a one-item fixture dry-run, not a successful production
+  retrieval. Pages publication now explicitly requires `not manifest.dry_run`,
+  so fixture output can never replace the reviewed live site.
+- The correction passed 99 focused retriever/candidate/daily/workflow tests and a
+  real public arXiv fallback/cache check. The default suite retained only the two
+  documented Windows one-second multiprocessing spawn baseline failures
+  (`852 passed, 2 failed, 2 skipped, 3 deselected`).
 
 ### Acceptance criteria
 

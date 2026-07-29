@@ -1401,3 +1401,52 @@ rejection through interest, metadata, ranking and store boundaries. Both finding
 were reproduced with failing tests before repair. Final independent rereview ran
 59 focused tests, found no remaining Critical, Important or Minor issue, and
 returned `Ready`.
+
+## Live run #10 rate limit and scheduled run #11 correction (2026-07-29)
+
+GitHub Actions run `#10` (`30380774315`) was a manual live/no-send run at commit
+`3f339d2`. It failed in candidate metadata retrieval because the arXiv export API
+returned HTTP 429. The candidate stage spent 35.525 seconds before returning the
+safe code `candidate_metadata_rate_limited`; no LLM request, token usage, paid
+call, PDF analysis or Feishu delivery occurred.
+
+Run `#11` (`30406988726`) used the same commit but was a scheduled fixture
+dry-run: its manifest records `dry_run: true`, one synthetic publication and no
+real Zotero/LLM work. It was therefore not evidence that the production path had
+recovered. The old workflow also incorrectly considered this fixture viewer
+eligible for Pages deployment.
+
+Commit `b880004` repairs both issues:
+
+- HTTP 429 from the primary arXiv export endpoint immediately falls back to the
+  official per-category arXiv Atom/RSS feeds instead of retrying the same
+  rate-limited request.
+- Valid metadata is cached by a versioned query identity and payload hash.
+  Same-day cache hits avoid repeat public requests; only validated cache no older
+  than seven days may cover a transient dual-source outage. Corrupt, oversized,
+  future-dated, expired or identity-mismatched entries are misses.
+- Cache writes use same-directory temporary files, flush/fsync and atomic replace.
+  The cache contains public metadata only, is included in the workflow's explicit
+  safe-cache allowlist, is excluded from uploaded artifacts and cannot bypass
+  Stage 4 eligibility.
+- arXiv requests use a stable project User-Agent and request Atom explicitly.
+- Pages readiness now requires `not manifest.dry_run`; a successful fixture
+  schedule can no longer upload or deploy a public viewer.
+
+A real public-network integration check observed the export endpoint returning
+429, then retrieved 191 entries through the official category feeds in 71.280
+seconds. The next identical request was served from the validated cache in 0.048
+seconds with identical results. It did not access a private Zotero library, call
+an LLM or send Feishu.
+
+Final verification: 99 focused retriever/candidate/daily/workflow tests passed;
+the default suite reported `852 passed, 2 failed, 2 skipped, 3 deselected`.
+The two failures are the unchanged Windows one-second multiprocessing spawn
+baseline tests. `python -m compileall -q src`, workflow static validation and
+`git diff --check` passed.
+
+Scheduled production execution still requires the repository variable
+`PAPER_DAILY_SCHEDULE_LIVE=I_UNDERSTAND_LIVE_NETWORK`. Feishu schedule sending
+remains separately disabled unless its exact acknowledgement is configured.
+Rollback is a revert of `b880004`, which restores the old arXiv failure and
+dry-run Pages behavior.
