@@ -127,6 +127,10 @@ Start-Process notepad.exe -ArgumentList (Resolve-Path '.env')
 | `FEISHU_CHAT_ID` | `oc_` 开头的目标会话 ID | Secret |
 | `PAPER_DAILY_SITE_URL` | Viewer 的公开 HTTPS 基础地址 | Variable |
 
+当 `LLM_BASE_URL=https://api.deepseek.com` 时，分析客户端会为严格 JSON
+提取显式关闭 thinking 模式，并对提供方偶发的空响应或 token 截断执行有界重试。
+这一行为属于版本化的 `stage3-v2` prompt/cache 身份，不需要额外环境变量。
+
 `.env` 不会被 CLI 自动读取。下面的本地 live 命令通过 `python-dotenv` 将它注入
 子进程；不要使用会打印变量值的 `dotenv list`、`printenv` 或调试环境转储。
 

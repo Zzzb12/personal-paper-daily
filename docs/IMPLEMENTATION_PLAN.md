@@ -866,6 +866,19 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   real public arXiv fallback/cache check. The default suite retained only the two
   documented Windows one-second multiprocessing spawn baseline failures
   (`852 passed, 2 failed, 2 skipped, 3 deselected`).
+- Manual run `#12` confirmed the arXiv fallback but exposed three Stage 3
+  compatibility failures from official DeepSeek V4 JSON mode: empty content,
+  incomplete/non-JSON content and text evidence selected as an optional
+  SupportingVisual. Stage 4 correctly published zero papers.
+- `stage3-v2` explicitly disables DeepSeek thinking for structured extraction,
+  performs bounded retries for empty/truncated/transient responses, includes a
+  complete minimal JSON example and discards only known-text optional visual
+  selections. Unknown evidence, fabricated visual provenance and invalid
+  ablations remain blocked.
+- The Stage 3 correction passed 270 relevant analysis/validation/daily/workflow
+  tests. The default suite reported
+  `860 passed, 2 failed, 2 skipped, 3 deselected`, retaining only the documented
+  Windows one-second spawn baseline failures.
 
 ### Acceptance criteria
 

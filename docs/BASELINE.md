@@ -1450,3 +1450,42 @@ Scheduled production execution still requires the repository variable
 remains separately disabled unless its exact acknowledgement is configured.
 Rollback is a revert of `b880004`, which restores the old arXiv failure and
 dry-run Pages behavior.
+
+## Live run #12 structured-analysis correction (2026-07-29)
+
+Manual live/no-send run `#12` (`30417546753`) executed commit `3e10d4f` for
+19 minutes 26 seconds. The arXiv repair worked: the run processed 200 public
+entries, retained 30 candidates and selected five papers. All five documents
+remained usable, although their extraction results were partial.
+
+The run then made five paid DeepSeek requests. Three returned non-empty responses,
+but no paper passed Stage 3: the safe error set contained
+`analysis_visual_provenance_mismatch`, `analysis_malformed_json` and
+`analysis_malformed_response`. The other two calls returned unusable empty
+content. Stage 4 correctly blocked all five papers, so Pages and Feishu were not
+updated. The final workflow outcome gate merely reflected this failed manifest.
+
+The correction introduces immutable prompt identity `stage3-v2` and:
+
+- explicitly disables thinking mode for official `api.deepseek.com` JSON
+  requests;
+- treats empty content, `finish_reason=length` and transient provider resource
+  failure as bounded retryable failures while leaving authentication, content
+  filtering and other permanent failures non-retryable;
+- supplies a complete minimal JSON object example with exact paper metadata and
+  all required top-level fields;
+- accepts only a single JSON Markdown wrapper as a transport formatting repair;
+- drops a known text candidate only when the model incorrectly places it in the
+  optional SupportingVisual list. Unknown evidence, fabricated visuals, invalid
+  claims and non-visual ablations remain hard failures;
+- includes provider request behavior and prompt version in analysis cache
+  identity, preventing reuse of prior `stage3-v1` results.
+
+No additional paid call was made during this correction. Relevant Stage 3/4,
+daily and workflow regression reported `270 passed`; the default suite reported
+`860 passed, 2 failed, 2 skipped, 3 deselected`. The two failures are the
+unchanged Windows one-second multiprocessing spawn baseline. Compileall and
+`git diff --check` passed. External acceptance requires a new live/no-send
+dispatch after pushing the correction; rerunning run `#12` would execute its old
+commit. Rollback reverts the structured-analysis correction commit and restores
+`stage3-v1`.
