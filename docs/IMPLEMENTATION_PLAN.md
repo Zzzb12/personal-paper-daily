@@ -896,6 +896,17 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
 - Local public/synthetic verification used no Zotero private data, paid LLM or
   Feishu sending. Desktop and 390-pixel Playwright checks displayed the figure and
   reported no browser console errors or warnings.
+- Manual run `#15` published two papers but delivered zero Feishu messages because
+  the explicit manual-send repository acknowledgement was missing; its manifest
+  correctly recorded `preview`, not a delivery success. The acknowledgement is
+  now configured and the workflow emits a visible safe warning when a checked send
+  request is still gated.
+- Candidate scorer `focused-cosine-feedback-v4` adds a versioned Future Cache/video
+  generation focus vector and a minimum similarity gate. An unrelated day now
+  yields an empty shortlist before paid analysis rather than generic AI papers.
+- Viewer/template `stage5-v3`, designed through the installed OpenDesign workflow,
+  provides a white-and-blue research-observatory hierarchy while preserving the
+  evidence, accessibility, privacy, CSP and artifact boundaries.
 - Relevant regression reported `633 passed`; the explicit slow suite reported
   `3 passed`. The default non-slow suite retained only the two documented Windows
   one-second multiprocessing spawn baseline failures

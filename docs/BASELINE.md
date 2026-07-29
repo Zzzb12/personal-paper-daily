@@ -1542,3 +1542,42 @@ and deploys `stage5-v2`; rerunning `#13` would continue to use its old commit.
 Rollback reverts this correction, restores evidence builder `2`, analysis config
 `1` and viewer/template `stage5-v1`, and invalidates only the corresponding newer
 cache identities.
+
+## Live run #15 delivery, focus, and viewer correction (2026-07-29)
+
+Manual live run `#15` (`30464301880`) executed commit `d4ef1de`. It processed
+200 public inputs, retained 30 candidates, selected and analyzed five papers,
+validated and published two, and deployed the reviewed Pages artifact. Five paid
+LLM calls completed. Feishu did not fail at its API boundary: the manifest records
+`status: preview`, `delivered_count: 0` and no delivery idempotency key because
+the repository variable `PAPER_DAILY_MANUAL_SEND` was absent. The workflow input
+alone cannot bypass this second acknowledgement.
+
+The two published papers were about an AIGC-detector attack and ICU trajectory
+forecasting. The old scorer averaged each candidate against the complete Zotero
+interest corpus, which diluted the active Future Cache topic and allowed generic
+AI similarity to dominate. The correction adds scorer identity
+`focused-cosine-feedback-v4`, with a tracked Future Cache/video-generation query,
+an 0.8 focus blend and a 0.3 cosine hard gate. Papers below the focus gate now
+produce an honest empty shortlist before document or paid analysis stages. The
+focus policy is part of the candidate config hash; existing embedding cache
+entries remain safe because each text and embedding identity is independently
+hashed.
+
+The viewer/template identity is now `stage5-v3`. OpenDesign was installed to the
+user skill directory and its context-first/anti-template rules informed a
+white-and-blue research-observatory system: orbital issue telemetry, technical
+grid, numbered reading map, explicit evidence layers and responsive 390-pixel
+layout. Existing CSP, Stage 4 eligibility, content-addressed figures, local-only
+feedback and artifact auditing are unchanged.
+
+Focused candidate/pipeline/viewer/workflow tests reported `196 passed`. A fixture
+artifact displayed its approved contextual image on desktop and mobile with zero
+browser console errors or warnings. No private Zotero read, paid LLM call or real
+Feishu send was made during this correction. The repository manual-send
+acknowledgement was configured, but a future dispatch must still explicitly enable
+both manual live and manual send.
+
+Rollback removes `PAPER_DAILY_MANUAL_SEND`, reverts this correction, restores the
+unfocused v3 scorer and viewer/template `stage5-v2`, and leaves scheduled sending
+disabled.
