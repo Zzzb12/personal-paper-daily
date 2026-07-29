@@ -78,20 +78,27 @@ class AtomicOutputRoot:
         self,
         directory: PurePosixPath,
         *,
-        suffix: str,
+        suffix: str | tuple[str, ...],
         keep_names: set[str],
     ) -> tuple[PurePosixPath, ...]:
         """Remove only stale generated files from one controlled output directory."""
+        suffixes = (suffix,) if isinstance(suffix, str) else suffix
+        if not suffixes or any(not value.startswith(".") for value in suffixes):
+            raise ValueError("stale-file suffixes must be explicit file extensions")
         target_directory = self._target(directory)
         if self._dry_run or not target_directory.exists():
             return ()
         if not target_directory.is_dir():
             raise ValueError("stale-file directory must be a directory")
         removed: list[PurePosixPath] = []
-        for candidate in target_directory.iterdir():
+        for candidate in sorted(target_directory.iterdir(), key=lambda path: path.name):
             if candidate.is_symlink():
                 raise ValueError("stale-file directory must not contain symbolic links")
-            if candidate.is_file() and candidate.suffix == suffix and candidate.name not in keep_names:
+            if (
+                candidate.is_file()
+                and candidate.suffix.lower() in suffixes
+                and candidate.name not in keep_names
+            ):
                 candidate.unlink()
                 removed.append(directory / candidate.name)
         return tuple(removed)

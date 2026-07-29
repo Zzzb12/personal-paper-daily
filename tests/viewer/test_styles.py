@@ -38,3 +38,19 @@ def test_feedback_styles_use_a_restrained_compositor_only_research_desk_entrance
     assert "opacity:" in css
     assert "will-change: transform, opacity" in css
     assert "will-change: auto" in css
+
+
+def test_editorial_redesign_has_reading_grid_depth_and_clear_section_hierarchy() -> None:
+    css = (Path(__file__).parents[2] / "src" / "zotero_arxiv_daily" / "viewer" / "static" / "site.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert "--night:" in css
+    assert "--signal:" in css
+    assert ".detail-shell" in css
+    assert ".reading-rail" in css
+    assert ".story-section" in css
+    assert ".insight-card" in css
+    assert ".coverage-panel" in css
+    assert "position: sticky" in css
+    assert "radial-gradient" in css

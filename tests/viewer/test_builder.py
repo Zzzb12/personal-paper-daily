@@ -110,6 +110,82 @@ def test_builder_publishes_local_evidence_image_and_renders_it(tmp_path: Path) -
     assert list((tmp_path / "site" / "assets" / "evidence").glob("*.png"))
 
 
+def test_builder_publishes_validated_context_visual_when_model_selected_none(
+    tmp_path: Path,
+) -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    assert result.validated is not None
+    evidence_root = tmp_path / "evidence"
+    evidence_root.mkdir()
+    image = evidence_root / "context-figure.png"
+    Image.new("RGB", (320, 180), color="#d9eee7").save(image, format="PNG")
+    analysis = result.validated.analysis
+    visual_candidate = next(
+        item for item in analysis.evidence_candidates if item.kind != "text"
+    )
+    region = visual_candidate.regions[0].model_copy(update={"image_path": image})
+    candidates = tuple(
+        item.model_copy(update={"regions": (region, *item.regions[1:])})
+        if item.evidence_id == visual_candidate.evidence_id
+        else item
+        for item in analysis.evidence_candidates
+    )
+    analysis = analysis.model_copy(
+        update={"supporting_visuals": (), "evidence_candidates": candidates}
+    )
+    with_context = result.model_copy(
+        update={
+            "validated": result.validated.model_copy(
+                update={"analysis": analysis}
+            )
+        }
+    )
+
+    manifest = StaticViewerBuilder(
+        ViewerSettings(output_root=tmp_path / "site", evidence_roots=(evidence_root,))
+    ).build((with_context,), batch_label="2026-07-29")
+
+    detail_html = (
+        tmp_path / "site" / "papers" / "arxiv-2401.00001.html"
+    ).read_text(encoding="utf-8")
+    assert '<img src="../assets/evidence/' in detail_html
+    assert 'data-visual-role="context"' in detail_html
+    assert "不作为核心结论的直接证据" in detail_html
+    published = list((tmp_path / "site" / "assets" / "evidence").glob("*.png"))
+    assert published
+    assert f"assets/evidence/{published[0].name}" in manifest.written_paths
+    assert ArtifactAuditor(tmp_path).audit(tmp_path / "site").file_count == len(
+        manifest.written_paths
+    )
+
+    without_context = result.model_copy(
+        update={
+            "validated": result.validated.model_copy(
+                update={
+                    "analysis": result.validated.analysis.model_copy(
+                        update={
+                            "supporting_visuals": (),
+                            "evidence_candidates": tuple(
+                                item
+                                for item in result.validated.analysis.evidence_candidates
+                                if item.kind == "text"
+                            ),
+                        }
+                    )
+                }
+            )
+        }
+    )
+    StaticViewerBuilder(
+        ViewerSettings(output_root=tmp_path / "site", evidence_roots=(evidence_root,))
+    ).build((without_context,), batch_label="2026-07-30")
+    assert not published[0].exists()
+    ArtifactAuditor(tmp_path).audit(tmp_path / "site")
+
+
 def test_builder_enforces_configured_page_limit(tmp_path: Path) -> None:
     from tests.analysis.stage4_factories import golden_inputs
     from zotero_arxiv_daily.analysis.validator import validate_paper
@@ -196,7 +272,7 @@ def test_parallel_builder_writes_manifest_last_and_not_after_batch_failure(
         ViewerSettings(output_root=tmp_path / "success")
     ).build((result,), batch_label="stage9")
 
-    assert calls == ["batch", "cleanup", "build-manifest.json"]
+    assert calls == ["batch", "cleanup", "cleanup", "build-manifest.json"]
 
     def fail_batch(self, entries, **kwargs):
         raise RuntimeError("PRIVATE BATCH FAILURE")

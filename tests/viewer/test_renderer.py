@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from zotero_arxiv_daily.viewer.renderer import TemplateRenderer
 from zotero_arxiv_daily.viewer.schemas import IndexPageModel, PaperPageModel
 
@@ -113,9 +115,54 @@ def test_detail_page_uses_validated_analysis_in_fixed_reading_order() -> None:
     assert "推荐理由" in html and "研究问题" in html
     assert "核心 Insight" in html and "Insight 形成逻辑" in html
     assert html.index("核心 Insight") < html.index("Method") < html.index("关键参数")
-    assert "PDF page" in html and "confidence" in html
-    assert "论文未明确提供" in html
+    assert "<span>PDF " in html and "<span>CONF " in html
+    assert "论文未明确提供" not in html
     assert 'rel="icon" href="../assets/favicon.svg"' in html
+    assert 'class="skip-link"' in html
+    assert 'class="detail-shell"' in html
+    assert 'class="reading-rail"' in html
+    assert 'id="insights"' in html
+    assert 'id="method"' in html
+    assert 'id="experiments"' in html
+
+
+def test_detail_page_consolidates_missing_content_in_one_coverage_panel() -> None:
+    from tests.analysis.stage4_factories import golden_inputs
+    from zotero_arxiv_daily.analysis.validator import validate_paper
+
+    result = validate_paper(*golden_inputs())
+    assert result.validated is not None
+    analysis = result.validated.analysis.model_copy(
+        update={
+            "recommendation_reason": None,
+            "supporting_visuals": (),
+            "parameters": (),
+            "ablations": (),
+            "limitations": (),
+        }
+    )
+
+    html = TemplateRenderer(site_title="Paper Daily").render_paper(
+        analysis,
+        result.validated.report,
+        publication_kind="full",
+    )
+
+    assert "论文未明确提供" not in html
+    assert html.count('class="coverage-panel"') == 1
+    assert 'data-missing-field="recommendation"' in html
+    assert 'data-missing-field="parameters"' in html
+    assert 'data-missing-field="ablations"' in html
+    assert 'data-missing-field="limitations"' in html
+    assert "<h2>关键参数</h2>" not in html
+    assert "<h2>参数对应的消融实验</h2>" not in html
+    section_numbers = re.findall(
+        r'<span class="section-index">(\d{2})</span>',
+        html,
+    )
+    assert section_numbers == [
+        f"{index:02d}" for index in range(1, len(section_numbers) + 1)
+    ]
 
 
 def test_detail_page_can_mark_read_without_embedding_private_feedback() -> None:

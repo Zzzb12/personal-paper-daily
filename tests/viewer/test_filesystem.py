@@ -226,3 +226,37 @@ def test_empty_and_dry_run_batch_create_no_executor_or_output(
     assert paths == (tmp_path / "site" / "index.html",)
     assert not (tmp_path / "site").exists()
     executor_factory.assert_not_called()
+
+
+def test_stale_cleanup_accepts_only_explicit_suffixes_and_multiple_image_types(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "site"
+    evidence = root / "assets" / "evidence"
+    evidence.mkdir(parents=True)
+    keep = evidence / "keep.png"
+    stale_png = evidence / "stale.png"
+    stale_jpg = evidence / "stale.jpg"
+    unrelated = evidence / "notes.txt"
+    for path in (keep, stale_png, stale_jpg, unrelated):
+        path.write_bytes(b"x")
+    output = AtomicOutputRoot(root)
+
+    removed = output.remove_stale_files(
+        PurePosixPath("assets", "evidence"),
+        suffix=(".png", ".jpg"),
+        keep_names={"keep.png"},
+    )
+
+    assert removed == (
+        PurePosixPath("assets", "evidence", "stale.jpg"),
+        PurePosixPath("assets", "evidence", "stale.png"),
+    )
+    assert keep.exists()
+    assert unrelated.exists()
+    with pytest.raises(ValueError, match="suffixes"):
+        output.remove_stale_files(
+            PurePosixPath("assets", "evidence"),
+            suffix=(),
+            keep_names=set(),
+        )

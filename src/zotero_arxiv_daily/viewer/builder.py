@@ -57,19 +57,24 @@ class StaticViewerBuilder:
                 chinese_title=analysis.chinese_title.text_zh if analysis.chinese_title else None,
                 publication_kind=decision.kind,
             )
+            evidence_image_urls, evidence_asset_paths = self._publish_evidence_images(
+                analysis,
+                dry_run=dry_run,
+            )
             entries.append(
                 (
                     relative,
                     self._renderer.render_paper(
-                    analysis,
-                    result.report,
-                    publication_kind=decision.kind,
-                    evidence_image_urls=self._publish_evidence_images(analysis, dry_run=dry_run),
+                        analysis,
+                        result.report,
+                        publication_kind=decision.kind,
+                        evidence_image_urls=evidence_image_urls,
                     ),
                 )
             )
             pages.append(page)
             written.append(relative.as_posix())
+            written.extend(evidence_asset_paths)
             partial_count += decision.kind == "partial"
         index = IndexPageModel(batch_label=batch_label, papers=tuple(pages), valid_count=len(pages) - partial_count, partial_count=partial_count)
         entries.extend(
@@ -86,7 +91,7 @@ class StaticViewerBuilder:
             template_version=self._settings.template_version,
             published_count=len(pages),
             partial_count=partial_count,
-            written_paths=tuple(sorted(written + ["build-manifest.json"])),
+            written_paths=tuple(sorted(set(written + ["build-manifest.json"]))),
         )
         if self._parallel_writes:
             output.write_many_text(
@@ -101,6 +106,15 @@ class StaticViewerBuilder:
             PurePosixPath("papers"),
             suffix=".html",
             keep_names={Path(page.relative_path).name for page in pages},
+        )
+        output.remove_stale_files(
+            PurePosixPath("assets", "evidence"),
+            suffix=(".png", ".jpg", ".jpeg", ".webp"),
+            keep_names={
+                Path(relative).name
+                for relative in written
+                if relative.startswith("assets/evidence/")
+            },
         )
         output.write_text(
             PurePosixPath("build-manifest.json"),
@@ -120,25 +134,42 @@ class StaticViewerBuilder:
     def _feedback_source() -> str:
         return (Path(__file__).parent / "static" / "feedback.js").read_text(encoding="utf-8")
 
-    def _publish_evidence_images(self, analysis: PaperAnalysis, *, dry_run: bool) -> dict[str, str]:
-        """Publish at most one approved local image per evidence visual."""
+    def _publish_evidence_images(
+        self,
+        analysis: PaperAnalysis,
+        *,
+        dry_run: bool,
+    ) -> tuple[dict[str, str], tuple[str, ...]]:
+        """Publish approved evidence and context visuals without changing claim status."""
         publisher = EvidenceImagePublisher(
             self._settings.output_root,
             max_image_bytes=self._settings.max_image_bytes,
             dry_run=dry_run,
         )
         urls: dict[str, str] = {}
+        asset_paths: list[str] = []
         published_count = 0
-        for visual in analysis.supporting_visuals:
+        candidates = (
+            *analysis.supporting_visuals,
+            *(
+                candidate
+                for candidate in analysis.evidence_candidates
+                if candidate.kind != "text"
+            ),
+        )
+        for visual in candidates:
             if published_count >= self._settings.max_assets_per_paper:
                 break
+            if visual.evidence_id in urls:
+                continue
             for source in visual.image_paths:
                 asset = self._publish_if_approved(publisher, source)
                 if asset is not None:
                     urls[visual.evidence_id] = "../" + asset.relative_path.as_posix()
+                    asset_paths.append(asset.relative_path.as_posix())
                     published_count += 1
                     break
-        return urls
+        return urls, tuple(asset_paths)
 
     def _publish_if_approved(
         self, publisher: EvidenceImagePublisher, source: Path
