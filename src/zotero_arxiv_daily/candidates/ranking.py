@@ -290,6 +290,22 @@ class RankedCandidates(StrictModel):
     selected_for_full_analysis: tuple[str, ...]
 
 
+class FocusPolicy(StrictModel):
+    """A tracked research focus that gates and steers candidate relevance."""
+
+    query: str = Field(min_length=1, max_length=2000)
+    weight: float = Field(default=0.8, ge=0.0, le=1.0)
+    minimum_similarity: float = Field(default=0.3, ge=-1.0, le=1.0)
+
+    @field_validator("query")
+    @classmethod
+    def normalize_query(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if not normalized:
+            raise ValueError("focus query must not be blank")
+        return normalized
+
+
 class FileEmbeddingCache:
     """Versioned, per-text NumPy cache with atomic writes."""
 
@@ -403,12 +419,18 @@ class CachedEmbeddingProvider:
 
 
 class CandidateRanker:
-    SCORER_VERSION = "weighted-cosine-feedback-v3"
+    SCORER_VERSION = "focused-cosine-feedback-v4"
     SCORE_MIN = -10.0
     SCORE_MAX = 10.0
 
-    def __init__(self, provider: EmbeddingProvider) -> None:
+    def __init__(
+        self,
+        provider: EmbeddingProvider,
+        *,
+        focus: FocusPolicy | None = None,
+    ) -> None:
         self.provider = provider
+        self.focus = focus
 
     @staticmethod
     def _text(paper: CandidatePaper | InterestPaper) -> str:
@@ -456,9 +478,27 @@ class CandidateRanker:
             self.provider.encode(tuple(self._text(p) for p in eligible_candidates))
         )
         interest_vectors = np.asarray(self.provider.encode(tuple(self._text(p) for p in ordered_interests)))
-        scores = weighted_similarity_scores(self._cosine(candidate_vectors, interest_vectors))
+        corpus_scores = weighted_similarity_scores(
+            self._cosine(candidate_vectors, interest_vectors)
+        )
+        focus_similarities: np.ndarray | None = None
+        scores = corpus_scores
+        if self.focus is not None:
+            focus_vector = np.asarray(self.provider.encode((self.focus.query,)))
+            focus_similarities = self._cosine(candidate_vectors, focus_vector)[:, 0]
+            scores = (
+                (1.0 - self.focus.weight) * corpus_scores
+                + self.focus.weight * focus_similarities * 10.0
+            )
         scored: list[tuple[CandidatePaper, float, float, float]] = []
-        for paper, score in zip(eligible_candidates, scores, strict=True):
+        for index, (paper, score) in enumerate(
+            zip(eligible_candidates, scores, strict=True)
+        ):
+            if (
+                focus_similarities is not None
+                and focus_similarities[index] < self.focus.minimum_similarity
+            ):
+                continue
             embedding_score = min(
                 self.SCORE_MAX,
                 max(self.SCORE_MIN, float(score)),
@@ -498,10 +538,21 @@ class CandidateRanker:
                 final_score=final_score,
                 rank=index,
                 reason=(
-                    "embedding similarity to the Zotero interest corpus; "
-                    "explicit feedback adjustment applied"
-                    if normalize_feedback_paper_id(paper.arxiv_id) in projection.favorite_ids
-                    else "embedding similarity to the Zotero interest corpus"
+                    (
+                        "explicit research focus plus Zotero interest corpus; "
+                        "explicit feedback adjustment applied"
+                        if normalize_feedback_paper_id(paper.arxiv_id)
+                        in projection.favorite_ids
+                        else "explicit research focus plus Zotero interest corpus"
+                    )
+                    if self.focus is not None
+                    else (
+                        "embedding similarity to the Zotero interest corpus; "
+                        "explicit feedback adjustment applied"
+                        if normalize_feedback_paper_id(paper.arxiv_id)
+                        in projection.favorite_ids
+                        else "embedding similarity to the Zotero interest corpus"
+                    )
                 ),
                 model_versions=versions,
             )

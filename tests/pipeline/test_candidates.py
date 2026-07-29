@@ -444,6 +444,16 @@ def test_config_contains_exact_stage_one_defaults():
     assert OmegaConf.to_container(base.candidate_pipeline, resolve=True) == {
         "candidate_pool_size": 30, "llm_rerank_limit": 15, "full_analysis_limit": 5,
         "output_dir": "data/candidates", "embedding_cache_dir": "cache/embeddings",
+        "focus": {
+            "query": (
+                "Future Cache research for efficient video generation: feature caching "
+                "and reuse across diffusion or autoregressive video models, predicting "
+                "future features or residuals, temporal redundancy, KV cache, cache "
+                "scheduling, training-free acceleration, and quality-speed tradeoffs."
+            ),
+            "weight": 0.8,
+            "minimum_similarity": 0.3,
+        },
         "feedback": {"store_path": None, "favorite_delta": 0.05},
         "request_timeout": {"connect": 10, "read": 30, "write": 10, "pool": 10},
         "retry": {"max_attempts": 3, "backoff_seconds": 1, "max_retry_after_seconds": 60},

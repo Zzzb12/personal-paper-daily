@@ -197,6 +197,9 @@ def test_live_send_and_pages_require_exact_explicit_acknowledgements() -> None:
     assert "--send-feishu" in raw
     assert "PAPER_DAILY_SCHEDULE_LIVE" in raw
     assert "PAPER_DAILY_SCHEDULE_SEND" in raw
+    assert "PAPER_DAILY_MANUAL_SEND" in raw
+    assert "::warning::Feishu send requested but disabled" in raw
+    assert "::notice::Feishu send explicitly enabled" in raw
     assert "PAPER_DAILY_ENABLE_PAGES_DEPLOY" in raw
     assert "docling-tools models download layout tableformer" in raw
     assert "python -m zotero_arxiv_daily.pipeline.model_preflight" in raw

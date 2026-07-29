@@ -125,6 +125,12 @@ jobs:
             send_args=(--send-feishu)
           fi
 
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$MANUAL_SEND_REQUEST" == "true" && ${#send_args[@]} -eq 0 ]]; then
+            echo "::warning::Feishu send requested but disabled; verify live mode and repository variable PAPER_DAILY_MANUAL_SEND."
+          elif [[ ${#send_args[@]} -gt 0 ]]; then
+            echo "::notice::Feishu send explicitly enabled for this live run."
+          fi
+
           uv run python -m zotero_arxiv_daily.pipeline.daily \
             --trigger "$trigger" \
             --mode "$mode" \

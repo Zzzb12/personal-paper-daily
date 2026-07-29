@@ -28,6 +28,7 @@ Stage 7 的 workflow 默认执行人工 fixture 的 `dry-run`，不会读取 Zot
 | `LLM_BASE_URL` | OpenAI-compatible HTTPS endpoint |
 | `LLM_MODEL` | 完整模型名称；参与 workflow cache identity |
 | `PAPER_DAILY_SITE_URL` | 已审核静态站的绝对 HTTPS URL |
+| `PAPER_DAILY_MANUAL_SEND` | manual 飞书发送精确确认；不是凭据 |
 
 本地 `.env` 可使用相同十个名称，示例只见 `.env.example` 的空占位；本地已有完整
 模型缓存时可不设置 `HF_TOKEN`。即使 endpoint 或 model 通常不是密钥，也不得在
@@ -70,6 +71,11 @@ idempotency keys：每个 Actions run 使用唯一 cache key，并通过稳定 r
 恢复上一份 ledger 后保存新快照；lock 文件、消息正文和凭据不进入 cache。若 GitHub
 平台清理了该 cache，应先保持 send 门关闭并执行 no-send 检查，不要把空 ledger 当作
 已有投递历史。
+
+如果勾选 `send_feishu` 后 manifest 的飞书状态仍是 `preview` 且投递数为 0，表示
+请求没有通过 live/send 双门，并非飞书 API 已成功调用。workflow 会给出仅包含变量名
+的 warning。确认本次为 default branch 的 manual live run，且
+`PAPER_DAILY_MANUAL_SEND` 精确设置后再执行新的 dispatch；不要 rerun 旧 commit。
 
 ## 手动验收与恢复
 

@@ -21,6 +21,7 @@ from zotero_arxiv_daily.candidates.ranking import (
     CachedEmbeddingProvider,
     EmbeddingIdentity,
     FileEmbeddingCache,
+    FocusPolicy,
     RankedCandidates,
     RankingLimits,
     TransformersMeanPoolingEmbeddingProvider,
@@ -134,6 +135,7 @@ class CandidatePipelineSettings(StrictModel):
     embedding_cache_dir: Path = Path("cache/embeddings")
     feedback_store_path: Path | None = None
     feedback_favorite_delta: float = Field(default=0.05, ge=0.0, le=0.10)
+    focus: FocusPolicy | None = None
     dry_run: bool = False
 
     def ranking_limits(self) -> RankingLimits:
@@ -385,6 +387,13 @@ def build_production_pipeline(
         embedding_cache_dir=Path(str(config.candidate_pipeline.embedding_cache_dir)),
         feedback_store_path=feedback_path,
         feedback_favorite_delta=float(feedback_config.favorite_delta),
+        focus=FocusPolicy(
+            query=str(config.candidate_pipeline.focus.query),
+            weight=float(config.candidate_pipeline.focus.weight),
+            minimum_similarity=float(
+                config.candidate_pipeline.focus.minimum_similarity
+            ),
+        ),
         dry_run=dry_run,
     )
     ranking_provider = (
@@ -405,7 +414,7 @@ def build_production_pipeline(
             categories=settings.categories,
             include_cross_list=settings.include_cross_list,
         ),
-        ranker=CandidateRanker(ranking_provider),
+        ranker=CandidateRanker(ranking_provider, focus=settings.focus),
         store=CandidateStore(settings.output_dir),
         run_id_factory=lambda value: value.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"),
         feedback=feedback,

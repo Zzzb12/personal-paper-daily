@@ -60,6 +60,14 @@ candidate_pipeline:
   full_analysis_limit: 5
   output_dir: data/candidates
   embedding_cache_dir: cache/embeddings
+  focus:
+    query: >-
+      Future Cache research for efficient video generation: feature caching and
+      reuse across diffusion or autoregressive video models, predicting future
+      features or residuals, temporal redundancy, KV cache, cache scheduling,
+      training-free acceleration, and quality-speed tradeoffs.
+    weight: 0.8
+    minimum_similarity: 0.3
   feedback:
     store_path: null
     favorite_delta: 0.05
@@ -106,8 +114,8 @@ viewer_pipeline:
   max_papers: 30
   max_assets_per_paper: 3
   max_image_bytes: 10485760
-  build_version: stage5-v2
-  template_version: stage5-v2
+  build_version: stage5-v3
+  template_version: stage5-v3
 
 observability:
   pricing:

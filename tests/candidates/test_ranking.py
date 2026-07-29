@@ -9,6 +9,7 @@ from zotero_arxiv_daily.analysis.schemas import CandidatePaper, InterestPaper
 from zotero_arxiv_daily.candidates.ranking import (
     CandidateRanker,
     EmbeddingIdentity,
+    FocusPolicy,
     RankingLimits,
 )
 from zotero_arxiv_daily.viewer.feedback import InterestFeedbackProjection
@@ -210,3 +211,49 @@ def test_invalid_feedback_projection_is_rejected_before_provider_calls():
         CandidateRanker(provider).rank((paper,), (seed,), feedback=object())
 
     assert provider.calls == []
+
+
+def test_explicit_focus_outweighs_a_generic_interest_corpus_match():
+    cache_paper, generic_paper = candidate(1), candidate(2)
+    seed = interest()
+    focus = "Future Cache video generation acceleration"
+    vectors = {
+        text(seed): [1, 0],
+        text(cache_paper): [0, 1],
+        text(generic_paper): [1, 0],
+        focus: [0, 1],
+    }
+
+    result = CandidateRanker(
+        FakeProvider(vectors),
+        focus=FocusPolicy(query=focus, weight=0.8, minimum_similarity=0.25),
+    ).rank(
+        (generic_paper, cache_paper),
+        (seed,),
+    )
+
+    assert result.candidates[0].paper_id == cache_paper.paper_id
+    assert "explicit research focus" in result.rankings[0].reason
+    assert result.rankings[0].model_versions.scorer == "focused-cosine-feedback-v4"
+
+
+def test_focus_gate_returns_empty_batch_instead_of_unrelated_recommendations():
+    unrelated = candidate(1)
+    seed = interest()
+    focus = "Future Cache video generation acceleration"
+    provider = RecordingProvider(
+        {text(seed): [1, 0], text(unrelated): [1, 0], focus: [0, 1]}
+    )
+
+    result = CandidateRanker(
+        provider,
+        focus=FocusPolicy(query=focus, minimum_similarity=0.3),
+    ).rank(
+        (unrelated,),
+        (seed,),
+    )
+
+    assert result.candidates == ()
+    assert result.selected_for_llm == ()
+    assert result.selected_for_full_analysis == ()
+    assert provider.calls == [(text(unrelated),), (text(seed),), (focus,)]
