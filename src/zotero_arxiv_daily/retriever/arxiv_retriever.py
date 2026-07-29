@@ -5,9 +5,12 @@ from ..protocol import Paper
 from ..utils import extract_markdown_from_pdf, extract_tex_code_from_tar
 from tempfile import TemporaryDirectory
 import feedparser
+import hashlib
+import json
 from tqdm import tqdm
 import multiprocessing
 import os
+from pathlib import Path
 from queue import Empty
 from time import sleep
 from typing import Any, Callable, Protocol, TypeVar
@@ -15,12 +18,13 @@ from loguru import logger
 import requests
 import httpx
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from collections.abc import Callable
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..analysis.schemas import CandidatePaper, StrictModel
+from ..pipeline.artifacts import atomic_write_bytes
 
 T = TypeVar("T")
 
@@ -125,8 +129,32 @@ class ArxivRetryPolicy(StrictModel):
     max_retry_after_seconds: float = 60
 
 
+class _ArxivMetadataCacheEnvelope(StrictModel):
+    schema_version: str
+    identity_hash: str
+    created_at: datetime
+    retrieved_count: int = Field(ge=0)
+    invalid_count: int = Field(ge=0)
+    entries: tuple[ArxivMetadataEntry, ...]
+    payload_hash: str
+
+    @field_validator("created_at")
+    @classmethod
+    def require_aware_time(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("metadata cache time must be timezone-aware")
+        return value.astimezone(UTC)
+
+
 class HttpArxivMetadataGateway:
     API_URL = "https://export.arxiv.org/api/query"
+    RSS_BASE_URL = "https://rss.arxiv.org/atom"
+    CACHE_SCHEMA_VERSION = "arxiv-metadata-v1"
+    MAX_RESULTS = 200
+    MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+    MAX_CACHE_BYTES = 8 * 1024 * 1024
+    DEFAULT_STALE_TTL = timedelta(days=7)
+    _CATEGORY_RE = re.compile(r"^[A-Za-z0-9.-]+$")
     _ID_RE = re.compile(r"(?P<base>(?:[a-z-]+(?:\.[A-Z]{2})?/\d{7}|\d{4}\.\d{4,5}))(?:v(?P<version>\d+))?$", re.I)
 
     def __init__(
@@ -136,12 +164,18 @@ class HttpArxivMetadataGateway:
         retry_policy: ArxivRetryPolicy | None = None,
         sleeper: Callable[[float], None] = sleep,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        cache_root: Path | None = None,
+        stale_ttl: timedelta = DEFAULT_STALE_TTL,
         owns_client: bool = False,
     ) -> None:
+        if stale_ttl <= timedelta(0):
+            raise ValueError("metadata cache stale TTL must be positive")
         self._client = client
         self._retry = retry_policy or ArxivRetryPolicy()
         self._sleeper = sleeper
         self._clock = clock
+        self._cache_root = Path(cache_root) if cache_root is not None else None
+        self._stale_ttl = stale_ttl
         self._owns_client = owns_client
         self.invalid_count = 0
         self.retrieved_count = 0
@@ -152,23 +186,56 @@ class HttpArxivMetadataGateway:
         *,
         timeout: httpx.Timeout | None = None,
         retry_policy: ArxivRetryPolicy | None = None,
+        cache_root: Path | None = Path("cache/arxiv-metadata"),
     ) -> "HttpArxivMetadataGateway":
         client = httpx.Client(
-            timeout=timeout or httpx.Timeout(connect=10, read=30, write=10, pool=10)
+            timeout=timeout or httpx.Timeout(connect=10, read=30, write=10, pool=10),
+            headers={
+                "Accept": "application/atom+xml",
+                "User-Agent": (
+                    "personal-paper-daily/1.0 "
+                    "(+https://github.com/Zzzb12/personal-paper-daily)"
+                ),
+            },
         )
-        return cls(client, retry_policy=retry_policy, owns_client=True)
+        return cls(
+            client,
+            retry_policy=retry_policy,
+            cache_root=cache_root,
+            owns_client=True,
+        )
 
-    def _get(self, params: dict[str, str | int]) -> httpx.Response:
+    @staticmethod
+    def _is_transient(error: Exception) -> bool:
+        if isinstance(error, (httpx.TimeoutException, httpx.TransportError)):
+            return True
+        if isinstance(error, httpx.HTTPStatusError):
+            status = error.response.status_code
+            return status in {408, 425, 429} or status >= 500
+        return False
+
+    def _get(
+        self,
+        params: dict[str, str | int],
+        *,
+        url: str = API_URL,
+        retry_rate_limits: bool = True,
+    ) -> httpx.Response:
         for attempt in range(1, self._retry.max_attempts + 1):
             try:
-                response = self._client.get(self.API_URL, params=params)
+                response = self._client.get(url, params=params or None)
                 response.raise_for_status()
+                if len(response.content) > self.MAX_RESPONSE_BYTES:
+                    raise ValueError("arXiv metadata response exceeds the byte limit")
                 return response
             except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
-                transient = isinstance(exc, (httpx.TimeoutException, httpx.TransportError))
-                if isinstance(exc, httpx.HTTPStatusError):
-                    status = exc.response.status_code
-                    transient = status in {408, 425, 429} or status >= 500
+                transient = self._is_transient(exc)
+                if (
+                    isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response.status_code == 429
+                    and not retry_rate_limits
+                ):
+                    transient = False
                 if not transient or attempt == self._retry.max_attempts:
                     raise
                 fallback = self._retry.backoff_seconds * attempt
@@ -187,6 +254,131 @@ class HttpArxivMetadataGateway:
                             delay = fallback
                 self._sleeper(min(max(delay, 0), self._retry.max_retry_after_seconds))
         raise RuntimeError("unreachable retry loop")
+
+    @staticmethod
+    def _canonical_json(value: object) -> bytes:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+
+    @classmethod
+    def _identity_hash(
+        cls,
+        categories: tuple[str, ...],
+        include_cross_list: bool,
+    ) -> str:
+        identity = {
+            "categories": list(categories),
+            "gateway_version": cls.CACHE_SCHEMA_VERSION,
+            "include_cross_list": include_cross_list,
+            "max_results": cls.MAX_RESULTS,
+        }
+        return hashlib.sha256(cls._canonical_json(identity)).hexdigest()
+
+    @classmethod
+    def _payload_hash(
+        cls,
+        entries: tuple[ArxivMetadataEntry, ...],
+        retrieved_count: int,
+        invalid_count: int,
+    ) -> str:
+        payload = {
+            "entries": [
+                entry.model_dump(mode="json")
+                for entry in entries
+            ],
+            "invalid_count": invalid_count,
+            "retrieved_count": retrieved_count,
+        }
+        return hashlib.sha256(cls._canonical_json(payload)).hexdigest()
+
+    def _cache_path(
+        self,
+        categories: tuple[str, ...],
+        include_cross_list: bool,
+    ) -> Path | None:
+        if self._cache_root is None:
+            return None
+        return self._cache_root / (
+            f"{self._identity_hash(categories, include_cross_list)}.json"
+        )
+
+    def _read_cache(
+        self,
+        categories: tuple[str, ...],
+        include_cross_list: bool,
+        *,
+        allow_stale: bool,
+    ) -> tuple[ArxivMetadataEntry, ...] | None:
+        path = self._cache_path(categories, include_cross_list)
+        if path is None:
+            return None
+        try:
+            if path.stat().st_size > self.MAX_CACHE_BYTES:
+                return None
+            envelope = _ArxivMetadataCacheEnvelope.model_validate_json(
+                path.read_bytes()
+            )
+        except (OSError, ValueError):
+            return None
+        identity_hash = self._identity_hash(categories, include_cross_list)
+        if (
+            envelope.schema_version != self.CACHE_SCHEMA_VERSION
+            or envelope.identity_hash != identity_hash
+            or envelope.payload_hash
+            != self._payload_hash(
+                envelope.entries,
+                envelope.retrieved_count,
+                envelope.invalid_count,
+            )
+        ):
+            return None
+        now = self._clock().astimezone(UTC)
+        age = now - envelope.created_at
+        if age < timedelta(0):
+            return None
+        if allow_stale:
+            if age > self._stale_ttl:
+                return None
+        elif envelope.created_at.date() != now.date():
+            return None
+        self.retrieved_count = envelope.retrieved_count
+        self.invalid_count = envelope.invalid_count
+        return envelope.entries
+
+    def _write_cache(
+        self,
+        categories: tuple[str, ...],
+        include_cross_list: bool,
+        entries: tuple[ArxivMetadataEntry, ...],
+    ) -> None:
+        path = self._cache_path(categories, include_cross_list)
+        if path is None:
+            return
+        envelope = _ArxivMetadataCacheEnvelope(
+            schema_version=self.CACHE_SCHEMA_VERSION,
+            identity_hash=self._identity_hash(categories, include_cross_list),
+            created_at=self._clock(),
+            retrieved_count=self.retrieved_count,
+            invalid_count=self.invalid_count,
+            entries=entries,
+            payload_hash=self._payload_hash(
+                entries,
+                self.retrieved_count,
+                self.invalid_count,
+            ),
+        )
+        encoded = (envelope.model_dump_json() + "\n").encode("utf-8")
+        if len(encoded) > self.MAX_CACHE_BYTES:
+            return
+        try:
+            atomic_write_bytes(path, encoded)
+        except OSError:
+            # Public metadata cache persistence must not make a valid run fail.
+            return
 
     @classmethod
     def _parse_entry(cls, raw: Any) -> ArxivMetadataEntry:
@@ -218,38 +410,159 @@ class HttpArxivMetadataGateway:
             primary_category=primary,
             published_at=datetime.fromisoformat(raw.published.replace("Z", "+00:00")),
             updated_at=datetime.fromisoformat(raw.updated.replace("Z", "+00:00")),
-            arxiv_url=str(raw.id),
+            arxiv_url=f"https://arxiv.org/abs/{base}v{version}",
             pdf_url=pdf_url,
         )
 
-    def retrieve_entries(
-        self, categories: tuple[str, ...], include_cross_list: bool
+    def _parse_feed(
+        self,
+        content: bytes,
+        categories: tuple[str, ...],
+        include_cross_list: bool,
+        *,
+        limit: int | None = None,
     ) -> tuple[ArxivMetadataEntry, ...]:
-        query = " OR ".join(f"cat:{category}" for category in categories)
-        response = self._get(
-            {
-                "search_query": query,
-                "start": 0,
-                "max_results": 200,
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-            }
-        )
-        feed = feedparser.parse(response.content)
+        feed = feedparser.parse(content)
+        raw_entries = tuple(feed.entries)
+        if limit is not None:
+            raw_entries = raw_entries[:limit]
         parsed_items: list[ArxivMetadataEntry] = []
         invalid_count = 0
-        for raw in feed.entries:
+        for raw in raw_entries:
             try:
                 parsed_items.append(self._parse_entry(raw))
             except (AttributeError, IndexError, KeyError, TypeError, ValueError):
                 invalid_count += 1
         parsed = tuple(parsed_items)
-        self.retrieved_count = len(feed.entries)
+        self.retrieved_count = len(raw_entries)
         self.invalid_count = invalid_count
         if include_cross_list:
             return parsed
         allowed = set(categories)
-        return tuple(entry for entry in parsed if entry.primary_category in allowed)
+        return tuple(
+            entry
+            for entry in parsed
+            if entry.primary_category in allowed
+        )
+
+    def _retrieve_from_rss(
+        self,
+        categories: tuple[str, ...],
+        include_cross_list: bool,
+    ) -> tuple[ArxivMetadataEntry, ...]:
+        if not categories or any(
+            self._CATEGORY_RE.fullmatch(category) is None
+            for category in categories
+        ):
+            raise ValueError("invalid arXiv RSS category")
+        latest: dict[str, ArxivMetadataEntry] = {}
+        retrieved_count = 0
+        invalid_count = 0
+        for category in categories:
+            response = self._get(
+                {},
+                url=f"{self.RSS_BASE_URL}/{category}",
+            )
+            category_entries = self._parse_feed(
+                response.content,
+                (category,),
+                include_cross_list=True,
+            )
+            retrieved_count += self.retrieved_count
+            invalid_count += self.invalid_count
+            for entry in category_entries:
+                previous = latest.get(entry.arxiv_id)
+                if previous is None or (
+                    entry.version,
+                    entry.updated_at,
+                ) > (
+                    previous.version,
+                    previous.updated_at,
+                ):
+                    latest[entry.arxiv_id] = entry
+        ordered = tuple(
+            sorted(
+                latest.values(),
+                key=lambda entry: (
+                    entry.published_at,
+                    entry.updated_at,
+                    entry.arxiv_id,
+                ),
+                reverse=True,
+            )[: self.MAX_RESULTS]
+        )
+        self.retrieved_count = min(retrieved_count, self.MAX_RESULTS)
+        self.invalid_count = min(invalid_count, self.retrieved_count)
+        if include_cross_list:
+            return ordered
+        allowed = set(categories)
+        return tuple(
+            entry
+            for entry in ordered
+            if entry.primary_category in allowed
+        )
+
+    def retrieve_entries(
+        self, categories: tuple[str, ...], include_cross_list: bool
+    ) -> tuple[ArxivMetadataEntry, ...]:
+        cached = self._read_cache(
+            categories,
+            include_cross_list,
+            allow_stale=False,
+        )
+        if cached is not None:
+            return cached
+        query = " OR ".join(f"cat:{category}" for category in categories)
+        primary_error: Exception | None = None
+        try:
+            response = self._get(
+                {
+                    "search_query": query,
+                    "start": 0,
+                    "max_results": self.MAX_RESULTS,
+                    "sortBy": "submittedDate",
+                    "sortOrder": "descending",
+                },
+                retry_rate_limits=False,
+            )
+            entries = self._parse_feed(
+                response.content,
+                categories,
+                include_cross_list,
+            )
+        except (
+            httpx.TimeoutException,
+            httpx.TransportError,
+            httpx.HTTPStatusError,
+        ) as error:
+            if not self._is_transient(error):
+                raise
+            primary_error = error
+            try:
+                entries = self._retrieve_from_rss(
+                    categories,
+                    include_cross_list,
+                )
+            except (
+                httpx.TimeoutException,
+                httpx.TransportError,
+                httpx.HTTPStatusError,
+                ValueError,
+            ):
+                stale = self._read_cache(
+                    categories,
+                    include_cross_list,
+                    allow_stale=True,
+                )
+                if stale is not None:
+                    return stale
+                raise primary_error from None
+        self._write_cache(
+            categories,
+            include_cross_list,
+            entries,
+        )
+        return entries
 
     def close(self) -> None:
         if self._owns_client:

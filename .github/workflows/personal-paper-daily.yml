@@ -51,6 +51,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
+            cache/arxiv-metadata
             cache/embeddings
             cache/documents
             models/docling
@@ -163,11 +164,17 @@ jobs:
               for stage in manifest.stages
           )
           pages_ready = (
-              manifest.status in {"success", "partial"}
+              not manifest.dry_run
+              and manifest.status in {"success", "partial"}
               and not core_failed
               and manifest.static_site.status == "success"
               and manifest.counts.published_count > 0
           )
+          if manifest.dry_run:
+              print(
+                  "::notice::dry-run fixture completed; "
+                  "Pages upload and deployment are disabled"
+              )
           if pages_ready:
               audit = ArtifactAuditor(run_root).audit(Path("viewer"))
               if audit.artifact_hash != manifest.artifact_hash:

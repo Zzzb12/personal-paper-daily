@@ -88,6 +88,7 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
     cache_step = next(step for step in cache_steps if "safe caches" in step["name"])
     cache_paths = tuple(line.strip() for line in cache_step["with"]["path"].splitlines() if line.strip())
     assert cache_paths == (
+        "cache/arxiv-metadata",
         "cache/embeddings",
         "cache/documents",
         "models/docling",
@@ -147,6 +148,17 @@ def test_workflow_cache_and_uploaded_artifacts_use_explicit_safe_allowlists() ->
         assert forbidden not in raw
 
     assert "feedback" not in raw
+
+
+def test_dry_run_fixture_can_never_become_a_pages_deployment() -> None:
+    workflow = _load(DAILY)
+    review = next(
+        step
+        for step in workflow["jobs"]["daily"]["steps"]
+        if step["name"] == "Verify reviewed viewer artifact"
+    )
+
+    assert "not manifest.dry_run" in review["run"]
 
 
 def test_failed_manifest_is_enforced_only_after_safe_artifact_uploads() -> None:

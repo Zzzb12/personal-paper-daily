@@ -99,6 +99,178 @@ ATOM = b"""<?xml version="1.0" encoding="UTF-8"?>
   </entry>
 </feed>"""
 
+RSS_ATOM = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>oai:arXiv.org:2401.00001v2</id>
+    <updated>2026-07-20T01:00:00Z</updated>
+    <published>2026-07-20T00:00:00Z</published>
+    <title> RSS metadata title </title>
+    <summary> RSS metadata abstract </summary>
+    <author><name>A. Author</name></author>
+    <category term="cs.CV"/><category term="cs.LG"/>
+    <link href="https://arxiv.org/abs/2401.00001v2" rel="alternate" type="text/html"/>
+  </entry>
+</feed>"""
+
+
+def test_http_gateway_falls_back_to_official_rss_immediately_on_rate_limit():
+    calls = []
+    sleeps = []
+
+    def handler(request):
+        calls.append(request)
+        if request.url.host == "export.arxiv.org":
+            return httpx.Response(
+                429,
+                request=request,
+                headers={"Retry-After": "60"},
+            )
+        assert request.url.host == "rss.arxiv.org"
+        return httpx.Response(200, request=request, content=RSS_ATOM)
+
+    gateway = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        retry_policy=ArxivRetryPolicy(max_attempts=3, backoff_seconds=1),
+        sleeper=sleeps.append,
+    )
+
+    entries = gateway.retrieve_entries(("cs.CV", "cs.LG"), include_cross_list=False)
+
+    assert len(entries) == 1
+    assert entries[0].arxiv_url == "https://arxiv.org/abs/2401.00001v2"
+    assert [request.url.host for request in calls] == [
+        "export.arxiv.org",
+        "rss.arxiv.org",
+        "rss.arxiv.org",
+    ]
+    assert [request.url.path for request in calls] == [
+        "/api/query",
+        "/atom/cs.CV",
+        "/atom/cs.LG",
+    ]
+    assert sleeps == []
+
+
+def test_http_gateway_reuses_same_day_validated_public_metadata_cache(tmp_path):
+    cache_root = tmp_path / "arxiv-metadata"
+    first_calls = []
+
+    def first_handler(request):
+        first_calls.append(request)
+        return httpx.Response(200, request=request, content=ATOM)
+
+    first = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(first_handler)),
+        cache_root=cache_root,
+        clock=lambda: NOW,
+        sleeper=lambda _: None,
+    )
+    expected = first.retrieve_entries(("cs.CV",), include_cross_list=True)
+
+    def network_forbidden(request):
+        raise AssertionError(f"network must not be called for {request.url.host}")
+
+    second = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(network_forbidden)),
+        cache_root=cache_root,
+        clock=lambda: NOW + timedelta(hours=12),
+        sleeper=lambda _: None,
+    )
+
+    assert second.retrieve_entries(("cs.CV",), include_cross_list=True) == expected
+    assert len(first_calls) == 1
+    assert len(tuple(cache_root.glob("*.json"))) == 1
+
+
+def test_http_gateway_treats_corrupt_public_metadata_cache_as_miss(tmp_path):
+    cache_root = tmp_path / "arxiv-metadata"
+    initial = HttpArxivMetadataGateway(
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, request=request, content=ATOM)
+            )
+        ),
+        cache_root=cache_root,
+        clock=lambda: NOW,
+        sleeper=lambda _: None,
+    )
+    initial.retrieve_entries(("cs.CV",), include_cross_list=True)
+    cache_path = next(cache_root.glob("*.json"))
+    cache_path.write_text("{corrupt", encoding="utf-8")
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, request=request, content=ATOM)
+
+    recovered = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(handler)),
+        cache_root=cache_root,
+        clock=lambda: NOW,
+        sleeper=lambda _: None,
+    )
+
+    assert len(recovered.retrieve_entries(("cs.CV",), include_cross_list=True)) == 1
+    assert len(calls) == 1
+
+
+def test_http_gateway_uses_recent_stale_cache_when_both_public_sources_fail(tmp_path):
+    cache_root = tmp_path / "arxiv-metadata"
+    initial = HttpArxivMetadataGateway(
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, request=request, content=ATOM)
+            )
+        ),
+        cache_root=cache_root,
+        clock=lambda: NOW,
+        sleeper=lambda _: None,
+    )
+    expected = initial.retrieve_entries(("cs.CV",), include_cross_list=True)
+
+    def unavailable(request):
+        return httpx.Response(503, request=request)
+
+    fallback = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(unavailable)),
+        retry_policy=ArxivRetryPolicy(max_attempts=1),
+        cache_root=cache_root,
+        clock=lambda: NOW + timedelta(days=2),
+        sleeper=lambda _: None,
+    )
+
+    assert fallback.retrieve_entries(("cs.CV",), include_cross_list=True) == expected
+
+
+def test_http_gateway_rejects_expired_stale_cache_during_outage(tmp_path):
+    cache_root = tmp_path / "arxiv-metadata"
+    initial = HttpArxivMetadataGateway(
+        httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: httpx.Response(200, request=request, content=ATOM)
+            )
+        ),
+        cache_root=cache_root,
+        clock=lambda: NOW,
+        sleeper=lambda _: None,
+    )
+    initial.retrieve_entries(("cs.CV",), include_cross_list=True)
+
+    def unavailable(request):
+        return httpx.Response(503, request=request)
+
+    expired = HttpArxivMetadataGateway(
+        httpx.Client(transport=httpx.MockTransport(unavailable)),
+        retry_policy=ArxivRetryPolicy(max_attempts=1),
+        cache_root=cache_root,
+        clock=lambda: NOW + timedelta(days=8),
+        sleeper=lambda _: None,
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        expired.retrieve_entries(("cs.CV",), include_cross_list=True)
+
 
 def test_http_gateway_retries_transient_status_without_real_network():
     calls = []
@@ -136,7 +308,7 @@ def test_http_gateway_bounds_numeric_retry_after():
         retry_policy=ArxivRetryPolicy(max_attempts=2, backoff_seconds=1, max_retry_after_seconds=60),
         sleeper=sleeps.append,
     )
-    gateway.retrieve_entries(("cs.CV",), include_cross_list=True)
+    gateway._get({"search_query": "cat:cs.CV"})
     assert sleeps == [60]
 
 
@@ -157,7 +329,7 @@ def test_http_gateway_supports_http_date_retry_after():
         sleeper=sleeps.append,
         clock=lambda: NOW,
     )
-    gateway.retrieve_entries(("cs.CV",), include_cross_list=True)
+    gateway._get({"search_query": "cat:cs.CV"})
     assert sleeps == [12]
 
 
@@ -209,6 +381,7 @@ def test_http_gateway_default_client_has_explicit_timeouts(monkeypatch):
 
     def constructor(*args, **kwargs):
         captured["timeout"] = kwargs["timeout"]
+        captured["headers"] = kwargs["headers"]
         return real_client(transport=httpx.MockTransport(lambda request: httpx.Response(200, request=request, content=ATOM)), **kwargs)
 
     monkeypatch.setattr(arxiv_retriever.httpx, "Client", constructor)
@@ -216,5 +389,7 @@ def test_http_gateway_default_client_has_explicit_timeouts(monkeypatch):
     try:
         timeout = captured["timeout"]
         assert (timeout.connect, timeout.read, timeout.write, timeout.pool) == (10, 30, 10, 10)
+        assert captured["headers"]["Accept"] == "application/atom+xml"
+        assert "personal-paper-daily/1.0" in captured["headers"]["User-Agent"]
     finally:
         gateway.close()
