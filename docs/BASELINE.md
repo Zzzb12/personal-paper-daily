@@ -1489,3 +1489,56 @@ unchanged Windows one-second multiprocessing spawn baseline. Compileall and
 dispatch after pushing the correction; rerunning run `#12` would execute its old
 commit. Rollback reverts the structured-analysis correction commit and restores
 `stage3-v1`.
+
+## Live run #13 evidence presentation and viewer correction (2026-07-29)
+
+Manual live/no-send run `#13` (`30419395199`) executed commit `ed194da`. The
+production path processed 200 inputs, retained 30 candidates, selected five,
+analyzed three and published one reviewed paper. Pages deployed successfully;
+Feishu remained preview-only. The manifest was `partial` because individual
+papers failed safely, while the reviewed site artifact remained available.
+
+The published paper exposed two separate quality problems. First, the PDF parser
+reported a partial out-of-memory result, but still extracted 13 figures with image
+paths. The evidence budget nevertheless allowed text candidates to occupy all 48
+slots, so those figures never reached analysis. Second, the viewer rendered every
+missing optional field as a repeated “论文未明确提供” paragraph and only published
+images selected as direct supporting evidence. Consequently a valid but sparse
+analysis became a flat page with no figure, even though validated contextual
+figures existed.
+
+The correction keeps the existing safety boundary and changes presentation and
+candidate allocation:
+
+- evidence builder version `3` reserves bounded visual slots before filling the
+  remaining candidate budget with text;
+- analysis config version `2` invalidates incompatible cached packets;
+- missing optional nullable/list fields from provider JSON receive only schema
+  defaults (`null` or empty collections); invalid types, unknown evidence and
+  fabricated provenance remain hard failures;
+- viewer/template `stage5-v2` uses an editorial research-brief layout with a
+  reading map, numbered sections, explicit validation status and responsive
+  desktop/mobile hierarchy;
+- unavailable optional fields are summarized once in an evidence-coverage panel
+  instead of interrupting every section;
+- approved contextual figures may be displayed with an explicit notice that they
+  are not direct support for core claims; Stage 4 eligibility and claim evidence
+  status are unchanged;
+- every published image is content-addressed, constrained to approved evidence
+  roots, declared in the build manifest, artifact-audited and removed on a later
+  rebuild when no longer referenced.
+
+No private Zotero library or paid LLM was accessed during the correction.
+A synthetic fixture using an extracted public-PDF figure passed artifact audit
+with seven declared files. Playwright desktop and 390-pixel mobile checks showed
+the image and full reading hierarchy with zero browser console errors or warnings.
+Focused document/analysis/viewer/pipeline/delivery/workflow regression reported
+`633 passed`. The default non-slow suite reported
+`866 passed, 2 failed, 2 skipped, 3 deselected`; both failures are the unchanged
+Windows one-second multiprocessing spawn baseline. The explicit slow suite
+reported `3 passed` from cached immutable models without network access.
+The old deployed page will remain visible until a new live/no-send workflow builds
+and deploys `stage5-v2`; rerunning `#13` would continue to use its old commit.
+Rollback reverts this correction, restores evidence builder `2`, analysis config
+`1` and viewer/template `stage5-v1`, and invalidates only the corresponding newer
+cache identities.

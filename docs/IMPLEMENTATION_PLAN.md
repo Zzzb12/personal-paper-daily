@@ -879,6 +879,27 @@ Measure and improve recommendation quality, evidence integrity, API/model cost, 
   tests. The default suite reported
   `860 passed, 2 failed, 2 skipped, 3 deselected`, retaining only the documented
   Windows one-second spawn baseline failures.
+- Manual live/no-send run `#13` successfully deployed one reviewed paper but
+  exposed a presentation gap: partial Docling conversion retained 13 figures,
+  while the bounded evidence list crowded them out with text and the viewer only
+  published visuals selected as direct claim support.
+- Evidence builder `3` now reserves bounded visual slots; analysis config `2`
+  invalidates prior cache identity. Missing optional provider fields receive only
+  null/empty schema defaults, without relaxing provenance or Stage 4 checks.
+- Viewer/template `stage5-v2` replaces repeated missing-field placeholders with
+  one evidence-coverage panel and introduces an editorial research-brief hierarchy,
+  responsive reading map, numbered sections and approved contextual figures
+  explicitly labelled as non-claim evidence.
+- Content-addressed figure assets are now included in `BuildManifest.written_paths`,
+  pass the existing artifact auditor and are safely removed when a subsequent
+  build no longer references them.
+- Local public/synthetic verification used no Zotero private data, paid LLM or
+  Feishu sending. Desktop and 390-pixel Playwright checks displayed the figure and
+  reported no browser console errors or warnings.
+- Relevant regression reported `633 passed`; the explicit slow suite reported
+  `3 passed`. The default non-slow suite retained only the two documented Windows
+  one-second multiprocessing spawn baseline failures
+  (`866 passed, 2 failed, 2 skipped, 3 deselected`).
 
 ### Acceptance criteria
 
