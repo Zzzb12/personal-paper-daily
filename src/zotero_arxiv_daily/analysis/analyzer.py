@@ -244,10 +244,57 @@ def _parse_draft(raw: str) -> PaperAnalysisDraft:
         payload = json.loads(normalized)
     except json.JSONDecodeError:
         raise _AnalysisProtocolError("analysis_malformed_json") from None
+    if isinstance(payload, dict):
+        payload = _fill_missing_nullable_fields(payload)
     try:
         return PaperAnalysisDraft.model_validate(payload)
     except ValidationError:
         raise _AnalysisProtocolError("analysis_schema_invalid") from None
+
+
+def _fill_missing_nullable_fields(payload: dict) -> dict:
+    normalized = dict(payload)
+    for field in (
+        "chinese_title",
+        "recommendation_reason",
+        "research_problem",
+        "insight_formation_logic",
+        "method_overview",
+        "differences_from_prior_work",
+    ):
+        normalized.setdefault(field, None)
+    for field in (
+        "insights",
+        "supporting_visuals",
+        "method_modules",
+        "parameters",
+        "ablations",
+        "experimental_conclusions",
+        "limitations",
+    ):
+        normalized.setdefault(field, [])
+    links = normalized.get("links")
+    if isinstance(links, dict):
+        normalized["links"] = {**links, "code_url": links.get("code_url")}
+    parameters = normalized.get("parameters")
+    if isinstance(parameters, list):
+        repaired_parameters = []
+        for parameter in parameters:
+            if not isinstance(parameter, dict):
+                repaired_parameters.append(parameter)
+                continue
+            repaired = dict(parameter)
+            for field in (
+                "symbol",
+                "final_value",
+                "selection_method",
+                "per_model_tuning",
+            ):
+                repaired.setdefault(field, None)
+            repaired.setdefault("ablation_ids", [])
+            repaired_parameters.append(repaired)
+        normalized["parameters"] = repaired_parameters
+    return normalized
 
 
 def _materialize_and_check(

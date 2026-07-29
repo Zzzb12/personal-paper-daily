@@ -21,7 +21,7 @@ from zotero_arxiv_daily.analysis.paper_schemas import (
 from zotero_arxiv_daily.analysis.schemas import StrictModel
 
 
-EVIDENCE_BUILDER_VERSION = "2"
+EVIDENCE_BUILDER_VERSION = "3"
 _NUMBER_PREFIX_RE = re.compile(
     r"^\s*(?:(?:[A-Z]\.\d+(?:\.\d+)*|\d+(?:\.\d+)*)(?:[.):])?|[A-Z][.):])\s+",
     re.IGNORECASE,
@@ -82,8 +82,16 @@ def build_evidence_packet(
     visual_candidates = sorted(
         _visual_candidates(paper_id, document, section_by_id, section_paths),
         key=lambda item: item.key,
-    )[: settings.max_visuals]
-    ordered = sorted((*text_candidates, *visual_candidates), key=lambda item: item.key)
+    )[: min(settings.max_visuals, settings.max_candidates)]
+    text_budget = max(settings.max_candidates - len(visual_candidates), 0)
+    selected_text_candidates = sorted(
+        text_candidates,
+        key=lambda item: item.key,
+    )[:text_budget]
+    ordered = sorted(
+        (*selected_text_candidates, *visual_candidates),
+        key=lambda item: item.key,
+    )
     bounded = _apply_budget(ordered, settings)
     fingerprint = evidence_packet_fingerprint(
         paper_id=paper_id,

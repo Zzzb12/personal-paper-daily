@@ -237,6 +237,18 @@ def test_evidence_retains_at_most_three_visuals_with_all_regions():
     )
 
 
+def test_evidence_reserves_visual_slots_when_text_candidate_budget_is_tight():
+    packet = build_evidence_packet(
+        PAPER_ID,
+        document_graph(long_text=True),
+        settings(max_candidates=4, max_visuals=2),
+    )
+
+    assert len(packet.candidates) <= 4
+    assert sum(item.kind != "text" for item in packet.candidates) == 2
+    assert any(item.kind == "text" for item in packet.candidates)
+
+
 def test_evidence_budget_is_deterministic_unicode_safe_and_stable():
     constrained = settings(max_chars=256, max_block_chars=80, max_candidates=4)
     first = build_evidence_packet(

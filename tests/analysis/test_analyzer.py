@@ -353,6 +353,37 @@ def test_analyzer_accepts_a_single_json_markdown_fence(tmp_path):
     assert result.status == "success"
 
 
+def test_analyzer_fills_only_missing_nullable_and_collection_fields(tmp_path):
+    payload = json.loads(valid_draft().model_dump_json())
+    for field in (
+        "recommendation_reason",
+        "differences_from_prior_work",
+        "limitations",
+    ):
+        payload.pop(field)
+    payload["links"].pop("code_url")
+    parameter = payload["parameters"][0]
+    for field in (
+        "symbol",
+        "final_value",
+        "selection_method",
+        "per_model_tuning",
+        "ablation_ids",
+    ):
+        parameter.pop(field)
+    deps, _ = dependencies(tmp_path, json.dumps(payload))
+
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert result.status == "success"
+    assert result.analysis is not None
+    assert result.analysis.recommendation_reason is None
+    assert result.analysis.differences_from_prior_work is None
+    assert result.analysis.limitations == ()
+    assert result.analysis.links.code_url is None
+    assert result.analysis.parameters[0].ablation_ids == ()
+
+
 def test_analyzer_retries_empty_provider_response_without_weakening_schema(tmp_path):
     empty = AnalysisClientError("analysis_empty_response", retryable=True)
     deps, sleeps = dependencies(

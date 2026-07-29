@@ -43,7 +43,7 @@ def test_stage_three_config_has_exact_non_secret_defaults():
         "cache_root": "cache/analysis",
         "prompt_version": "stage3-v2",
         "schema_version": "1.0",
-        "config_version": "1",
+        "config_version": "2",
         "max_papers": 5,
         "max_visuals_per_paper": 3,
         "max_evidence_candidates": 48,
