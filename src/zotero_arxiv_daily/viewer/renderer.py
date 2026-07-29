@@ -54,6 +54,13 @@ class TemplateRenderer:
         <h1><span>Personal Paper</span><br>Daily</h1>
       </div>
       <div class="masthead-dek">
+        <div class="orbital-display" aria-hidden="true">
+          <span class="orbit orbit--outer"></span>
+          <span class="orbit orbit--inner"></span>
+          <span class="orbit-node"></span>
+          <strong>{len(page.papers):02d}</strong>
+          <small>VERIFIED<br>PAPERS</small>
+        </div>
         <p>从候选检索到证据核验，把今天真正值得读的论文压缩成一份可追溯的研究简报。</p>
         <dl class="issue-metrics">
           <div><dt>完整阅读</dt><dd>{page.valid_count:02d}</dd></div>
@@ -172,6 +179,9 @@ class TemplateRenderer:
       <div class="hero-stamp" aria-label="验证状态">
         <span>STAGE</span><strong>04</strong><small>Publication<br>eligible</small>
       </div>
+    </div>
+    <div class="telemetry-line" aria-hidden="true">
+      <span>PIPELINE / STAGE 04</span><i></i><span>EVIDENCE LOCKED</span><i></i><span>READER NODE ONLINE</span>
     </div>
   </header>
   <div class="detail-shell">

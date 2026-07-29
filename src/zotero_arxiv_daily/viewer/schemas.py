@@ -24,8 +24,8 @@ class ViewerSettings(StrictModel):
     max_papers: int = Field(default=30, ge=1, le=30)
     max_assets_per_paper: int = Field(default=3, ge=0, le=3)
     max_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
-    build_version: str = "stage5-v2"
-    template_version: str = "stage5-v2"
+    build_version: str = "stage5-v3"
+    template_version: str = "stage5-v3"
 
 
 class PaperPageModel(StrictModel):
