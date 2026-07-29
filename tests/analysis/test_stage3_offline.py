@@ -41,7 +41,7 @@ def test_stage_three_config_has_exact_non_secret_defaults():
     base = OmegaConf.load(Path(__file__).parents[2] / "config" / "base.yaml")
     assert OmegaConf.to_container(base.analysis_pipeline, resolve=True) == {
         "cache_root": "cache/analysis",
-        "prompt_version": "stage3-v1",
+        "prompt_version": "stage3-v2",
         "schema_version": "1.0",
         "config_version": "1",
         "max_papers": 5,

@@ -162,7 +162,7 @@ class UsageSink:
 def analyzer_settings(**updates):
     base = AnalysisSettings(
         evidence=evidence_settings(),
-        prompt_version="stage3-v1",
+        prompt_version="stage3-v2",
         schema_version="1.0",
         config_version="1",
         max_output_tokens=4_000,
@@ -342,6 +342,55 @@ def test_analyzer_reports_malformed_and_schema_errors_without_raw_content(tmp_pa
     invalid = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
     assert invalid.issues[0].code == "analysis_schema_invalid"
     assert "SECRET_BAD_SCHEMA" not in invalid.issues[0].message
+
+
+def test_analyzer_accepts_a_single_json_markdown_fence(tmp_path):
+    response = "```json\n" + valid_draft().model_dump_json() + "\n```"
+    deps, _ = dependencies(tmp_path, response)
+
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert result.status == "success"
+
+
+def test_analyzer_retries_empty_provider_response_without_weakening_schema(tmp_path):
+    empty = AnalysisClientError("analysis_empty_response", retryable=True)
+    deps, sleeps = dependencies(
+        tmp_path,
+        empty,
+        valid_draft().model_dump_json(),
+    )
+
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert result.status == "success"
+    assert deps.client.calls == 2
+    assert sleeps == [1]
+
+
+def test_analyzer_drops_known_text_from_optional_supporting_visuals(tmp_path):
+    draft = valid_draft()
+    text = next(
+        item for item in evidence_packet().candidates if item.kind == "text"
+    )
+    invalid_visual = draft.supporting_visuals[0].model_copy(
+        update={
+            "evidence_id": text.evidence_id,
+            "support_explanation": draft.supporting_visuals[
+                0
+            ].support_explanation.model_copy(
+                update={"evidence_ids": (text.evidence_id,)}
+            ),
+        }
+    )
+    draft = draft.model_copy(update={"supporting_visuals": (invalid_visual,)})
+    deps, _ = dependencies(tmp_path, draft.model_dump_json())
+
+    result = analyze_paper(candidate(), document_graph(), analyzer_settings(), deps)
+
+    assert result.status == "success"
+    assert result.analysis is not None
+    assert result.analysis.supporting_visuals == ()
 
 
 def test_identical_second_analysis_is_cache_hit_with_zero_duplicate_call(tmp_path):

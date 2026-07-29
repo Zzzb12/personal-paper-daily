@@ -11,9 +11,10 @@ from zotero_arxiv_daily.analysis.client import (
 
 
 class FakeCompletions:
-    def __init__(self, *, content="{}", error=None):
+    def __init__(self, *, content="{}", error=None, finish_reason="stop"):
         self.content = content
         self.error = error
+        self.finish_reason = finish_reason
         self.calls = []
 
     def create(self, **kwargs):
@@ -21,7 +22,12 @@ class FakeCompletions:
         if self.error is not None:
             raise self.error
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=SimpleNamespace(content=self.content))]
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=self.content),
+                    finish_reason=self.finish_reason,
+                )
+            ]
         )
 
 
@@ -49,14 +55,24 @@ def request():
     )
 
 
-def adapter(*, content="{}", error=None, response_max_bytes=1024):
-    completions = FakeCompletions(content=content, error=error)
+def adapter(
+    *,
+    content="{}",
+    error=None,
+    finish_reason="stop",
+    response_max_bytes=1024,
+    request_extra_body=None,
+):
+    completions = FakeCompletions(
+        content=content, error=error, finish_reason=finish_reason
+    )
     return (
         OpenAICompatibleAnalysisClient(
             sdk_client=FakeSdk(completions),
             model="fake-model",
             provider_identity="fake-provider",
             response_max_bytes=response_max_bytes,
+            request_extra_body=request_extra_body,
         ),
         completions,
     )
@@ -71,6 +87,32 @@ def test_client_sends_json_request_and_returns_content():
     assert call["max_tokens"] == 512
     assert call["messages"][0]["content"] == "system"
     assert client.model_identity.startswith("openai-compatible:")
+
+
+def test_client_sends_provider_specific_non_thinking_request_body():
+    client, completions = adapter(
+        content='{"ok": true}',
+        request_extra_body={"thinking": {"type": "disabled"}},
+    )
+
+    assert client.generate(request()) == '{"ok": true}'
+    assert completions.calls[0]["extra_body"] == {
+        "thinking": {"type": "disabled"}
+    }
+
+
+def test_client_classifies_empty_and_truncated_responses_as_retryable():
+    empty, _ = adapter(content="")
+    with pytest.raises(AnalysisClientError) as captured:
+        empty.generate(request())
+    assert captured.value.code == "analysis_empty_response"
+    assert captured.value.retryable is True
+
+    truncated, _ = adapter(content='{"partial":', finish_reason="length")
+    with pytest.raises(AnalysisClientError) as captured:
+        truncated.generate(request())
+    assert captured.value.code == "analysis_response_truncated"
+    assert captured.value.retryable is True
 
 
 def test_client_rejects_oversized_utf8_response_without_echoing_body():
@@ -135,3 +177,27 @@ def test_factory_sets_explicit_timeouts_and_disables_sdk_retries(monkeypatch):
     assert captured["timeout"].read == 7
     assert "private" not in client.model_identity
     assert "not-a-real-key" not in client.model_identity
+
+
+def test_factory_disables_thinking_for_official_deepseek_json_requests(monkeypatch):
+    completions = FakeCompletions(content='{"ok": true}')
+
+    def fake_openai(**_kwargs):
+        return FakeSdk(completions)
+
+    monkeypatch.setattr("zotero_arxiv_daily.analysis.client.OpenAI", fake_openai)
+    client = build_openai_compatible_client(
+        api_key="not-a-real-key",
+        base_url="https://api.deepseek.com",
+        model="deepseek-v4-pro",
+        connect_timeout=3,
+        read_timeout=7,
+        write_timeout=5,
+        pool_timeout=2,
+        response_max_bytes=1000,
+    )
+
+    assert client.generate(request()) == '{"ok": true}'
+    assert completions.calls[0]["extra_body"] == {
+        "thinking": {"type": "disabled"}
+    }

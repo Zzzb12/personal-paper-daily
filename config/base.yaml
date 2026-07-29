@@ -78,7 +78,7 @@ document_pipeline:
 
 analysis_pipeline:
   cache_root: cache/analysis
-  prompt_version: stage3-v1
+  prompt_version: stage3-v2
   schema_version: "1.0"
   config_version: "1"
   max_papers: 5

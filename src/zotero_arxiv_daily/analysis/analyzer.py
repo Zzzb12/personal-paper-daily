@@ -32,7 +32,7 @@ from zotero_arxiv_daily.analysis.paper_schemas import (
     PaperLinks,
     SupportingVisual,
 )
-from zotero_arxiv_daily.analysis.prompts.stage3_v1 import (
+from zotero_arxiv_daily.analysis.prompts.stage3_v2 import (
     PROMPT_VERSION,
     build_analysis_request,
 )
@@ -45,7 +45,7 @@ from zotero_arxiv_daily.documents.evidence import (
 
 class AnalysisSettings(StrictModel):
     evidence: EvidenceBuildSettings = EvidenceBuildSettings()
-    prompt_version: Literal["stage3-v1"] = PROMPT_VERSION
+    prompt_version: Literal["stage3-v2"] = PROMPT_VERSION
     schema_version: Literal["1.0"] = ANALYSIS_SCHEMA_VERSION
     config_version: str = "1"
     max_output_tokens: int = Field(default=8_192, gt=0)
@@ -235,8 +235,13 @@ def _notify_usage(
 
 
 def _parse_draft(raw: str) -> PaperAnalysisDraft:
+    normalized = raw.strip().lstrip("\ufeff")
+    if normalized.startswith("```") and normalized.endswith("```"):
+        lines = normalized.splitlines()
+        if len(lines) >= 3 and lines[0].strip().lower() in {"```", "```json"}:
+            normalized = "\n".join(lines[1:-1]).strip()
     try:
-        payload = json.loads(raw)
+        payload = json.loads(normalized)
     except json.JSONDecodeError:
         raise _AnalysisProtocolError("analysis_malformed_json") from None
     try:
@@ -268,6 +273,21 @@ def _materialize_and_check(
         raise _AnalysisProtocolError("analysis_metadata_mismatch")
 
     candidates = {item.evidence_id: item for item in packet.candidates}
+    insight_ids = {insight.claim_id for insight in draft.insights}
+    usable_visuals = tuple(
+        visual
+        for visual in draft.supporting_visuals
+        if (
+            (candidate := candidates.get(visual.evidence_id)) is None
+            or (
+                candidate.kind != "text"
+                and candidate.visual_id is not None
+                and set(visual.insight_ids).issubset(insight_ids)
+            )
+        )
+    )
+    if usable_visuals != draft.supporting_visuals:
+        draft = draft.model_copy(update={"supporting_visuals": usable_visuals})
     referenced_ids = _all_referenced_evidence_ids(draft)
     if not referenced_ids.issubset(candidates):
         raise _AnalysisProtocolError("analysis_unknown_evidence")
@@ -276,7 +296,6 @@ def _materialize_and_check(
     if len(claim_ids) != len(set(claim_ids)):
         raise _AnalysisProtocolError("analysis_duplicate_claim_id")
 
-    insight_ids = {insight.claim_id for insight in draft.insights}
     for insight in draft.insights:
         if not insight.evidence_ids or not any(
             not candidates[evidence_id].abstract_only

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import Any, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
@@ -58,31 +59,63 @@ class OpenAICompatibleAnalysisClient:
         model: str,
         provider_identity: str,
         response_max_bytes: int,
+        request_extra_body: dict[str, Any] | None = None,
     ) -> None:
         if response_max_bytes <= 0:
             raise ValueError("response_max_bytes must be positive")
         self.sdk_client = sdk_client
         self.model = model
         self.response_max_bytes = response_max_bytes
-        identity_payload = f"{provider_identity}\0{model}".encode("utf-8")
+        self.request_extra_body = (
+            json.loads(json.dumps(request_extra_body, sort_keys=True))
+            if request_extra_body
+            else None
+        )
+        behavior_identity = json.dumps(
+            self.request_extra_body,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        identity_payload = (
+            f"{provider_identity}\0{model}\0{behavior_identity}".encode("utf-8")
+        )
         digest = hashlib.sha256(identity_payload).hexdigest()[:24]
         self.model_identity = f"openai-compatible:{digest}:{model}"
 
     def generate(self, request: AnalysisRequest) -> str:
         try:
-            response = self.sdk_client.chat.completions.create(
-                model=self.model,
-                messages=[
+            kwargs = {
+                "model": self.model,
+                "messages": [
                     {"role": "system", "content": request.system_prompt},
                     {"role": "user", "content": request.user_prompt},
                 ],
-                response_format={"type": "json_object"},
-                max_tokens=request.max_output_tokens,
+                "response_format": {"type": "json_object"},
+                "max_tokens": request.max_output_tokens,
+            }
+            if self.request_extra_body is not None:
+                kwargs["extra_body"] = self.request_extra_body
+            response = self.sdk_client.chat.completions.create(
+                **kwargs,
             )
-            content = response.choices[0].message.content
+            choice = response.choices[0]
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason == "length":
+                raise AnalysisClientError(
+                    "analysis_response_truncated", retryable=True
+                )
+            if finish_reason == "insufficient_system_resource":
+                raise AnalysisClientError(
+                    "analysis_transient_error", retryable=True
+                )
+            if finish_reason in {"content_filter", "tool_calls"}:
+                raise AnalysisClientError(
+                    "analysis_permanent_error", retryable=False
+                )
+            content = choice.message.content
             if not isinstance(content, str) or not content.strip():
                 raise AnalysisClientError(
-                    "analysis_malformed_response", retryable=False
+                    "analysis_empty_response", retryable=True
                 )
             if len(content.encode("utf-8")) > self.response_max_bytes:
                 raise AnalysisClientError(
@@ -123,6 +156,7 @@ def build_openai_compatible_client(
         model=model,
         provider_identity=_provider_identity(base_url),
         response_max_bytes=response_max_bytes,
+        request_extra_body=_provider_request_extra_body(base_url),
     )
 
 
@@ -133,6 +167,13 @@ def _provider_identity(base_url: str) -> str:
         host = f"{host}:{parsed.port}"
     safe = urlunsplit((parsed.scheme.lower(), host.lower(), parsed.path.rstrip("/"), "", ""))
     return hashlib.sha256(safe.encode("utf-8")).hexdigest()
+
+
+def _provider_request_extra_body(base_url: str) -> dict[str, Any] | None:
+    host = (urlsplit(base_url).hostname or "").lower()
+    if host == "api.deepseek.com":
+        return {"thinking": {"type": "disabled"}}
+    return None
 
 
 def _safe_client_error(exc: Exception) -> AnalysisClientError:
