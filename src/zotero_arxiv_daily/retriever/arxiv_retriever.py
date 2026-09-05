@@ -229,6 +229,12 @@ class HttpArxivMetadataGateway:
                     raise ValueError("arXiv metadata response exceeds the byte limit")
                 return response
             except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                if isinstance(exc, httpx.HTTPStatusError):
+                    logger.warning(
+                        "arXiv metadata HTTP failure: source={} status={}",
+                        "api" if url == self.API_URL else "rss",
+                        exc.response.status_code,
+                    )
                 transient = self._is_transient(exc)
                 if (
                     isinstance(exc, httpx.HTTPStatusError)

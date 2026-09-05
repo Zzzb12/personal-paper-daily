@@ -348,6 +348,39 @@ def test_http_gateway_does_not_retry_permanent_error():
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("status", [301, 404, 503])
+def test_http_failure_diagnostics_keep_status_without_response_secrets(status):
+    messages = []
+    sink = arxiv_retriever.logger.add(messages.append, format="{message}")
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                status,
+                request=request,
+                headers={"Location": "https://arxiv.org/api/query?token=private-marker"},
+                text="private-response-marker",
+            )
+        )
+    )
+    gateway = HttpArxivMetadataGateway(
+        client, retry_policy=ArxivRetryPolicy(max_attempts=1)
+    )
+    try:
+        with pytest.raises(httpx.HTTPStatusError):
+            gateway.retrieve_entries(("cs.CV",), include_cross_list=False)
+    finally:
+        client.close()
+        arxiv_retriever.logger.remove(sink)
+
+    output = "".join(messages)
+    assert f"source=api status={status}" in output
+    if status == 503:
+        assert "source=rss status=503" in output
+    assert "private-marker" not in output
+    assert "private-response-marker" not in output
+    assert "https://" not in output
+
+
 def test_http_gateway_honors_cross_list_policy():
     def handler(request):
         return httpx.Response(200, request=request, content=ATOM)
