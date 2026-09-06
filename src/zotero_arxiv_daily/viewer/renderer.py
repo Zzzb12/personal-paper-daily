@@ -22,6 +22,9 @@ class TemplateRenderer:
 
     def render_index(self, page: IndexPageModel) -> str:
         title = escape(self._site_title, quote=True)
+        issue_label = (
+            page.batch_label if re.fullmatch(r"\d{4}-\d{2}-\d{2}", page.batch_label) else "最新一期"
+        )
         cards = "\n".join(
             self._render_card(item, position=index)
             for index, item in enumerate(page.papers, start=1)
@@ -45,52 +48,43 @@ class TemplateRenderer:
   <a class="skip-link" href="#papers">跳到论文列表</a>
   <header class="masthead">
     <div class="masthead-bar">
-      <a class="wordmark" href="index.html" aria-label="{title} 首页">PPD<span>／</span>DAILY</a>
-      <p class="issue-date">{escape(page.batch_label, quote=True)}</p>
+      <a class="wordmark" href="index.html" aria-label="{title} 首页"><span class="brand-mark" aria-hidden="true">P<span>·</span></span>Paper Daily</a>
+      <nav class="top-nav" aria-label="页面导航"><a href="#papers">本期论文</a><a href="#reading-desk">我的阅读</a></nav>
+      <p class="issue-date">{escape(issue_label, quote=True)}</p>
     </div>
     <div class="masthead-grid">
       <div>
-        <p class="eyebrow">Evidence-first research briefing</p>
-        <h1><span>Personal Paper</span><br>Daily</h1>
+        <p class="eyebrow">PERSONAL PAPER DAILY <span>／ 每日研究精选</span></p>
+        <h1>今天的论文，<span>值得细读。</span></h1>
+        <p class="masthead-description">从核心发现到实验细节，带着证据读懂一篇论文。</p>
+        <dl class="issue-metrics">
+          <div><dt>本期收录</dt><dd>{len(page.papers):02d}</dd></div>
+          <div><dt>完整阅读</dt><dd>{page.valid_count:02d}</dd></div>
+          <div><dt>部分验证</dt><dd>{page.partial_count:02d}</dd></div>
+        </dl>
+      </div>
+      <div class="masthead-dek">
+        <p class="manual-caption">按自己的节奏，开启下一期</p>
         <div class="manual-trigger">
           <a class="manual-trigger-link" href="https://github.com/Zzzb12/personal-paper-daily/actions/workflows/personal-paper-daily.yml" aria-describedby="manual-trigger-help">手动触发</a>
           <p id="manual-trigger-help">前往 GitHub，选择是否进行真实分析和发送飞书后运行。</p>
         </div>
       </div>
-      <div class="masthead-dek">
-        <div class="orbital-display" aria-hidden="true">
-          <span class="orbit orbit--outer"></span>
-          <span class="orbit orbit--inner"></span>
-          <span class="orbit-node"></span>
-          <strong>{len(page.papers):02d}</strong>
-          <small>VERIFIED<br>PAPERS</small>
-        </div>
-        <p>从候选检索到证据核验，把今天真正值得读的论文压缩成一份可追溯的研究简报。</p>
-        <dl class="issue-metrics">
-          <div><dt>完整阅读</dt><dd>{page.valid_count:02d}</dd></div>
-          <div><dt>部分验证</dt><dd>{page.partial_count:02d}</dd></div>
-          <div><dt>本期收录</dt><dd>{len(page.papers):02d}</dd></div>
-        </dl>
-      </div>
     </div>
   </header>
-  <nav class="top-nav" aria-label="页面导航">
-    <a href="#papers">本期论文</a>
-    <span aria-hidden="true">◆</span>
-    <a href="#reading-desk">阅读反馈</a>
-  </nav>
   <main id="papers" class="index-main">
     <section class="index-intro" aria-labelledby="index-heading">
       <div>
-        <p class="section-number">ISSUE / {escape(page.batch_label, quote=True)}</p>
-        <h2 id="index-heading">今日研究切片</h2>
+        <h2 id="index-heading">本期论文 <span class="paper-total">{len(page.papers)}</span></h2>
+        <p>发现、收藏，留下一点新想法。</p>
       </div>
-      <p>仅展示通过 Stage 4 publication eligibility 的内容。所有摘要、结论与图表都保留证据来源边界。</p>
+      <label class="paper-search" for="paper-search"><span aria-hidden="true">⌕</span><input type="search" id="paper-search" data-ai-action="search-papers" placeholder="搜索论文标题、关键词…" aria-label="搜索论文" autocomplete="off"></label>
     </section>
     {self._feedback_toolbar()}
     <section class="paper-grid" aria-label="论文列表">{cards}</section>
+    <p id="search-empty" class="search-empty" role="status" hidden>没有找到匹配的论文，试试其他关键词。</p>
   </main>
-  <footer class="site-footer"><p>Personal Paper Daily · Built for deliberate reading.</p></footer>
+  <footer class="site-footer"><p>Paper Daily <span>每天一点，保持好奇。</span></p><a href="#papers">回到论文列表 ↑</a></footer>
   <script src="assets/feedback.js" defer></script>
 </body>
 </html>
@@ -112,7 +106,7 @@ class TemplateRenderer:
         chinese_title = (
             escape(analysis.chinese_title.text_zh, quote=True)
             if analysis.chinese_title is not None
-            else "中文标题未从证据中提取"
+            else title
         )
         status_label = (
             "完整证据阅读"
@@ -175,27 +169,21 @@ class TemplateRenderer:
     </div>
     <div class="paper-hero-grid">
       <div>
-        <p class="eyebrow">Validated paper brief · {status_label}</p>
-        <h1>{title}</h1>
-        <p class="chinese-title">{chinese_title}</p>
+        <p class="eyebrow">PAPER BRIEF <span>／ {status_label}</span></p>
+        <h1>{chinese_title}</h1>
+        {f'<p class="english-title" lang="en">{title}</p>' if analysis.chinese_title else ''}
         {warning}
       </div>
-      <div class="hero-stamp" aria-label="验证状态">
-        <span>STAGE</span><strong>04</strong><small>Publication<br>eligible</small>
-      </div>
-    </div>
-    <div class="telemetry-line" aria-hidden="true">
-      <span>PIPELINE / STAGE 04</span><i></i><span>EVIDENCE LOCKED</span><i></i><span>READER NODE ONLINE</span>
     </div>
   </header>
   <div class="detail-shell">
     <aside class="reading-rail" aria-label="阅读导航">
       <div class="rail-sticky">
-        <p class="rail-label">READING MAP</p>
+        <p class="rail-label">本篇目录</p>
         {table_of_contents}
         <section class="detail-feedback" data-paper-id="{normalized_paper_id}" aria-labelledby="feedback-heading">
           <h2 id="feedback-heading">阅读状态</h2>
-          {self._feedback_button("read", "标记已读", "R")}
+          {self._feedback_button("read", "标记已读")}
           <p class="feedback-status" role="status" aria-live="polite" data-testid="feedback-status">反馈仅保存在当前浏览器。</p>
         </section>
       </div>
@@ -441,7 +429,7 @@ class TemplateRenderer:
         return f"""<aside class="coverage-panel" aria-labelledby="coverage-title">
   <div><p class="mini-label">EVIDENCE COVERAGE</p><h2 id="coverage-title">本次信息缺口</h2></div>
   <div>
-    <p>以下内容未能从通过验证的证据中稳定提取。页面选择集中说明，而不是用占位文案反复打断阅读。</p>
+    <p>以下内容暂无足够的已验证证据，可前往原文进一步查看。</p>
     <ul>{chips}</ul>
   </div>
 </aside>"""
@@ -455,7 +443,7 @@ class TemplateRenderer:
             for issue in report.issues
         )
         return f"""<aside class="validation-panel">
-  <h2>验证备注</h2><ul>{items}</ul>
+  <details><summary>验证备注</summary><ul>{items}</ul></details>
 </aside>"""
 
     @staticmethod
@@ -530,7 +518,7 @@ class TemplateRenderer:
         )
         alt = description or "论文来源图表"
         return f"""<figure class="evidence-figure evidence-figure--context" data-visual-role="context">
-  <div class="visual-frame"><img src="{escape(image_url, quote=True)}" alt="{escape(alt, quote=True)}" loading="lazy"></div>
+  <div class="visual-frame"><a class="figure-zoom" href="{escape(image_url, quote=True)}" aria-label="查看原图：{escape(alt, quote=True)}"><img src="{escape(image_url, quote=True)}" alt="{escape(alt, quote=True)}" loading="lazy"><span>查看原图 ↗</span></a></div>
   <figcaption>
     <div class="figure-meta"><span>CONTEXT</span><span>PDF {candidate.pdf_page}</span><span>CONF {candidate.confidence:.2f}</span></div>
     <h3>{escape(caption, quote=True)}</h3>
@@ -596,7 +584,7 @@ class TemplateRenderer:
                 item for item in (visual.label, visual.caption) if item
             )
             alt = description or "论文证据图表"
-            return f'<img src="{escape(image_url, quote=True)}" alt="{escape(alt, quote=True)}" loading="lazy">'
+            return f'<a class="figure-zoom" href="{escape(image_url, quote=True)}" aria-label="查看原图：{escape(alt, quote=True)}"><img src="{escape(image_url, quote=True)}" alt="{escape(alt, quote=True)}" loading="lazy"><span>查看原图 ↗</span></a>'
         return f"""<div class="evidence-placeholder" role="status">
   <span aria-hidden="true">◫</span>
   <p>该 {escape(visual.kind)} 已通过来源定位，但当前构建未生成安全图像。</p>
@@ -619,40 +607,43 @@ class TemplateRenderer:
             if paper.publication_kind == "full"
             else "部分内容通过验证"
         )
-        chinese_title = paper.chinese_title or "中文标题待补充"
-        return f"""<article class="paper-card" data-paper-id="{escape(paper.paper_id, quote=True)}" tabindex="0">
+        primary_title = paper.chinese_title or paper.english_title
+        english_subtitle = (
+            f'<p class="card-title-en" lang="en">{escape(paper.english_title, quote=True)}</p>'
+            if paper.chinese_title else ""
+        )
+        return f"""<article class="paper-card" data-paper-id="{escape(paper.paper_id, quote=True)}">
   <div class="card-sequence" aria-hidden="true">{position:02d}</div>
   <div class="card-content">
-    <p class="status"><span></span>{status}</p>
-    <h2><a href="{escape(paper.relative_path, quote=True)}">{escape(paper.english_title, quote=True)}</a></h2>
-    <p class="card-title-zh" lang="zh-Hans">{escape(chinese_title, quote=True)}</p>
+    <div class="card-meta"><p class="status status--{paper.publication_kind}"><span aria-hidden="true"></span>{status}</p><span class="card-paper-id">arXiv:{escape(paper.paper_id, quote=True)}</span></div>
+    <h2><a href="{escape(paper.relative_path, quote=True)}">{escape(primary_title, quote=True)}</a></h2>
+    {english_subtitle}
   </div>
   <div class="card-side">
-    <a class="read-link" href="{escape(paper.relative_path, quote=True)}">进入阅读 <span aria-hidden="true">↗</span></a>
+    <a class="read-link" href="{escape(paper.relative_path, quote=True)}">阅读全文 <span aria-hidden="true">→</span></a>
     <div class="feedback-actions" aria-label="{escape(paper.english_title, quote=True)} 的阅读反馈">
-      {TemplateRenderer._feedback_button("read", "标记已读", "R")}
-      {TemplateRenderer._feedback_button("favorite", "收藏", "F")}
-      {TemplateRenderer._feedback_button("irrelevant", "标记不相关", "I")}
+      {TemplateRenderer._feedback_button("read", "标记已读")}
+      {TemplateRenderer._feedback_button("favorite", "收藏")}
+      {TemplateRenderer._feedback_button("irrelevant", "标记不相关")}
     </div>
   </div>
 </article>"""
 
     @staticmethod
-    def _feedback_button(action: str, label: str, shortcut: str) -> str:
+    def _feedback_button(action: str, label: str) -> str:
         return (
             f'<button type="button" class="feedback-button" data-feedback-action="{action}" '
             f'data-ai-action="set-{action}" data-testid="set-{action}" aria-pressed="false">'
             f'<span data-feedback-label="{action}">{label}</span>'
-            f'<span class="shortcut" aria-hidden="true">{shortcut}</span></button>'
+            '</button>'
         )
 
     @staticmethod
     def _feedback_toolbar() -> str:
         return """<section id="reading-desk" class="feedback-toolbar" aria-labelledby="feedback-tools-heading">
       <div class="feedback-heading">
-        <p class="eyebrow">Private reading desk</p>
-        <h2 id="feedback-tools-heading">整理阅读反馈</h2>
-        <p>已读、收藏与不相关状态只保存在当前浏览器，不会写入公开页面。</p>
+        <h2 id="feedback-tools-heading" class="sr-only">筛选与阅读反馈</h2>
+        <span id="search-count">显示全部论文</span>
       </div>
       <fieldset class="feedback-filters">
         <legend>筛选论文</legend>
@@ -660,11 +651,15 @@ class TemplateRenderer:
         <label><input type="checkbox" data-feedback-filter="favorite" data-ai-action="filter-favorite" data-testid="filter-favorite"> 仅看收藏</label>
         <label><input type="checkbox" data-feedback-filter="show-irrelevant" data-ai-action="filter-show-irrelevant" data-testid="filter-show-irrelevant"> 显示不相关</label>
       </fieldset>
+      <details class="feedback-tools">
+      <summary>阅读记录 <span aria-hidden="true">⌄</span></summary>
       <div class="feedback-backup" aria-label="反馈备份">
+        <p>已读、收藏与不相关状态仅保存在当前浏览器，可导出备份。</p>
         <button type="button" data-ai-action="export-feedback" data-testid="export-feedback">导出反馈</button>
         <label class="file-action" for="feedback-import">导入浏览器备份</label>
         <input id="feedback-import" type="file" accept="application/json,.json" data-ai-action="import-feedback" data-testid="import-feedback">
         <button type="button" data-ai-action="clear-feedback" data-testid="clear-feedback">清除本站反馈</button>
       </div>
+      </details>
       <p class="feedback-status" role="status" aria-live="polite" data-testid="feedback-status">反馈仅保存在当前浏览器。</p>
     </section>"""

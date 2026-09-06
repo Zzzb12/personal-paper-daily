@@ -127,8 +127,11 @@ class FakeNodeList {
 }
 
 function matchesSelector(element, selector) {
-  const tag = selector.match(/^[a-z]+/i);
+  if (selector.includes(",")) return selector.split(",").some((part) => matchesSelector(element, part.trim()));
+  const tag = selector.match(/^[a-z][a-z0-9-]*/i);
   if (tag && element.tagName !== tag[0].toUpperCase()) return false;
+  const id = selector.match(/#([A-Za-z0-9_-]+)/);
+  if (id && element.getAttribute("id") !== id[1]) return false;
   const className = selector.match(/\.([A-Za-z0-9_-]+)/);
   if (className) {
     const classes = (element.getAttribute("class") || "").split(/\s+/);
@@ -236,6 +239,23 @@ function deterministicDeps(initialSeconds = 0) {
   };
 }
 
+function createSearchDom() {
+  const dom = createDom(["2401.00001", "2401.00002"]);
+  dom.search = element("input", { id: "paper-search", type: "search", "data-ai-action": "search-papers" });
+  dom.searchEmpty = element("p", { id: "search-empty", role: "status", hidden: "" });
+  dom.searchCount = element("span", { id: "search-count" });
+  for (const control of [dom.search, dom.searchEmpty, dom.searchCount]) dom.document.body.appendChild(control);
+  for (const [index, title] of ["图神经网络", "语言模型"].entries()) {
+    const heading = element("h2");
+    heading.textContent = title;
+    dom.cards[index].card.appendChild(heading);
+    const englishTitle = element("p", { class: "card-title-en" });
+    englishTitle.textContent = ["Graph Learning", "Language Learning"][index];
+    dom.cards[index].card.appendChild(englishTitle);
+  }
+  return dom;
+}
+
 function record(state, paperId) { return api.getPaperRecord(state, paperId); }
 
 async function transitionsAndRefresh() {
@@ -247,8 +267,11 @@ async function transitionsAndRefresh() {
   await first.cards[0].buttons.read.click();
   await first.cards[0].buttons.favorite.click();
   assert.deepEqual(record(adapter.getState(), "2401.00001"), { read: true, favorite: true, irrelevant: false });
+  assert.equal(first.cards[0].card.getAttribute("data-read"), "true");
+  assert.equal(first.cards[0].card.getAttribute("data-favorite"), "true");
   await first.cards[0].buttons.irrelevant.click();
   assert.deepEqual(record(adapter.getState(), "2401.00001"), { read: true, favorite: false, irrelevant: true });
+  assert.equal(first.cards[0].card.getAttribute("data-favorite"), "false");
   assert.equal(first.cards[0].card.hidden, true);
   assert.equal(storage.values.size, 1);
   assert.equal([...storage.values.keys()][0], api.STORAGE_KEY);
@@ -256,11 +279,13 @@ async function transitionsAndRefresh() {
   const refreshed = createDom();
   const refreshedAdapter = api.createBrowserAdapter({ document: refreshed.document, storage, ...deterministicDeps(10) });
   refreshedAdapter.init();
+  assert.equal(refreshed.cards[0].card.getAttribute("data-read"), "true");
   assert.equal(refreshed.cards[0].buttons.read.getAttribute("aria-pressed"), "true");
   assert.equal(refreshed.cards[0].buttons.irrelevant.getAttribute("aria-pressed"), "true");
   assert.equal(refreshed.cards[0].card.hidden, true);
   await refreshed.cards[0].buttons.favorite.click();
   assert.deepEqual(record(refreshedAdapter.getState(), "2401.00001"), { read: true, favorite: true, irrelevant: false });
+  assert.equal(refreshed.cards[0].card.getAttribute("data-favorite"), "true");
   assert.equal(refreshed.cards[0].card.hidden, false);
 }
 
@@ -285,6 +310,74 @@ async function filtersUseInputAndChange() {
   assert.equal(dom.cards[0].card.hidden, true);
   await dom.cards[0].buttons.read.click();
   assert.equal(dom.cards[0].card.hidden, false);
+}
+
+async function searchMatchesTitlesAndPaperIds() {
+  const dom = createSearchDom();
+  const adapter = api.createBrowserAdapter({ document: dom.document, storage: new MemoryStorage(), ...deterministicDeps() });
+  adapter.init();
+  for (const query of ["  gRaPh  ", "图神经", "2401.00001"]) {
+    dom.search.value = query;
+    await dom.search.dispatchEvent({ type: "input" });
+    assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [false, true]);
+    assert.equal(dom.searchEmpty.hidden, true);
+    assert.equal(dom.searchCount.textContent, "显示 1 篇");
+  }
+  dom.search.value = "no matching paper";
+  await dom.search.dispatchEvent({ type: "input" });
+  assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [true, true]);
+  assert.equal(dom.searchEmpty.hidden, false);
+  assert.equal(dom.searchEmpty.textContent, "没有找到匹配的论文，试试其他关键词。");
+  assert.equal(dom.searchCount.textContent, "显示 0 篇");
+
+  dom.search.value = "";
+  await dom.search.dispatchEvent({ type: "input" });
+  assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [false, false]);
+  assert.equal(dom.searchEmpty.hidden, true);
+  assert.equal(dom.searchCount.textContent, "显示 2 篇");
+
+  const emptyDom = createSearchDom();
+  for (const { card } of emptyDom.cards) emptyDom.document.body.removeChild(card);
+  const emptyAdapter = api.createBrowserAdapter({ document: emptyDom.document, storage: new MemoryStorage(), ...deterministicDeps() });
+  emptyAdapter.init();
+  assert.equal(emptyDom.searchEmpty.hidden, true);
+  emptyDom.search.value = "graph";
+  await emptyDom.search.dispatchEvent({ type: "input" });
+  assert.equal(emptyDom.searchEmpty.hidden, true);
+}
+
+async function searchComposesWithFeedbackFilters() {
+  const dom = createSearchDom();
+  const adapter = api.createBrowserAdapter({ document: dom.document, storage: new MemoryStorage(), ...deterministicDeps() });
+  adapter.init();
+  await dom.cards[0].buttons.favorite.click();
+  dom.search.value = "learning";
+  await dom.search.dispatchEvent({ type: "input" });
+  dom.filters.favorite.checked = true;
+  await dom.filters.favorite.dispatchEvent({ type: "change" });
+  assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [false, true]);
+  assert.equal(dom.searchCount.textContent, "显示 1 篇");
+
+  dom.search.value = "language";
+  await dom.search.dispatchEvent({ type: "input" });
+  assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [true, true]);
+  assert.equal(dom.searchEmpty.hidden, false);
+
+  dom.search.value = "";
+  await dom.search.dispatchEvent({ type: "input" });
+  assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [false, true]);
+  assert.equal(dom.searchEmpty.hidden, true);
+
+  dom.search.value = "graph";
+  await dom.search.dispatchEvent({ type: "input" });
+  await dom.cards[0].buttons.irrelevant.click();
+  assert.deepEqual(dom.cards.map(({ card }) => card.hidden), [true, true]);
+  assert.equal(dom.searchEmpty.hidden, false);
+  assert.equal(dom.searchCount.textContent, "显示 0 篇");
+  dom.search.value = " ";
+  await dom.search.dispatchEvent({ type: "input" });
+  assert.equal(dom.searchEmpty.hidden, false);
+  assert.equal(dom.searchEmpty.textContent, "当前筛选下没有论文，试试取消筛选条件。");
 }
 
 async function keyboardScopeAndInputExclusion() {
@@ -587,6 +680,8 @@ async function commandCapacityFailureIsControlled() {
 const scenarios = {
   transitions: transitionsAndRefresh,
   filters: filtersUseInputAndChange,
+  search: searchMatchesTitlesAndPaperIds,
+  "search-filters": searchComposesWithFeedbackFilters,
   keyboard: keyboardScopeAndInputExclusion,
   storage: storageFailuresAreSafe,
   bundle: deterministicBundle,
@@ -643,6 +738,13 @@ def _run_node(
 
 @pytest.mark.parametrize("scenario", ["transitions", "filters", "keyboard", "storage"])
 def test_browser_adapter_state_filters_keyboard_and_storage_failures(
+    node_harness: Path, scenario: str
+) -> None:
+    _run_node(node_harness, scenario)
+
+
+@pytest.mark.parametrize("scenario", ["search", "search-filters"])
+def test_browser_search_matches_titles_ids_and_composes_with_feedback(
     node_harness: Path, scenario: str
 ) -> None:
     _run_node(node_harness, scenario)

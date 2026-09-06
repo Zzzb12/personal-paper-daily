@@ -52,7 +52,7 @@ def test_index_exposes_stateless_accessible_feedback_controls_for_eligible_paper
     html = TemplateRenderer(site_title="Paper Daily").render_index(page)
 
     assert page.papers[0].paper_id == "2401.00001"
-    assert '<article class="paper-card" data-paper-id="2401.00001" tabindex="0">' in html
+    assert '<article class="paper-card" data-paper-id="2401.00001">' in html
     assert html.count('aria-pressed="false"') == 3
     assert 'data-ai-action="set-read"' in html
     assert 'data-ai-action="set-favorite"' in html
@@ -79,6 +79,10 @@ def test_index_exposes_stateless_accessible_feedback_controls_for_eligible_paper
     assert re.findall(r'https://[^"<>\s]+', html) == [workflow_url]
     assert "localStorage" not in html
     assert "feedback-v1.json" not in html
+    assert 'type="search"' in html
+    assert 'data-ai-action="search-papers"' in html
+    assert 'id="search-empty"' in html
+    assert 'class="feedback-tools"' in html
 
 
 def test_empty_index_has_a_readable_empty_state() -> None:

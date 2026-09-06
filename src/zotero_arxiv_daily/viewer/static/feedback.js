@@ -333,6 +333,9 @@
     let state;
 
     const status = document.querySelector('[data-testid="feedback-status"]');
+    const search = document.querySelector("#paper-search");
+    const searchEmpty = document.querySelector("#search-empty");
+    const searchCount = document.querySelector("#search-count");
     const filters = Object.fromEntries(
       Array.from(document.querySelectorAll("[data-feedback-filter]")).map(
         (input) => [input.getAttribute("data-feedback-filter"), input]
@@ -348,6 +351,9 @@
     }
 
     function render() {
+      const query = search ? search.value.trim().toLowerCase() : "";
+      const cards = document.querySelectorAll(".paper-card[data-paper-id]");
+      let visibleCount = 0;
       for (const root of document.querySelectorAll("[data-paper-id]")) {
         const paperId = normalizePaperId(root.getAttribute("data-paper-id"));
         const record = getPaperRecord(state, paperId);
@@ -356,15 +362,29 @@
           setPressed(button, record[action], action);
         }
       }
-      for (const card of document.querySelectorAll(".paper-card[data-paper-id]")) {
+      for (const card of cards) {
         const record = getPaperRecord(state, card.getAttribute("data-paper-id"));
+        card.setAttribute("data-read", String(record.read));
+        card.setAttribute("data-favorite", String(record.favorite));
         const hiddenByIrrelevant = record.irrelevant && !(filters["show-irrelevant"] && filters["show-irrelevant"].checked);
         const hiddenByRead = Boolean(filters.unread && filters.unread.checked && record.read);
         const hiddenByFavorite = Boolean(filters.favorite && filters.favorite.checked && !record.favorite);
-        card.hidden = hiddenByIrrelevant || hiddenByRead || hiddenByFavorite;
+        const hiddenBySearch = Boolean(query && ![
+          card.getAttribute("data-paper-id"),
+          ...Array.from(card.querySelectorAll("h2, .card-title-en"), (title) => title.textContent),
+        ].join(" ").toLowerCase().includes(query));
+        card.hidden = hiddenByIrrelevant || hiddenByRead || hiddenByFavorite || hiddenBySearch;
         if (card.hidden) card.setAttribute("hidden", "");
         else card.removeAttribute("hidden");
+        if (!card.hidden) visibleCount += 1;
       }
+      if (searchEmpty) {
+        searchEmpty.hidden = cards.length === 0 || visibleCount > 0;
+        searchEmpty.textContent = query
+          ? "没有找到匹配的论文，试试其他关键词。"
+          : "当前筛选下没有论文，试试取消筛选条件。";
+      }
+      if (searchCount) searchCount.textContent = `显示 ${visibleCount} 篇`;
     }
 
     function persist(nextState) {
@@ -422,6 +442,7 @@
         input.addEventListener("input", render);
         input.addEventListener("change", render);
       }
+      if (search) search.addEventListener("input", render);
     }
 
     function bindExport() {

@@ -28,7 +28,7 @@ def test_feedback_styles_keep_native_actions_visible_and_status_readable() -> No
     assert "[hidden]" in css
 
 
-def test_feedback_styles_use_a_restrained_compositor_only_observatory_entrance() -> None:
+def test_card_entrance_only_uses_transform_and_opacity() -> None:
     css = (Path(__file__).parents[2] / "src" / "zotero_arxiv_daily" / "viewer" / "static" / "site.css").read_text(
         encoding="utf-8"
     )
@@ -36,11 +36,10 @@ def test_feedback_styles_use_a_restrained_compositor_only_observatory_entrance()
     assert "@keyframes observatory-enter" in css
     assert "transform:" in css
     assert "opacity:" in css
-    assert "will-change: transform, opacity" in css
-    assert "will-change: auto" in css
+    assert "animation: none !important" in css
 
 
-def test_white_blue_research_observatory_has_depth_and_clear_section_hierarchy() -> None:
+def test_reading_layout_provides_compact_controls_and_responsive_navigation() -> None:
     css = (Path(__file__).parents[2] / "src" / "zotero_arxiv_daily" / "viewer" / "static" / "site.css").read_text(
         encoding="utf-8"
     )
@@ -55,7 +54,7 @@ def test_white_blue_research_observatory_has_depth_and_clear_section_hierarchy()
     assert ".story-section" in css
     assert ".insight-card" in css
     assert ".coverage-panel" in css
-    assert ".orbital-display" in css
-    assert ".telemetry-line" in css
+    assert ".paper-search:focus-within" in css
+    assert ".feedback-tools" in css
+    assert ".paper-toc { max-width: 100%; overflow-x: auto;" in css
     assert "position: sticky" in css
-    assert "radial-gradient" in css
