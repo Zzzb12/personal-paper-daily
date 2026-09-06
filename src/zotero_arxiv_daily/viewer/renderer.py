@@ -52,6 +52,10 @@ class TemplateRenderer:
       <div>
         <p class="eyebrow">Evidence-first research briefing</p>
         <h1><span>Personal Paper</span><br>Daily</h1>
+        <div class="manual-trigger">
+          <a class="manual-trigger-link" href="https://github.com/Zzzb12/personal-paper-daily/actions/workflows/personal-paper-daily.yml" aria-describedby="manual-trigger-help">手动触发</a>
+          <p id="manual-trigger-help">前往 GitHub，选择是否进行真实分析和发送飞书后运行。</p>
+        </div>
       </div>
       <div class="masthead-dek">
         <div class="orbital-display" aria-hidden="true">

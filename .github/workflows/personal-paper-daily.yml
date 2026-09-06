@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       live_run:
-        description: Run Zotero, arXiv, PDF, and LLM stages
+        description: 检索并分析真实论文（取消勾选则运行示例）
         required: false
         default: false
         type: boolean
       send_feishu:
-        description: Send the validated digest to Feishu
+        description: 将本次论文结果发送到飞书
         required: false
         default: false
         type: boolean

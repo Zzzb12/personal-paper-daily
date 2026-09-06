@@ -67,7 +67,16 @@ def test_index_exposes_stateless_accessible_feedback_controls_for_eligible_paper
     assert "script-src 'self'" in html
     assert "'unsafe-inline'" not in html
     assert "'unsafe-eval'" not in html
-    assert "https://" not in html
+    workflow_url = "https://github.com/Zzzb12/personal-paper-daily/actions/workflows/personal-paper-daily.yml"
+    manual_trigger = re.search(
+        rf'<a\b([^>]*href="{re.escape(workflow_url)}"[^>]*)>手动触发</a>', html
+    )
+    assert manual_trigger is not None
+    assert "target=" not in manual_trigger.group(1)
+    assert 'aria-describedby="manual-trigger-help"' in manual_trigger.group(1)
+    assert manual_trigger.start() < html.index("</header>")
+    assert 'id="manual-trigger-help">前往 GitHub，选择是否进行真实分析和发送飞书后运行。</p>' in html
+    assert re.findall(r'https://[^"<>\s]+', html) == [workflow_url]
     assert "localStorage" not in html
     assert "feedback-v1.json" not in html
 

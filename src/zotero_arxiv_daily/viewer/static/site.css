@@ -175,6 +175,22 @@ input:focus-visible,
   letter-spacing: -.045em;
 }
 
+.manual-trigger { margin-top: 2rem; }
+.manual-trigger-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  padding: .6rem 1.25rem;
+  color: var(--paper-white);
+  background: var(--electric-blue);
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+  text-decoration: none;
+}
+.manual-trigger-link:hover { background: var(--electric-blue-dark); }
+.manual-trigger p { max-width: 25rem; margin: .65rem 0 0; color: var(--muted); font-size: .85rem; }
+
 .masthead-dek { max-width: 34rem; }
 .masthead-dek > p { color: var(--space-ink-soft); font-size: clamp(1rem, 1rem + .35vw, 1.3rem); }
 
